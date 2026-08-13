@@ -327,6 +327,7 @@ Restart=on-failure
 RestartSec=5
 Environment=PORT=$APP_PORT
 Environment=GIN_MODE=release
+${DATABASE_URL:+Environment=DATABASE_URL=$DATABASE_URL}
 
 [Install]
 WantedBy=multi-user.target

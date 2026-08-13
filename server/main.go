@@ -36,29 +36,52 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// Подключаемся к PostgreSQL (если задана DATABASE_URL).
+	if err := initDB(); err != nil {
+		log.Fatalf("не удалось подключиться к PostgreSQL: %v", err)
+	}
+	logAuthConfig()
+
 	r := gin.Default()
 
 	// ---- API ----
 	api := r.Group("/api")
+
+	// Публичные маршруты (без авторизации).
 	{
-		api.GET("/health", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{
-				"status": "ok",
-				"time":   time.Now().Format(time.RFC3339),
-			})
-		})
+		api.POST("/login", handleLogin)
+	}
 
-		api.GET("/message", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{
-				"message": "Привет! Это ответ от Go (Gin) сервера 🚀",
-				"server":  "gin",
-			})
-		})
+	// Маршруты, требующие активной сессии.
+	authed := api.Group("")
+	authed.Use(authRequired)
+	{
+		authed.GET("/me", handleMe)
+		authed.POST("/logout", handleLogout)
 
-		// Системные метрики сервера (CPU, память, диск, сеть).
-		api.GET("/metrics", func(c *gin.Context) {
-			c.JSON(http.StatusOK, collectMetrics())
-		})
+		// Маршруты, требующие прав администратора.
+		admin := authed.Group("")
+		admin.Use(adminRequired)
+		{
+			admin.GET("/health", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"status": "ok",
+					"time":   time.Now().Format(time.RFC3339),
+				})
+			})
+
+			admin.GET("/message", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"message": "Привет! Это ответ от Go (Gin) сервера 🚀",
+					"server":  "gin",
+				})
+			})
+
+			// Системные метрики сервера (CPU, память, диск, сеть).
+			admin.GET("/metrics", func(c *gin.Context) {
+				c.JSON(http.StatusOK, collectMetrics())
+			})
+		}
 	}
 
 	// ---- Статика React ----

@@ -1,6 +1,8 @@
-import { useHealth, useMessage, useMetrics } from "./api.js";
+import { useHealth, useMessage, useMetrics, useMe, logout } from "./api.js";
 import { useAppStore } from "./store.js";
 import { useQueryClient } from "@tanstack/react-query";
+import Login from "./Login.jsx";
+import UserBadge from "./UserBadge.jsx";
 
 import {
   Card,
@@ -60,6 +62,18 @@ function LoadingSkeleton() {
       <Skeleton className="h-3 w-full" />
       <Skeleton className="h-3 w-5/6" />
     </div>
+  );
+}
+
+// Полноэкранный индикатор загрузки (проверка сессии).
+function LoadingScreen() {
+  return (
+    <main className="flex min-h-screen items-center justify-center">
+      <div className="flex flex-col items-center gap-3 text-muted-foreground">
+        <RefreshCw className="size-6 animate-spin" />
+        <p className="text-sm">Проверка доступа…</p>
+      </div>
+    </main>
   );
 }
 
@@ -129,15 +143,49 @@ function RefreshButton({ onClick, refreshing }) {
 }
 
 function App() {
-  // TanStack Query — данные с сервера
-  const healthQuery = useHealth();
-  const messageQuery = useMessage();
-  const metricsQuery = useMetrics();
+  // Авторизация: /api/me показывает, вошёл ли пользователь.
+  const meQuery = useMe();
+  const isAuthed = Boolean(meQuery.data);
+
+  // TanStack Query — данные с сервера (запрашиваем только после входа).
+  const healthQuery = useHealth(isAuthed);
+  const messageQuery = useMessage(isAuthed);
+  const metricsQuery = useMetrics(5000, isAuthed);
 
   // Zustand — глобальное UI-состояние
   const queryClient = useQueryClient();
   const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
   const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
+
+  // Пока проверяем сессию — показываем спиннер экрана входа/загрузки.
+  if (meQuery.isLoading) {
+    return <LoadingScreen />;
+  }
+
+  // Если не авторизован — только экран входа.
+  if (!isAuthed) {
+    return (
+      <Login
+        onSuccess={() => {
+          // После логина сбрасываем закэшированные ошибки 401,
+          // чтобы данные пере-запросились с валидной сессией.
+          queryClient.removeQueries({ queryKey: ["health"] });
+          queryClient.removeQueries({ queryKey: ["message"] });
+          queryClient.removeQueries({ queryKey: ["metrics"] });
+          queryClient.invalidateQueries({ queryKey: ["me"] });
+        }}
+      />
+    );
+  }
+
+  const handleLogout = async () => {
+    await logout();
+    // Сбрасываем данные после выхода.
+    queryClient.removeQueries({ queryKey: ["health"] });
+    queryClient.removeQueries({ queryKey: ["message"] });
+    queryClient.removeQueries({ queryKey: ["metrics"] });
+    await queryClient.invalidateQueries({ queryKey: ["me"] });
+  };
 
   const refreshAll = async () => {
     await Promise.all([
@@ -157,18 +205,27 @@ function App() {
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
-      {/* Заголовок страницы */}
-      <header className="mb-8 space-y-1">
-        <h1 className="flex items-center gap-3 text-2xl font-heading font-semibold tracking-tight">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Activity className="size-5" />
-          </span>
-          Go (Gin) + React + TanStack Query
-        </h1>
-        <p className="text-muted-foreground">
-          Фронтенд отдаётся Go-сервером, данные приходят с{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5 text-sm">/api</code>
-        </p>
+      {/* Шапка с пользователем */}
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="flex items-center gap-3 text-2xl font-heading font-semibold tracking-tight">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Activity className="size-5" />
+            </span>
+            Go (Gin) + React + TanStack Query
+          </h1>
+          <p className="text-muted-foreground">
+            Фронтенд отдаётся Go-сервером, данные приходят с{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-sm">/api</code>
+          </p>
+        </div>
+        {meQuery.data && (
+          <UserBadge
+            username={meQuery.data.username}
+            isAdmin={meQuery.data.is_admin}
+            onLogout={handleLogout}
+          />
+        )}
       </header>
 
       {/* Панель быстрых действий */}
