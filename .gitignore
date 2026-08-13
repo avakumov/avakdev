@@ -1,6 +1,8 @@
 # Go
 server/server
 server/static/
+server/frontend-dist/
+!server/frontend-dist/.gitkeep
 
 # Node
 node_modules/
