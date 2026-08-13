@@ -83,9 +83,18 @@ DEPLOY_SSH_PORT="${DEPLOY_SSH_PORT:-22}"
 # По умолчанию — INSTALL_DIR (затем всё ставится через sudo на удалённой стороне).
 DEPLOY_REMOTE_DIR="${DEPLOY_REMOTE_DIR:-$INSTALL_DIR}"
 
+# Путь к приватному SSH-ключу (-i). Можно задать в .env.
+DEPLOY_KEY_FILE="${DEPLOY_KEY_FILE:-}"
+
 # Флаги для ssh и scp отличаются: у ssh порт — -p, у scp — -P (заглавная).
 SSH_ARGS=(-p "$DEPLOY_SSH_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
 SCP_ARGS=(-P "$DEPLOY_SSH_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
+
+# Если задан ключ — добавляем его в аргументы ssh и scp.
+if [[ -n "$DEPLOY_KEY_FILE" ]]; then
+  SSH_ARGS+=(-i "$DEPLOY_KEY_FILE")
+  SCP_ARGS+=(-i "$DEPLOY_KEY_FILE")
+fi
 SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
 
 # Каталоги проекта
