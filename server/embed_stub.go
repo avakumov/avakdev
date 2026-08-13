@@ -9,6 +9,4 @@ import "embed"
 // из файловой системы (../frontend/dist), а не из бинарника.
 //
 // Для продакшена собирайте с тегом embed: go build -tags embed
-//
-//go:embed all:frontend-dist
-var frontendDist embed.FS
+var frontendDist embed.FS // пустая: dev-сборка без тега embed

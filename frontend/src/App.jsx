@@ -1,41 +1,96 @@
-import { useEffect, useState } from 'react'
+import { useHealth, useMessage } from "./api.js";
+import { useAppStore } from "./store.js";
+import { useQueryClient } from "@tanstack/react-query";
+
+function Card({ title, children, onRefresh, refreshing }) {
+  return (
+    <section className="card">
+      <div className="card__header">
+        <h2>{title}</h2>
+        {onRefresh && (
+          <button
+            className="card__refresh"
+            onClick={onRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? "Обновляю…" : "Обновить"}
+          </button>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 function App() {
-  const [health, setHealth] = useState(null)
-  const [message, setMessage] = useState(null)
+  // TanStack Query — данные с сервера
+  const healthQuery = useHealth();
+  const messageQuery = useMessage();
 
-  useEffect(() => {
-    // Все запросы идут на тот же хост, что отдал страницу,
-    // т.е. через Go-сервер (в dev — через vite-прокси на него).
-    fetch('/api/health')
-      .then((res) => res.json())
-      .then(setHealth)
-      .catch((err) => setHealth({ error: String(err) }))
+  // Zustand — глобальное UI-состояние
+  const queryClient = useQueryClient();
+  const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
+  const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
+  const incrementLoaded = useAppStore((s) => s.incrementLoaded);
 
-    fetch('/api/message')
-      .then((res) => res.json())
-      .then(setMessage)
-      .catch((err) => setMessage({ error: String(err) }))
-  }, [])
+  const refreshAll = async () => {
+    await Promise.all([
+      queryClient.refetchQueries(["health"]),
+      queryClient.refetchQueries(["message"]),
+    ]);
+    setLastUpdatedAt(new Date().toLocaleTimeString());
+    incrementLoaded();
+  };
+
+  const isRefreshing = healthQuery.isFetching || messageQuery.isFetching;
 
   return (
     <main className="container">
-      <h1>🚀 Go (Gin) + React</h1>
+      <h1>🚀 Go (Gin) + React + TanStack Query</h1>
       <p className="subtitle">
         Фронтенд отдаётся Go-сервером, данные приходят с <code>/api</code>
       </p>
 
-      <section className="card">
-        <h2>Health</h2>
-        <pre>{JSON.stringify(health, null, 2)}</pre>
-      </section>
+      <div className="toolbar">
+        <button onClick={refreshAll} disabled={isRefreshing}>
+          {isRefreshing ? "Обновляю…" : "Обновить всё"}
+        </button>
+        {lastUpdatedAt && (
+          <span className="toolbar__info">
+            Последнее обновление: {lastUpdatedAt}
+          </span>
+        )}
+      </div>
 
-      <section className="card">
-        <h2>Message</h2>
-        <pre>{JSON.stringify(message, null, 2)}</pre>
-      </section>
+      <Card
+        title="Health"
+        onRefresh={() => queryClient.refetchQueries(["health"])}
+        refreshing={healthQuery.isFetching}
+      >
+        {healthQuery.isLoading ? (
+          <p className="muted">Загрузка…</p>
+        ) : healthQuery.isError ? (
+          <pre className="error">Ошибка: {healthQuery.error?.message}</pre>
+        ) : (
+          <pre>{JSON.stringify(healthQuery.data, null, 2)}</pre>
+        )}
+      </Card>
+
+      <Card
+        title="Message"
+        onRefresh={() => queryClient.refetchQueries(["message"])}
+        refreshing={messageQuery.isFetching}
+      >
+        {messageQuery.isLoading ? (
+          <p className="muted">Загрузка…</p>
+        ) : messageQuery.isError ? (
+          <pre className="error">Ошибка: {messageQuery.error?.message}</pre>
+        ) : (
+          <pre>{JSON.stringify(messageQuery.data, null, 2)}</pre>
+        )}
+      </Card>
     </main>
-  )
+  );
 }
 
-export default App
+export default App;
