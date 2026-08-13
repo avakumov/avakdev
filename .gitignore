@@ -1,0 +1,11 @@
+# Go
+server/server
+server/static/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Прочее
+.env
+.DS_Store
