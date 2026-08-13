@@ -120,3 +120,93 @@ code,
 .error {
     color: #b91c1c;
 }
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
+}
+
+.metric {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 14px;
+}
+
+.metric__top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.metric__label {
+    font-size: 0.85rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.metric__value {
+    font-weight: 700;
+    font-size: 1rem;
+    color: #111827;
+}
+
+.metric__abs {
+    font-size: 0.78rem;
+    color: #6b7280;
+    margin-bottom: 8px;
+    white-space: nowrap;
+}
+
+.metric__bar {
+    height: 8px;
+    border-radius: 6px;
+    background: #e5e7eb;
+    overflow: hidden;
+}
+
+.metric__fill {
+    height: 100%;
+    border-radius: 6px;
+    transition:
+        width 0.4s ease,
+        background 0.4s ease;
+}
+
+.metric--network {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.metric__status {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.metric__status.is-up {
+    color: #16a34a;
+}
+
+.metric__status.is-down {
+    color: #dc2626;
+}
+
+.metric__net {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: #445564;
+    margin-top: 4px;
+}
+
+.metric__meta {
+    margin: 14px 0 0;
+    font-size: 0.8rem;
+    color: #6b7280;
+}

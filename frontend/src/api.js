@@ -1,34 +1,46 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery } from "@tanstack/react-query";
 
 // Базовый url — тот же хост, что отдал страницу (через Go-сервер,
 // в dev — через vite-прокси на него).
-const BASE = ''
+const BASE = "";
 
 async function request(path) {
-  const res = await fetch(`${BASE}${path}`)
+  const res = await fetch(`${BASE}${path}`);
   if (!res.ok) {
-    throw new Error(`Ошибка запроса ${path}: ${res.status}`)
+    throw new Error(`Ошибка запроса ${path}: ${res.status}`);
   }
-  return res.json()
+  return res.json();
 }
 
 // Данные endpoint'а /api/health
 export function useHealth() {
   return useQuery({
-    queryKey: ['health'],
-    queryFn: () => request('/api/health'),
+    queryKey: ["health"],
+    queryFn: () => request("/api/health"),
     // Серверные данные достаточно обновлять редко.
     staleTime: 30_000,
     retry: 1,
-  })
+  });
 }
 
 // Приветственное сообщение с /api/message
 export function useMessage() {
   return useQuery({
-    queryKey: ['message'],
-    queryFn: () => request('/api/message'),
+    queryKey: ["message"],
+    queryFn: () => request("/api/message"),
     staleTime: 30_000,
     retry: 1,
-  })
+  });
+}
+
+// Системные метрики сервера с /api/metrics
+export function useMetrics(refetchInterval = 5000) {
+  return useQuery({
+    queryKey: ["metrics"],
+    queryFn: () => request("/api/metrics"),
+    // Метрики обновляем периодически, чтобы показания были актуальными.
+    staleTime: 2000,
+    refetchInterval,
+    retry: 1,
+  });
 }

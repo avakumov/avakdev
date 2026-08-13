@@ -54,6 +54,11 @@ func main() {
 				"server":  "gin",
 			})
 		})
+
+		// Системные метрики сервера (CPU, память, диск, сеть).
+		api.GET("/metrics", func(c *gin.Context) {
+			c.JSON(http.StatusOK, collectMetrics())
+		})
 	}
 
 	// ---- Статика React ----
