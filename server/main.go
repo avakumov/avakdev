@@ -36,12 +36,18 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// Подхватываем переменные из .env (ключ DeepSeek, DATABASE_URL и т.п.).
+	loadEnv()
+
 	// Подключаемся к PostgreSQL (если задана DATABASE_URL).
 	if err := initDB(); err != nil {
 		log.Fatalf("не удалось подключиться к PostgreSQL: %v", err)
 	}
 	if err := initReports(); err != nil {
 		log.Fatalf("не удалось инициализировать отчёты: %v", err)
+	}
+	if err := initProfiles(); err != nil {
+		log.Fatalf("не удалось инициализировать профиль: %v", err)
 	}
 	logAuthConfig()
 
@@ -89,6 +95,17 @@ func main() {
 		// Отчёты за дни (создание, редактирование, список).
 		authed.GET("/reports", handleListReports)
 		authed.PUT("/reports/:date", handleUpsertReport)
+
+		// Профиль и генерация резюме.
+		authed.GET("/profile", handleGetProfile)
+		authed.PUT("/profile", handleSaveProfile)
+		authed.POST("/profile/generate", handleGenerateResume)
+		authed.PUT("/profile/resume", handleSaveResume)
+		authed.GET("/profile/resume", handleResumePage)
+
+		// Фото для резюме.
+		authed.POST("/profile/photo", handleUploadPhoto)
+		authed.DELETE("/profile/photo", handleDeletePhoto)
 	}
 
 	// ---- Статика React ----

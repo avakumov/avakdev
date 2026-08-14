@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Login from "./Login.jsx";
 import UserBadge from "./UserBadge.jsx";
 import Reports from "./Reports.jsx";
+import Profile from "./Profile.jsx";
 
 import {
   Card,
@@ -37,6 +38,7 @@ import {
   MessageSquare,
   FileText,
   Server,
+  User,
 } from "lucide-react";
 
 // Форматирование байтов в человекочитаемый вид (KB/MB/GB/TB).
@@ -235,7 +237,7 @@ function App() {
         )}
       </header>
 
-      {/* Меню навигации: отчёты / сервер */}
+      {/* Меню навигации: отчёты / профиль / сервер */}
       <nav className="mb-6 flex flex-wrap items-center gap-2">
         <Button
           variant={view === "reports" ? "default" : "outline"}
@@ -244,6 +246,14 @@ function App() {
         >
           <FileText className="size-4" />
           Отчеты
+        </Button>
+        <Button
+          variant={view === "profile" ? "default" : "outline"}
+          size="lg"
+          onClick={() => setView("profile")}
+        >
+          <User className="size-4" />
+          Профиль
         </Button>
         <Button
           variant={view === "server" ? "default" : "outline"}
@@ -257,9 +267,9 @@ function App() {
 
       <Separator className="mb-8" />
 
-      {view === "reports" ? (
-        <Reports />
-      ) : (
+      {view === "reports" && <Reports />}
+      {view === "profile" && <Profile />}
+      {view === "server" && (
         <>
           {/* Панель быстрых действий */}
           <div className="mb-6 flex flex-wrap items-center gap-3">

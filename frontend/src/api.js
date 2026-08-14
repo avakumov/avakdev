@@ -117,3 +117,80 @@ export async function updateReport(date, content) {
   if (!res.ok) throw new Error(data.error || "Не удалось сохранить отчёт");
   return data;
 }
+
+// ==== Профиль и резюме ====
+
+// Текущий профиль (описание + сгенерированное резюме) с /api/profile
+export function useProfile(enabled = true) {
+  return useQuery({
+    queryKey: ["profile"],
+    queryFn: () => request("/api/profile"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Сохранить описание профиля (PUT /api/profile)
+export async function saveProfile(description) {
+  const res = await fetch(`${BASE}/api/profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить профиль");
+  return data;
+}
+
+// Сгенерировать резюме через DeepSeek (POST /api/profile/generate)
+export async function generateResume() {
+  const res = await fetch(`${BASE}/api/profile/generate`, {
+    method: "POST",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сгенерировать резюме");
+  return data;
+}
+
+// Сохранить отредактированный текст резюме (PUT /api/profile/resume)
+export async function saveResumeText(resume) {
+  const res = await fetch(`${BASE}/api/profile/resume`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ resume }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить резюме");
+  return data;
+}
+
+// Прямая ссылка на отдельную HTML-страницу резюме
+// (страница содержит только резюме в HTML+CSS).
+export function profileResumeUrl() {
+  return `${BASE}/api/profile/resume`;
+}
+
+// Загрузить фото для резюме (multipart, поле "photo").
+// Возвращает обновлённый профиль вместе с photo_data/photo_mime.
+export async function uploadProfilePhoto(file) {
+  const form = new FormData();
+  form.append("photo", file);
+  const res = await fetch(`${BASE}/api/profile/photo`, {
+    method: "POST",
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось загрузить фото");
+  return data;
+}
+
+// Удалить фото из резюме.
+export async function deleteProfilePhoto() {
+  const res = await fetch(`${BASE}/api/profile/photo`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить фото");
+  return data;
+}

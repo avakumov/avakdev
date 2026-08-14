@@ -328,6 +328,7 @@ RestartSec=5
 Environment=PORT=$APP_PORT
 Environment=GIN_MODE=release
 ${DATABASE_URL:+Environment=DATABASE_URL=$DATABASE_URL}
+${DEEPSEEK_API_KEY:+Environment=DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY}
 
 [Install]
 WantedBy=multi-user.target
