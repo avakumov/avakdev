@@ -40,6 +40,9 @@ func main() {
 	if err := initDB(); err != nil {
 		log.Fatalf("не удалось подключиться к PostgreSQL: %v", err)
 	}
+	if err := initReports(); err != nil {
+		log.Fatalf("не удалось инициализировать отчёты: %v", err)
+	}
 	logAuthConfig()
 
 	r := gin.Default()
@@ -82,6 +85,10 @@ func main() {
 				c.JSON(http.StatusOK, collectMetrics())
 			})
 		}
+
+		// Отчёты за дни (создание, редактирование, список).
+		authed.GET("/reports", handleListReports)
+		authed.PUT("/reports/:date", handleUpsertReport)
 	}
 
 	// ---- Статика React ----

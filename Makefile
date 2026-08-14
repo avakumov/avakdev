@@ -1,6 +1,17 @@
 # Makefile для разработки и деплоя
+#
+# Локальная разработка с системным PostgreSQL:
+#   make pg-status        — статус локального PostgreSQL + DATABASE_URL
+#   make pg-start         — запустить PostgreSQL (первый раз: init + setup)
+#   make dev              — запустить backend (с БД) и frontend одновременно
+#   make dev-backend      — только Go-сервер с подключением к БД
 
-.PHONY: help dev dev-backend dev-frontend install build build-binary deploy deploy-deps run
+# ---------------------------------------------------------------------------
+# Конфигурация
+# ---------------------------------------------------------------------------
+.PHONY: help dev dev-backend dev-frontend install build build-binary run \
+        run-with-db run-without-db deploy deploy-deps \
+        pg-status pg-start pg-stop pg-setup pg-init
 
 # По умолчанию `make` без аргументов показывает справку
 .DEFAULT_GOAL := help
@@ -8,30 +19,88 @@
 help:
 	@echo "Доступные команды:"
 	@echo ""
-	@echo "  make dev            — запустить backend и frontend одновременно"
-	@echo "                        (Ctrl+C останавливает оба процесса)"
-	@echo "  make dev-backend    — только Go-сервер (http://localhost:8080)"
-	@echo "  make dev-frontend   — только Vite dev-сервер (http://localhost:5173)"
-	@echo "  make install        — установить зависимости (go mod tidy + npm install)"
-	@echo "  make build          — собрать фронтенд в frontend/dist"
-	@echo "  make build-binary   — собрать один бинарник со встроенным фронтендом"
-	@echo "                        (embed + build tag) в server/server"
-	@echo "  make run            — «прод»-запуск: Go отдаёт статику и API на :8080"
+	@echo "  Разработка:"
+	@echo "    make dev                  — backend (с БД) + frontend одновременно"
+	@echo "    make dev-backend          — только Go-сервер (с БД) на :8080"
+	@echo "    make dev-frontend         — только Vite dev-сервер на :5173"
 	@echo ""
-	@echo "Деплой (на текущей машине или VPS):"
-	@echo "  make deploy         — собрать и задеплоить через ./deploy.sh"
-	@echo "  make deploy-deps    — то же + установить Caddy и служебного юзера"
+	@echo "  PostgreSQL (системный, без Docker):"
+	@echo "    make pg-init              — инициализировать кластер и запустить сервис (sudo)"
+	@echo "    make pg-start             — запустить сервис PostgreSQL (sudo)"
+	@echo "    make pg-stop              — остановить сервис PostgreSQL (sudo)"
+	@echo "    make pg-setup             — создать роль/БД/таблицу users и админа (sudo)"
+	@echo "    make pg-status            — статус PostgreSQL и DATABASE_URL"
+	@echo ""
+	@echo "  Прочее:"
+	@echo "    make install              — установить зависимости (go mod tidy + npm install)"
+	@echo "    make build                — собрать фронтенд в frontend/dist"
+	@echo "    make build-binary         — собрать бинарник со встроенным фронтендом"
+	@echo "    make run                  — «прод»-запуск: Go отдаёт статику и API на :8080"
+	@echo ""
+	@echo "  Деплой:"
+	@echo "    make deploy               — собрать и задеплоить через ./deploy.sh"
+	@echo "    make deploy-deps          — то же + установить Caddy и служебного юзера"
 	@echo ""
 	@echo "Например: make dev"
 
-# Оба процесса в одном терминале; Ctrl+C останавливает всё разом
-dev:
+# ---------------------------------------------------------------------------
+# Локальная база данных (системный PostgreSQL). Переменные можно переопределить
+# извне, например: make dev PG_PORT=5434 PG_USER=foo
+# ---------------------------------------------------------------------------
+PG_USER  ?= avakumov
+PG_PASS  ?= 2d38869aeef2a8c628edce3903a94a09
+PG_PORT  ?= 5432
+PG_DB    ?= avakumov
+
+# Строка подключения, используемая dev/run. Если DATABASE_URL уже задана
+# в окружении (или в .env), берём её; иначе собираем из параметров выше.
+ifndef DATABASE_URL
+  DATABASE_URL_FILE := $(shell grep -E '^DATABASE_URL=' .env 2>/dev/null | head -n1 | cut -d= -f2-)
+  ifdef DATABASE_URL_FILE
+    DATABASE_URL := $(strip $(DATABASE_URL_FILE))
+  else
+    DATABASE_URL := postgres://$(PG_USER):$(PG_PASS)@127.0.0.1:$(PG_PORT)/$(PG_DB)?sslmode=disable
+  endif
+endif
+export DATABASE_URL
+
+# Проверка, что параметры PG не были переопределены вразрез с файлом .env
+dev-check-db:
+	@echo "DATABASE_URL: $(DATABASE_URL)"
+	@if ! (echo > /dev/tcp/127.0.0.1/$(PG_PORT)) 2>/dev/null; then \
+		echo "(!) PostgreSQL на порту $(PG_PORT) не отвечает."; \
+		echo "    Запустите его: sudo systemctl enable --now postgresql  (или: make pg-start)"; \
+		exit 1; \
+	fi
+
+# ---------------------------------------------------------------------------
+# PostgreSQL-таргеты (обёртки над scripts/dev-pg.sh)
+# ---------------------------------------------------------------------------
+pg-status:
+	./scripts/dev-pg.sh status
+
+pg-init:
+	./scripts/dev-pg.sh init
+
+pg-start:
+	./scripts/dev-pg.sh start
+
+pg-stop:
+	./scripts/dev-pg.sh stop
+
+pg-setup:
+	./scripts/dev-pg.sh setup
+
+# ---------------------------------------------------------------------------
+# Разработка
+# ---------------------------------------------------------------------------
+dev: dev-check-db
 	@trap 'kill 0' INT TERM; \
 	(cd server && go run .) & \
 	(cd frontend && npm run dev) & \
 	wait
 
-dev-backend:
+dev-backend: dev-check-db
 	cd server && go run .
 
 dev-frontend:
@@ -44,7 +113,10 @@ install:
 build:
 	cd frontend && npm run build
 
-run:
+# ---------------------------------------------------------------------------
+# Сборка и локальный запуск
+# ---------------------------------------------------------------------------
+run: dev-check-db
 	cd server && go run .
 
 # Собирает один исполняемый файл со встроенным фронтендом.
@@ -59,7 +131,9 @@ build-binary:
 	fi
 	cd server && CGO_ENABLED=0 go build -trimpath -tags embed -ldflags '-s -w' -o server .
 
-# Полный деплой на текущую машину (systemd + Caddy)
+# ---------------------------------------------------------------------------
+# Деплой
+# ---------------------------------------------------------------------------
 deploy:
 	./deploy.sh
 

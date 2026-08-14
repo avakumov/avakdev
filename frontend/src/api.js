@@ -92,3 +92,28 @@ export function useMetrics(refetchInterval = 5000, enabled = true) {
     retry: 1,
   });
 }
+
+// ==== Дневные отчёты ====
+
+// Список отчётов с /api/reports
+export function useReports(enabled = true) {
+  return useQuery({
+    queryKey: ["reports"],
+    queryFn: () => request("/api/reports"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Создать или обновить отчёт за конкретный день (PUT /api/reports/:date)
+export async function updateReport(date, content) {
+  const res = await fetch(`${BASE}/api/reports/${date}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить отчёт");
+  return data;
+}
