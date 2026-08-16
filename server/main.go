@@ -49,6 +49,9 @@ func main() {
 	if err := initProfiles(); err != nil {
 		log.Fatalf("не удалось инициализировать профиль: %v", err)
 	}
+	if err := initKnowledge(); err != nil {
+		log.Fatalf("не удалось инициализировать конспекты: %v", err)
+	}
 	logAuthConfig()
 
 	r := gin.Default()
@@ -95,6 +98,14 @@ func main() {
 		// Отчёты за дни (создание, редактирование, список).
 		authed.GET("/reports", handleListReports)
 		authed.PUT("/reports/:date", handleUpsertReport)
+
+		// Конспекты знаний (создание, генерация, редактирование, удаление).
+		authed.GET("/knowledge", handleListNotes)
+		authed.POST("/knowledge", handleCreateNote)
+		authed.POST("/knowledge/generate", handleGenerateNote)
+		authed.PUT("/knowledge/:id", handleUpdateNote)
+		authed.POST("/knowledge/:id/repeat", handleRepeatNote)
+		authed.DELETE("/knowledge/:id", handleDeleteNote)
 
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)

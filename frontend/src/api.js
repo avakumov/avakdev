@@ -194,3 +194,74 @@ export async function deleteProfilePhoto() {
   if (!res.ok) throw new Error(data.error || "Не удалось удалить фото");
   return data;
 }
+
+// ==== Конспекты знаний ====
+
+// Список конспектов с /api/knowledge
+export function useKnowledge(enabled = true) {
+  return useQuery({
+    queryKey: ["knowledge"],
+    queryFn: () => request("/api/knowledge"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Отметить повторение конспекта (POST /api/knowledge/:id/repeat).
+// Увеличивает счётчик повторений на 1.
+export async function repeatKnowledge(id) {
+  const res = await fetch(`${BASE}/api/knowledge/${id}/repeat`, {
+    method: "POST",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось отметить повторение");
+  return data;
+}
+
+// Сгенерировать краткий конспект по теме через DeepSeek (POST /api/knowledge/generate)
+export async function generateKnowledge(topic) {
+  const res = await fetch(`${BASE}/api/knowledge/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok)
+    throw new Error(data.error || "Не удалось сгенерировать конспект");
+  return data;
+}
+
+// Сохранить новый конспект (POST /api/knowledge)
+export async function createKnowledge(note) {
+  const res = await fetch(`${BASE}/api/knowledge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(note),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить конспект");
+  return data;
+}
+
+// Обновить конспект (PUT /api/knowledge/:id)
+export async function updateKnowledge(id, note) {
+  const res = await fetch(`${BASE}/api/knowledge/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(note),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось обновить конспект");
+  return data;
+}
+
+// Удалить конспект (DELETE /api/knowledge/:id)
+export async function deleteKnowledge(id) {
+  const res = await fetch(`${BASE}/api/knowledge/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить конспект");
+  return data;
+}

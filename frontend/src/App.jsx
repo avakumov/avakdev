@@ -6,6 +6,7 @@ import Login from "./Login.jsx";
 import UserBadge from "./UserBadge.jsx";
 import Reports from "./Reports.jsx";
 import Profile from "./Profile.jsx";
+import Knowledge from "./Knowledge.jsx";
 
 import {
   Card,
@@ -39,6 +40,7 @@ import {
   FileText,
   Server,
   User,
+  BookOpen,
 } from "lucide-react";
 
 // Форматирование байтов в человекочитаемый вид (KB/MB/GB/TB).
@@ -163,7 +165,7 @@ function App() {
   const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
   const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
 
-  // Текущий раздел меню: "reports" (отчёты) или "server" (сервер).
+  // Текущий раздел меню: "reports" / "knowledge" / "profile" / "server".
   const [view, setView] = useState("reports");
 
   // Пока проверяем сессию — показываем спиннер экрана входа/загрузки.
@@ -237,7 +239,7 @@ function App() {
         )}
       </header>
 
-      {/* Меню навигации: отчёты / профиль / сервер */}
+      {/* Меню навигации: отчёты / знания / профиль / сервер */}
       <nav className="mb-6 flex flex-wrap items-center gap-2">
         <Button
           variant={view === "reports" ? "default" : "outline"}
@@ -246,6 +248,14 @@ function App() {
         >
           <FileText className="size-4" />
           Отчеты
+        </Button>
+        <Button
+          variant={view === "knowledge" ? "default" : "outline"}
+          size="lg"
+          onClick={() => setView("knowledge")}
+        >
+          <BookOpen className="size-4" />
+          Знания
         </Button>
         <Button
           variant={view === "profile" ? "default" : "outline"}
@@ -268,6 +278,7 @@ function App() {
       <Separator className="mb-8" />
 
       {view === "reports" && <Reports />}
+      {view === "knowledge" && <Knowledge />}
       {view === "profile" && <Profile />}
       {view === "server" && (
         <>
