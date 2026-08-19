@@ -33,35 +33,9 @@ type importantStore struct {
 // important — глобальное хранилище «важного» сообщения.
 var important *importantStore
 
-// createImportantTableSQL создаёт таблицу сообщения (идемпотентно).
-// Хранится единственная строка с id = 1.
-const createImportantTableSQL = `
-CREATE TABLE IF NOT EXISTS important_message (
-	id         INTEGER PRIMARY KEY,
-	content    TEXT NOT NULL DEFAULT '',
-	updated_by TEXT NOT NULL DEFAULT '',
-	updated_at TIMESTAMP NOT NULL DEFAULT now()
-);
-`
-
-// insertImportantSQL гарантирует наличие единственной строки сообщения (id=1).
-const insertImportantSQL = `
-INSERT INTO important_message (id, content)
-VALUES (1, '')
-ON CONFLICT (id) DO NOTHING;
-`
-
-// createImportantSeenTableSQL создаёт таблицу отметок о прочтении (идемпотентно).
-// Одна строка на пользователя: дата последнего прочтения сообщения.
-const createImportantSeenTableSQL = `
-CREATE TABLE IF NOT EXISTS important_seen (
-	username TEXT PRIMARY KEY,
-	seen_on  DATE NOT NULL
-);
-`
-
 // initImportant инициализирует глобальное хранилище «важного» сообщения.
-// При наличии БД создаёт таблицы и подгружает сохранённые данные в память.
+// При наличии БД подгружает сохранённые данные в память.
+// (Таблицы и строка id=1 создаются миграциями goose, см. migrations/.)
 func initImportant() error {
 	important = &importantStore{
 		hasDB: db != nil,
@@ -69,17 +43,6 @@ func initImportant() error {
 	}
 	if !important.hasDB {
 		return nil
-	}
-
-	if _, err := db.Exec(context.Background(), createImportantTableSQL); err != nil {
-		return err
-	}
-	if _, err := db.Exec(context.Background(), createImportantSeenTableSQL); err != nil {
-		return err
-	}
-	// Гарантируем наличие строки сообщения с id=1.
-	if _, err := db.Exec(context.Background(), insertImportantSQL); err != nil {
-		return err
 	}
 
 	var content, updatedBy, updatedAt string

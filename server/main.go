@@ -43,6 +43,10 @@ func main() {
 	if err := initDB(); err != nil {
 		log.Fatalf("не удалось подключиться к PostgreSQL: %v", err)
 	}
+	// Применяем версионированные миграции БД (goose), встроенные в бинарник.
+	if err := runMigrations(); err != nil {
+		log.Fatalf("не удалось применить миграции БД: %v", err)
+	}
 	if err := initReports(); err != nil {
 		log.Fatalf("не удалось инициализировать отчёты: %v", err)
 	}

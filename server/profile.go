@@ -61,48 +61,13 @@ func newProfileStore() *profileStore {
 	return &profileStore{data: Profile{}, hasDB: db != nil}
 }
 
-// createProfileTableSQL создаёт таблицу profile (идемпотентно).
-// Хранится единственная строка с id = 1 (признак единого профиля приложения).
-// insertProfileSQL гарантирует наличие единственной строки профиля (id=1).
-const insertProfileSQL = `
-INSERT INTO profile (id, description, resume, photo, photo_mime)
-VALUES (1, '', '', '', '')
-ON CONFLICT (id) DO NOTHING;
-`
-
-// createProfileTableSQL создаёт таблицу profile, если её ещё нет (идемпотентно).
-const createProfileTableSQL = `
-CREATE TABLE IF NOT EXISTS profile (
-	id          SERIAL PRIMARY KEY,
-	description TEXT NOT NULL DEFAULT '',
-	resume      TEXT NOT NULL DEFAULT '',
-	photo       TEXT NOT NULL DEFAULT '',
-	photo_mime  TEXT NOT NULL DEFAULT '',
-	updated     TIMESTAMP NOT NULL DEFAULT now()
-);
-`
-
 // initProfiles инициализирует глобальное хранилище профиля.
-// При наличии БД создаёт таблицу и подгружает уже сохранённые данные.
+// При наличии БД подгружает уже сохранённые данные.
+// (Таблица и строка id=1 создаются миграциями goose, см. migrations/.)
 func initProfiles() error {
 	profiles = newProfileStore()
 	if !profiles.hasDB {
 		return nil
-	}
-
-	if _, err := db.Exec(context.Background(), createProfileTableSQL); err != nil {
-		return err
-	}
-	// Миграция для уже существующих таблиц: добавляем колонки фото, если их нет.
-	if _, err := db.Exec(context.Background(),
-		`ALTER TABLE profile
-		 ADD COLUMN IF NOT EXISTS photo      TEXT NOT NULL DEFAULT '',
-		 ADD COLUMN IF NOT EXISTS photo_mime TEXT NOT NULL DEFAULT ''`); err != nil {
-		return err
-	}
-	// Гарантируем наличие строки профиля с id=1.
-	if _, err := db.Exec(context.Background(), insertProfileSQL); err != nil {
-		return err
 	}
 
 	var description, resume, photo, photoMime, updated string

@@ -41,25 +41,13 @@ func newReportStore() *reportStore {
 	}
 }
 
-// createReportsTableSQL создаёт таблицу reports (идемпотентно).
-const createReportsTableSQL = `
-CREATE TABLE IF NOT EXISTS reports (
-	date    DATE NOT NULL UNIQUE,
-	content TEXT NOT NULL DEFAULT '',
-	updated TIMESTAMP NOT NULL DEFAULT now()
-);
-`
-
 // initReports инициализирует глобальное хранилище отчётов.
-// При наличии БД создаёт таблицу и подгружает уже сохранённые отчёты в память.
+// При наличии БД подгружает уже сохранённые отчёты в память.
+// (Таблица создаётся версионированными миграциями goose, см. migrations/.)
 func initReports() error {
 	reports = newReportStore()
 	if !reports.hasDB {
 		return nil
-	}
-
-	if _, err := db.Exec(context.Background(), createReportsTableSQL); err != nil {
-		return err
 	}
 
 	rows, err := db.Query(context.Background(),

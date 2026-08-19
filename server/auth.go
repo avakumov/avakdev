@@ -111,23 +111,8 @@ func initDB() error {
 		return err
 	}
 	sess = newSessionStore()
-
-	// При каждом старте проверить/создать таблицу users (идемпотентно).
-	if _, err := db.Exec(context.Background(), createUsersTableSQL); err != nil {
-		return err
-	}
 	return nil
 }
-
-const createUsersTableSQL = `
-CREATE TABLE IF NOT EXISTS users (
-	id       SERIAL PRIMARY KEY,
-	username TEXT NOT NULL UNIQUE,
-	password TEXT NOT NULL,
-	email    TEXT NOT NULL DEFAULT '',
-	is_admin BOOLEAN NOT NULL DEFAULT false
-);
-`
 
 // authRequired — middleware, требующий активной сессии.
 func authRequired(c *gin.Context) {
