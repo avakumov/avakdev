@@ -5,21 +5,43 @@ import (
 )
 
 // Тест логики «важного» сообщения на in-memory хранилище (без БД):
-// сохранение текста и отметка прочтения «раз в сутки».
+// персональность сообщений и отметка прочтения «раз в сутки».
 func TestImportantStore(t *testing.T) {
 	important = &importantStore{
-		hasDB: false,
-		seen:  make(map[string]string),
+		hasDB:    false,
+		messages: make(map[string]importantMessage),
+		seen:     make(map[string]string),
 	}
 
-	if err := important.save("Прочитайте это!", "admin"); err != nil {
+	// У пользователя пока нет своего сообщения.
+	if _, ok := important.get("admin"); ok {
+		t.Fatal("get(admin) до сохранения вернул ok=true, want false")
+	}
+
+	// Сохраняем сообщение пользователю admin.
+	msg, err := important.save("admin", "Прочитайте это!")
+	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if got := important.getContent(); got != "Прочитайте это!" {
-		t.Fatalf("content = %q, want %q", got, "Прочитайте это!")
+	if msg.Content != "Прочитайте это!" || msg.UpdatedBy != "admin" {
+		t.Fatalf("некорректное сохранённое сообщение: %+v", msg)
 	}
-	if got := important.getUpdatedBy(); got != "admin" {
-		t.Fatalf("updated_by = %q, want %q", got, "admin")
+
+	// Сообщения персональные: у admin есть, у other — нет.
+	got, ok := important.get("admin")
+	if !ok || got.Content != "Прочитайте это!" || got.UpdatedBy != "admin" {
+		t.Fatalf("get(admin) = %+v, ok=%v", got, ok)
+	}
+	if _, ok := important.get("other"); ok {
+		t.Fatal("get(other) вернул ok=true, want false (у other своего сообщения нет)")
+	}
+
+	// Сохранение другому пользователю не задевает первое.
+	if _, err := important.save("other", "Моё личное"); err != nil {
+		t.Fatalf("save(other): %v", err)
+	}
+	if got, _ := important.get("admin"); got.Content != "Прочитайте это!" {
+		t.Fatalf("после save(other) сообщение admin изменилось: %q", got.Content)
 	}
 
 	// До отметки — сообщение ещё не прочитано.

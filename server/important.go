@@ -17,84 +17,87 @@ func importantEnabled() bool {
 	return os.Getenv("GIN_MODE") == "release"
 }
 
-// importantStore — хранилище «важного» сообщения и отметок о прочтении.
-// Сообщение одно на всех (единственная строка id=1 в таблице important_message),
-// отметки о прочтении — по пользователю: один раз в сутки.
+// importantMessage — «важное» сообщение одного пользователя.
+type importantMessage struct {
+	Content   string
+	UpdatedBy string
+	UpdatedAt string
+}
+
+// importantStore — хранилище «важных» сообщений: у каждого пользователя
+// своё сообщение (ключ — username), отметки о прочтении тоже персональные
+// (один раз в сутки).
 type importantStore struct {
-	mu        sync.Mutex
-	content   string
-	updatedBy string
-	updatedAt string
-	hasDB     bool
+	mu       sync.Mutex
+	messages map[string]importantMessage // username -> сообщение
+	hasDB    bool
 	// seen: username -> дата последнего прочтения (YYYY-MM-DD, UTC).
 	seen map[string]string
 }
 
-// important — глобальное хранилище «важного» сообщения.
+// important — глобальное хранилище «важных» сообщений.
 var important *importantStore
 
-// initImportant инициализирует глобальное хранилище «важного» сообщения.
+// initImportant инициализирует глобальное хранилище «важных» сообщений.
 // При наличии БД подгружает сохранённые данные в память.
-// (Таблицы и строка id=1 создаются миграциями goose, см. migrations/.)
+// (Таблица создаётся версионированными миграциями goose, см. migrations/.)
 func initImportant() error {
 	important = &importantStore{
-		hasDB: db != nil,
-		seen:  make(map[string]string),
+		hasDB:    db != nil,
+		messages: make(map[string]importantMessage),
+		seen:     make(map[string]string),
 	}
 	if !important.hasDB {
 		return nil
 	}
 
-	var content, updatedBy, updatedAt string
-	err := db.QueryRow(context.Background(),
-		`SELECT content,
+	// Подгружаем сообщения пользователей в память.
+	rows, err := db.Query(context.Background(),
+		`SELECT username,
+		        content,
 		        updated_by,
 		        to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM important_message WHERE id = 1`).
-		Scan(&content, &updatedBy, &updatedAt)
-	if err != nil && err.Error() != "no rows in result set" {
-		return err
-	}
-	important.content = content
-	important.updatedBy = updatedBy
-	important.updatedAt = updatedAt
-
-	// Подгружаем отметки о прочтении в память.
-	rows, err := db.Query(context.Background(),
-		`SELECT username, to_char(seen_on, 'YYYY-MM-DD') FROM important_seen`)
+		 FROM important_message`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
+		var username string
+		var msg importantMessage
+		if err := rows.Scan(&username, &msg.Content, &msg.UpdatedBy, &msg.UpdatedAt); err != nil {
+			return err
+		}
+		important.messages[username] = msg
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Подгружаем отметки о прочтении в память.
+	seenRows, err := db.Query(context.Background(),
+		`SELECT username, to_char(seen_on, 'YYYY-MM-DD') FROM important_seen`)
+	if err != nil {
+		return err
+	}
+	defer seenRows.Close()
+	for seenRows.Next() {
 		var username, seenOn string
-		if err := rows.Scan(&username, &seenOn); err != nil {
+		if err := seenRows.Scan(&username, &seenOn); err != nil {
 			return err
 		}
 		important.seen[username] = seenOn
 	}
-	return rows.Err()
+	return seenRows.Err()
 }
 
-// getContent возвращает текст сообщения.
-func (s *importantStore) getContent() string {
+// get возвращает «важное» сообщение пользователя.
+// ok=false означает, что пользователь ещё не создавал своё сообщение.
+func (s *importantStore) get(username string) (importantMessage, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.content
-}
-
-// getUpdatedBy возвращает имя пользователя, который последним обновил сообщение.
-func (s *importantStore) getUpdatedBy() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.updatedBy
-}
-
-// getUpdatedAt возвращает время последнего обновления сообщения (RFC3339, UTC).
-func (s *importantStore) getUpdatedAt() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.updatedAt
+	msg, ok := s.messages[username]
+	return msg, ok
 }
 
 // seenToday возвращает true, если пользователь уже прочитал сообщение сегодня.
@@ -105,25 +108,30 @@ func (s *importantStore) seenToday(username string) bool {
 	return s.seen[username] == today
 }
 
-// save обновляет текст сообщения (вызывается администратором из меню «Важное»).
-func (s *importantStore) save(content, username string) error {
+// save сохраняет «важное» сообщение пользователя (создаёт или обновляет).
+func (s *importantStore) save(username, content string) (importantMessage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.content = content
-	s.updatedBy = username
-	s.updatedAt = time.Now().UTC().Format(time.RFC3339)
+	msg := importantMessage{
+		Content:   content,
+		UpdatedBy: username,
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
 
 	if s.hasDB {
 		if _, err := db.Exec(context.Background(),
-			`UPDATE important_message
-			 SET content = $1, updated_by = $2, updated_at = now()
-			 WHERE id = 1`,
-			content, username); err != nil {
-			return err
+			`INSERT INTO important_message (username, content, updated_by, updated_at)
+			 VALUES ($1, $2, $3, now())
+			 ON CONFLICT (username)
+			 DO UPDATE SET content = $2, updated_by = $3, updated_at = now()`,
+			username, content, username); err != nil {
+			return importantMessage{}, err
 		}
 	}
-	return nil
+
+	s.messages[username] = msg
+	return msg, nil
 }
 
 // markSeen отмечает, что пользователь прочитал сообщение сегодня.
@@ -147,22 +155,23 @@ func (s *importantStore) markSeen(username string) error {
 	return nil
 }
 
-// handleGetImportant отдаёт «важное» сообщение: текст, автора и время
-// последнего обновления, а также флаг enabled (показ только на production)
-// и seen_today (показывается раз в сутки).
+// handleGetImportant отдаёт «важное» сообщение текущего пользователя:
+// текст, автора и время последнего обновления, а также флаг enabled
+// (показ только на production) и seen_today (показывается раз в сутки).
 func handleGetImportant(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
+	msg, _ := important.get(sessData.username)
 	c.JSON(http.StatusOK, gin.H{
 		"enabled":    importantEnabled(),
-		"content":    important.getContent(),
-		"updated_by": important.getUpdatedBy(),
-		"updated_at": important.getUpdatedAt(),
+		"content":    msg.Content,
+		"updated_by": msg.UpdatedBy,
+		"updated_at": msg.UpdatedAt,
 		"seen_today": important.seenToday(sessData.username),
 	})
 }
 
-// handleSaveImportant сохраняет текст «важного» сообщения.
-// Доступно только администраторам (роут в группе adminRequired).
+// handleSaveImportant сохраняет «важное» сообщение текущего пользователя.
+// Каждый авторизованный пользователь управляет только своим сообщением.
 func handleSaveImportant(c *gin.Context) {
 	var req struct {
 		Content string `json:"content"`
@@ -172,11 +181,16 @@ func handleSaveImportant(c *gin.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := important.save(req.Content, sessData.username); err != nil {
+	msg, err := important.save(sessData.username, req.Content)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить сообщение"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, gin.H{
+		"content":    msg.Content,
+		"updated_by": msg.UpdatedBy,
+		"updated_at": msg.UpdatedAt,
+	})
 }
 
 // handleMarkImportantSeen отмечает, что текущий пользователь прочитал

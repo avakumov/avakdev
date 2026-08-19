@@ -383,9 +383,7 @@ function App() {
       {view === "reports" && <Reports />}
       {view === "knowledge" && <Knowledge />}
       {view === "profile" && <Profile />}
-      {view === "important" && (
-        <Important isAdmin={meQuery.data?.is_admin} />
-      )}
+      {view === "important" && <Important />}
       {view === "server" && (
         <>
           {/* Панель быстрых действий */}

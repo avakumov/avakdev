@@ -100,9 +100,6 @@ func main() {
 			admin.GET("/metrics", func(c *gin.Context) {
 				c.JSON(http.StatusOK, collectMetrics())
 			})
-
-			// Сохранить текст «важного» сообщения (из меню «Важное»).
-			admin.PUT("/important", handleSaveImportant)
 		}
 
 		// Отчёты за дни (создание, редактирование, список).
@@ -122,9 +119,10 @@ func main() {
 		authed.POST("/knowledge/:id/tts", handleSynthesizeNote)
 		authed.GET("/knowledge/:id/tts", handleGetNoteAudio)
 
-		// «Важное» сообщение: просмотр и отметка о прочтении доступны всем
-		// авторизованным, редактирование — только администраторам (см. выше).
+		// «Важное» сообщение: у каждого пользователя своё — просмотр, сохранение
+		// и отметка о прочтении доступны всем авторизованным.
 		authed.GET("/important", handleGetImportant)
+		authed.PUT("/important", handleSaveImportant)
 		authed.POST("/important/seen", handleMarkImportantSeen)
 
 		// Профиль и генерация резюме.
