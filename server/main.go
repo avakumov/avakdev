@@ -107,6 +107,11 @@ func main() {
 		authed.POST("/knowledge/:id/repeat", handleRepeatNote)
 		authed.DELETE("/knowledge/:id", handleDeleteNote)
 
+		// Озвучка конспектов (Yandex SpeechKit).
+		// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.
+		authed.POST("/knowledge/:id/tts", handleSynthesizeNote)
+		authed.GET("/knowledge/:id/tts", handleGetNoteAudio)
+
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)
 		authed.PUT("/profile", handleSaveProfile)

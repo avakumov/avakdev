@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -8,6 +8,8 @@ import {
   updateKnowledge,
   repeatKnowledge,
   deleteKnowledge,
+  synthesizeNoteAudio,
+  getNoteAudio,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -33,6 +35,8 @@ import {
   Repeat,
   ChevronDown,
   ChevronRight,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 // Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
@@ -234,7 +238,7 @@ function GenerateForm({ onSaved }) {
 }
 
 // Одна карточка сохранённого конспекта: заголовок, счётчик повторений,
-// кнопка «Я повторил», редактирование контента и удаление.
+// кнопка «Я повторил», редактирование контента, озвучка и удаление.
 function NoteCard({ note, onSaved }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -243,6 +247,17 @@ function NoteCard({ note, onSaved }) {
   const [repeating, setRepeating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+  const [audioUrl, setAudioUrl] = useState(null); // blob-URL сгенерированного аудио
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const [audioCheck, setAudioCheck] = useState(false); // уже проверяли наличие аудио
+  const audioUrlRef = useRef(null); // отслеживаем текущий blob-URL для cleanup
+
+  // Освобождаем все blob-URL аудио при размонтировании компонента.
+  useEffect(() => {
+    return () => {
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    };
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -290,7 +305,49 @@ function NoteCard({ note, onSaved }) {
 
   const toggle = () => {
     if (editing) return;
-    setOpen(!open);
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    // При открытии карточки проверяем, есть ли уже сгенерированное аудио.
+    if (nextOpen && !audioCheck) {
+      ensureAudioChecked();
+    }
+  };
+
+  // Проверяем, есть ли уже сгенерированное аудио для конспекта.
+  // Если есть — подгружаем blob-URL, чтобы сразу показать плеер.
+  const ensureAudioChecked = async () => {
+    if (audioCheck) return;
+    setAudioCheck(true);
+    try {
+      const blob = await getNoteAudio(note.id);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        // Если ранее был blob-URL — освобождаем его.
+        if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = url;
+        setAudioUrl(url);
+      }
+    } catch (err) {
+      // Не критично — просто не показываем плеер, кнопка «Озвучить» останется.
+    }
+  };
+
+  // Генерируем аудио через Yandex SpeechKit.
+  const handleSynthesize = async () => {
+    setTtsLoading(true);
+    setError("");
+    try {
+      const blob = await synthesizeNoteAudio(note.id);
+      const url = URL.createObjectURL(blob);
+      // Если ранее был blob-URL — освобождаем его.
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = url;
+      setAudioUrl(url);
+    } catch (err) {
+      setError(err.message || "Не удалось сгенерировать аудио");
+    } finally {
+      setTtsLoading(false);
+    }
   };
 
   return (
@@ -375,6 +432,30 @@ function NoteCard({ note, onSaved }) {
                   Редактировать
                 </Button>
                 <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSynthesize}
+                  disabled={ttsLoading}
+                  title={
+                    audioUrl
+                      ? "Аудио уже сгенерировано — воспроизвести"
+                      : "Озвучить конспект (Yandex SpeechKit)"
+                  }
+                >
+                  {ttsLoading ? (
+                    <Loader2 className="animate-spin" />
+                  ) : audioUrl ? (
+                    <Volume2 />
+                  ) : (
+                    <VolumeX />
+                  )}
+                  {ttsLoading
+                    ? "Озвучиваю…"
+                    : audioUrl
+                      ? "Слушать"
+                      : "Озвучить"}
+                </Button>
+                <Button
                   variant="destructive"
                   size="sm"
                   onClick={handleDelete}
@@ -384,6 +465,13 @@ function NoteCard({ note, onSaved }) {
                   Удалить
                 </Button>
               </div>
+
+              {audioUrl && (
+                <audio controls className="w-full rounded-md" src={audioUrl}>
+                  Ваш браузер не поддерживает аудио.
+                </audio>
+              )}
+
               <MarkdownView>{note.content}</MarkdownView>
             </>
           )}

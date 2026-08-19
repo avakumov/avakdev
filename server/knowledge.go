@@ -45,6 +45,15 @@ type noteStore struct {
 	data   map[int]Note // кэш в памяти / хранилище без БД
 	nextID int
 	hasDB  bool
+	// audio — кэш сгенерированных аудио: noteID -> (bytes, MIME).
+	// Хранится в БД в таблице knowledge_notes_audio, в памяти — для быстрого доступа.
+	audio map[int]audioData
+}
+
+// audioData — сохранённое аудио для конспекта.
+type audioData struct {
+	Data []byte
+	MIME string
 }
 
 // notes — глобальное хранилище конспектов.
@@ -57,6 +66,7 @@ func newNoteStore() *noteStore {
 		data:   make(map[int]Note),
 		nextID: 1,
 		hasDB:  db != nil,
+		audio:  make(map[int]audioData),
 	}
 }
 
@@ -73,6 +83,17 @@ CREATE TABLE IF NOT EXISTS knowledge_notes (
 );
 `
 
+// createNotesAudioTableSQL создаёт таблицу аудио для конспектов (идемпотентно).
+// Аудио хранится как BYTEA, чтобы не тратить токены SpeechKit повторно.
+const createNotesAudioTableSQL = `
+CREATE TABLE IF NOT EXISTS knowledge_notes_audio (
+	note_id INTEGER PRIMARY KEY REFERENCES knowledge_notes(id) ON DELETE CASCADE,
+	data    BYTEA NOT NULL,
+	mime    TEXT NOT NULL DEFAULT 'audio/ogg',
+	created TIMESTAMP NOT NULL DEFAULT now()
+);
+`
+
 // initKnowledge инициализирует глобальное хранилище конспектов.
 // При наличии БД создаёт таблицу и подгружает уже сохранённые заметки в память.
 func initKnowledge() error {
@@ -82,6 +103,9 @@ func initKnowledge() error {
 	}
 
 	if _, err := db.Exec(context.Background(), createNotesTableSQL); err != nil {
+		return err
+	}
+	if _, err := db.Exec(context.Background(), createNotesAudioTableSQL); err != nil {
 		return err
 	}
 
@@ -116,6 +140,26 @@ func initKnowledge() error {
 	}
 	// Следующий autoincrement не ниже уже занятых ID.
 	notes.nextID = maxID + 1
+
+	// Подгружаем аудио из БД в память.
+	audioRows, err := db.Query(context.Background(),
+		`SELECT note_id, data, mime FROM knowledge_notes_audio`)
+	if err != nil {
+		return err
+	}
+	defer audioRows.Close()
+	for audioRows.Next() {
+		var id int
+		var ad audioData
+		if err := audioRows.Scan(&id, &ad.Data, &ad.MIME); err != nil {
+			return err
+		}
+		notes.audio[id] = ad
+	}
+	if err := audioRows.Err(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -239,7 +283,8 @@ func (ns *noteStore) markRepeat(id int) (Note, error) {
 	return n, nil
 }
 
-// deleteByID удаляет конспект по ID.
+// deleteByID удаляет конспект по ID. Аудио удаляется каскадно из БД
+// (ON DELETE CASCADE) и из памяти.
 func (ns *noteStore) deleteByID(id int) error {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
@@ -256,6 +301,47 @@ func (ns *noteStore) deleteByID(id int) error {
 	}
 
 	delete(ns.data, id)
+	delete(ns.audio, id)
+	return nil
+}
+
+// hasAudio возвращает true, если для конспекта с указанным ID уже
+// сгенерировано и сохранено аудио.
+func (ns *noteStore) hasAudio(id int) bool {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	_, ok := ns.audio[id]
+	return ok
+}
+
+// getAudio возвращает сохранённое аудио для конспекта и его MIME-тип.
+func (ns *noteStore) getAudio(id int) ([]byte, string) {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	ad, ok := ns.audio[id]
+	if !ok {
+		return nil, ""
+	}
+	return ad.Data, ad.MIME
+}
+
+// saveAudio сохраняет аудио для конспекта. При наличии БД пишет в таблицу
+// knowledge_notes_audio (UPSERT), также кэширует в памяти.
+func (ns *noteStore) saveAudio(id int, data []byte, mime string) error {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+
+	if ns.hasDB {
+		if _, err := db.Exec(context.Background(),
+			`INSERT INTO knowledge_notes_audio (note_id, data, mime)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (note_id) DO UPDATE SET data = $2, mime = $3`,
+			id, data, mime); err != nil {
+			return err
+		}
+	}
+
+	ns.audio[id] = audioData{Data: data, MIME: mime}
 	return nil
 }
 

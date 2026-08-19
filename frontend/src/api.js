@@ -265,3 +265,29 @@ export async function deleteKnowledge(id) {
   if (!res.ok) throw new Error(data.error || "Не удалось удалить конспект");
   return data;
 }
+
+// Сгенерировать аудио для конспекта через Yandex SpeechKit (POST /api/knowledge/:id/tts).
+// Возвращает Blob аудио. Если аудио уже сгенерировано — сервер вернёт его без
+// повторного обращения к SpeechKit (экономия токенов/квоты).
+export async function synthesizeNoteAudio(id) {
+  const res = await fetch(`${BASE}/api/knowledge/${id}/tts`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Не удалось сгенерировать аудио");
+  }
+  return res.blob();
+}
+
+// Проверить наличие аудио и получить его, если оно уже сгенерировано
+// (GET /api/knowledge/:id/tts). Возвращает Blob или null, если аудио нет.
+export async function getNoteAudio(id) {
+  const res = await fetch(`${BASE}/api/knowledge/${id}/tts`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Не удалось получить аудио");
+  }
+  return res.blob();
+}

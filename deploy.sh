@@ -295,6 +295,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Шаг 4.5. Доставка .env на цель
+# ---------------------------------------------------------------------------
+# Копируем .env файл, чтобы Go-сервер видел ключи (DeepSeek, Yandex SpeechKit и т.д.)
+# при работе под systemd (WorkingDirectory=$INSTALL_DIR, loadEnv() ищет .env рядом).
+echo "==> Доставка .env на целевую машину"
+if [ -f "$ENV_FILE" ]; then
+  if [[ -n "$DEPLOY_HOST" ]]; then
+    scp "${SCP_ARGS[@]}" "$ENV_FILE" "$SSH_TARGET:/tmp/avakumov.env"
+    ssh "${SSH_ARGS[@]}" "$SSH_TARGET" "sudo install -m 600 /tmp/avakumov.env '$INSTALL_DIR/.env' && rm -f /tmp/avakumov.env"
+  else
+    $SUDO install -m 600 -o "$APP_USER" -g "$APP_GROUP" "$ENV_FILE" "$INSTALL_DIR/.env"
+  fi
+  echo "==> .env установлен в $INSTALL_DIR/.env"
+else
+  echo "WARN: .env не найден ($ENV_FILE) — переменные окружения передавать нечего."
+fi
+
+
+
+# ---------------------------------------------------------------------------
 # Шаг 5. Systemd-юнит
 # ---------------------------------------------------------------------------
 echo "==> Настройка systemd"
@@ -327,8 +347,8 @@ Restart=on-failure
 RestartSec=5
 Environment=PORT=$APP_PORT
 Environment=GIN_MODE=release
-${DATABASE_URL:+Environment=DATABASE_URL=$DATABASE_URL}
-${DEEPSEEK_API_KEY:+Environment=DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY}
+# Читаем ключи из .env (DEEPSEEK_API_KEY, YANDEX_FOLDER_ID, YANDEX_API_KEY и т.д.)
+EnvironmentFile=$INSTALL_DIR/.env
 
 [Install]
 WantedBy=multi-user.target
