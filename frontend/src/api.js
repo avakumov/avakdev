@@ -93,6 +93,43 @@ export function useMetrics(refetchInterval = 5000, enabled = true) {
   });
 }
 
+// ==== «Важное» сообщение ====
+
+// Текущее «важное» сообщение с /api/important.
+// Возвращает content, а также enabled (показываем только на production)
+// и seen_today (сообщение показывается раз в сутки).
+export function useImportant(enabled = true) {
+  return useQuery({
+    queryKey: ["important"],
+    queryFn: () => request("/api/important"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Сохранить текст «важного» сообщения (PUT /api/important).
+// Доступно только администраторам.
+export async function saveImportantMessage(content) {
+  const res = await fetch(`${BASE}/api/important`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить сообщение");
+  return data;
+}
+
+// Отметить, что пользователь прочитал сообщение сегодня
+// (POST /api/important/seen). До следующего дня сообщение не покажется.
+export async function markImportantSeen() {
+  const res = await fetch(`${BASE}/api/important/seen`, { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось отметить прочитанным");
+  return data;
+}
+
 // ==== Дневные отчёты ====
 
 // Список отчётов с /api/reports

@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { useHealth, useMessage, useMetrics, useMe, logout } from "./api.js";
+import {
+  useHealth,
+  useMessage,
+  useMetrics,
+  useMe,
+  useImportant,
+  markImportantSeen,
+  logout,
+} from "./api.js";
 import { useAppStore } from "./store.js";
 import { useQueryClient } from "@tanstack/react-query";
 import Login from "./Login.jsx";
@@ -7,6 +15,8 @@ import UserBadge from "./UserBadge.jsx";
 import Reports from "./Reports.jsx";
 import Profile from "./Profile.jsx";
 import Knowledge from "./Knowledge.jsx";
+import Important from "./Important.jsx";
+import MarkdownView from "./MarkdownView.jsx";
 
 import {
   Card,
@@ -15,6 +25,7 @@ import {
   CardAction,
   CardContent,
   CardFooter,
+  CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -41,6 +52,11 @@ import {
   Server,
   User,
   BookOpen,
+  Megaphone,
+  AlertTriangle,
+  Check,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 
 // Форматирование байтов в человекочитаемый вид (KB/MB/GB/TB).
@@ -150,6 +166,62 @@ function RefreshButton({ onClick, refreshing }) {
   );
 }
 
+// Модальное окно «Важное сообщение»: блокирует основной функционал, пока
+// пользователь не подтвердит прочтение. Показывается только на production
+// и не чаще раза в сутки (проверка на сервере).
+function ImportantGate({ content, onDone }) {
+  const [marking, setMarking] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleRead = async () => {
+    setMarking(true);
+    setError("");
+    try {
+      await markImportantSeen();
+      onDone();
+    } catch (err) {
+      setError(err.message || "Не удалось подтвердить прочтение");
+      setMarking(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <Card className="w-full max-w-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <AlertTriangle className="size-5" />
+            </span>
+            Важное сообщение
+          </CardTitle>
+          <CardDescription>
+            Пожалуйста, прочитайте сообщение перед продолжением работы.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <MarkdownView className="max-h-80 overflow-y-auto">
+            {content}
+          </MarkdownView>
+          {error && (
+            <p
+              className="flex items-center gap-1.5 text-sm text-destructive"
+              role="alert"
+            >
+              <AlertCircle className="size-4" />
+              {error}
+            </p>
+          )}
+          <Button onClick={handleRead} disabled={marking} className="w-full">
+            {marking ? <Loader2 className="animate-spin" /> : <Check />}
+            {marking ? "Подтверждаю…" : "Прочитал(а), продолжить"}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function App() {
   // Авторизация: /api/me показывает, вошёл ли пользователь.
   const meQuery = useMe();
@@ -159,17 +231,19 @@ function App() {
   const healthQuery = useHealth(isAuthed);
   const messageQuery = useMessage(isAuthed);
   const metricsQuery = useMetrics(5000, isAuthed);
+  const importantQuery = useImportant(isAuthed);
 
   // Zustand — глобальное UI-состояние
   const queryClient = useQueryClient();
   const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
   const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
 
-  // Текущий раздел меню: "reports" / "knowledge" / "profile" / "server".
+  // Текущий раздел меню: "reports" / "knowledge" / "profile" / "important" / "server".
   const [view, setView] = useState("reports");
 
-  // Пока проверяем сессию — показываем спиннер экрана входа/загрузки.
-  if (meQuery.isLoading) {
+  // Пока проверяем сессию или «важное» сообщение — показываем спиннер.
+  // (Сообщение решает, показывать ли модалку-гейт перед основным функционалом.)
+  if (meQuery.isLoading || (isAuthed && importantQuery.isLoading)) {
     return <LoadingScreen />;
   }
 
@@ -183,8 +257,28 @@ function App() {
           queryClient.removeQueries({ queryKey: ["health"] });
           queryClient.removeQueries({ queryKey: ["message"] });
           queryClient.removeQueries({ queryKey: ["metrics"] });
+          queryClient.removeQueries({ queryKey: ["important"] });
           queryClient.invalidateQueries({ queryKey: ["me"] });
         }}
+      />
+    );
+  }
+
+  // «Важное» сообщение: на production, если текст есть и сегодня ещё не
+  // показывали — блокируем основной функционал до подтверждения прочтения.
+  const important = importantQuery.data;
+  const mustReadImportant = Boolean(
+    important?.enabled &&
+      important?.content &&
+      important.content.trim() &&
+      !important.seen_today,
+  );
+
+  if (mustReadImportant) {
+    return (
+      <ImportantGate
+        content={important.content}
+        onDone={() => queryClient.invalidateQueries({ queryKey: ["important"] })}
       />
     );
   }
@@ -195,6 +289,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["health"] });
     queryClient.removeQueries({ queryKey: ["message"] });
     queryClient.removeQueries({ queryKey: ["metrics"] });
+    queryClient.removeQueries({ queryKey: ["important"] });
     await queryClient.invalidateQueries({ queryKey: ["me"] });
   };
 
@@ -266,6 +361,14 @@ function App() {
           Профиль
         </Button>
         <Button
+          variant={view === "important" ? "default" : "outline"}
+          size="lg"
+          onClick={() => setView("important")}
+        >
+          <Megaphone className="size-4" />
+          Важное
+        </Button>
+        <Button
           variant={view === "server" ? "default" : "outline"}
           size="lg"
           onClick={() => setView("server")}
@@ -280,6 +383,9 @@ function App() {
       {view === "reports" && <Reports />}
       {view === "knowledge" && <Knowledge />}
       {view === "profile" && <Profile />}
+      {view === "important" && (
+        <Important isAdmin={meQuery.data?.is_admin} />
+      )}
       {view === "server" && (
         <>
           {/* Панель быстрых действий */}

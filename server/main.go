@@ -52,6 +52,9 @@ func main() {
 	if err := initKnowledge(); err != nil {
 		log.Fatalf("не удалось инициализировать конспекты: %v", err)
 	}
+	if err := initImportant(); err != nil {
+		log.Fatalf("не удалось инициализировать важное сообщение: %v", err)
+	}
 	logAuthConfig()
 
 	r := gin.Default()
@@ -93,6 +96,9 @@ func main() {
 			admin.GET("/metrics", func(c *gin.Context) {
 				c.JSON(http.StatusOK, collectMetrics())
 			})
+
+			// Сохранить текст «важного» сообщения (из меню «Важное»).
+			admin.PUT("/important", handleSaveImportant)
 		}
 
 		// Отчёты за дни (создание, редактирование, список).
@@ -111,6 +117,11 @@ func main() {
 		// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.
 		authed.POST("/knowledge/:id/tts", handleSynthesizeNote)
 		authed.GET("/knowledge/:id/tts", handleGetNoteAudio)
+
+		// «Важное» сообщение: просмотр и отметка о прочтении доступны всем
+		// авторизованным, редактирование — только администраторам (см. выше).
+		authed.GET("/important", handleGetImportant)
+		authed.POST("/important/seen", handleMarkImportantSeen)
 
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)
