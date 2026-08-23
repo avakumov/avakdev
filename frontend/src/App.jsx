@@ -10,6 +10,7 @@ import {
 } from "./api.js";
 import { useAppStore } from "./store.js";
 import { useQueryClient } from "@tanstack/react-query";
+import Sidebar from "./Sidebar.jsx";
 import Login from "./Login.jsx";
 import UserBadge from "./UserBadge.jsx";
 import Reports from "./Reports.jsx";
@@ -32,7 +33,6 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
@@ -49,12 +49,7 @@ import {
   Gauge,
   Clock,
   MessageSquare,
-  FileText,
-  Server,
-  User,
-  BookOpen,
-  Megaphone,
-  BarChart3,
+  Menu,
   AlertTriangle,
   Check,
   Loader2,
@@ -244,6 +239,9 @@ function App() {
   // "important" / "server".
   const [view, setView] = useState("reports");
 
+  // Открыто ли боковое меню на мобильных (бургер).
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   // Пока проверяем сессию или «важное» сообщение — показываем спиннер.
   // (Сообщение решает, показывать ли модалку-гейт перед основным функционалом.)
   if (meQuery.isLoading || (isAuthed && importantQuery.isLoading)) {
@@ -315,230 +313,201 @@ function App() {
   const m = metricsQuery.data;
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      {/* Шапка с пользователем */}
-      <header className="mb-8 flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-3 text-2xl font-heading font-semibold tracking-tight">
-            <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Activity className="size-5" />
-            </span>
-            Go (Gin) + React + TanStack Query
-          </h1>
-        </div>
+    <div className="min-h-screen">
+      {/* Мобильная шапка с бургером (на десктопе скрыта — меню в сайдбаре) */}
+      <header className="sticky top-0 z-40 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Открыть меню"
+          aria-expanded={sidebarOpen}
+        >
+          <Menu className="size-5" />
+        </Button>
+        <span className="flex items-center gap-2 font-heading font-semibold tracking-tight">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Activity className="size-4" />
+          </span>
+          avakumov
+        </span>
         {meQuery.data && (
-          <UserBadge
-            username={meQuery.data.username}
-            isAdmin={meQuery.data.is_admin}
-            onLogout={handleLogout}
-          />
+          <div className="ml-auto">
+            <UserBadge
+              username={meQuery.data.username}
+              isAdmin={meQuery.data.is_admin}
+              onLogout={handleLogout}
+            />
+          </div>
         )}
       </header>
 
-      {/* Меню навигации: отчёты / знания / профиль / сервер */}
-      <nav className="mb-6 flex flex-wrap items-center gap-2">
-        <Button
-          variant={view === "reports" ? "default" : "outline"}
-          size="lg"
-          onClick={() => setView("reports")}
-        >
-          <FileText className="size-4" />
-          Отчеты
-        </Button>
-        <Button
-          variant={view === "knowledge" ? "default" : "outline"}
-          size="lg"
-          onClick={() => setView("knowledge")}
-        >
-          <BookOpen className="size-4" />
-          Знания
-        </Button>
-        <Button
-          variant={view === "metrics" ? "default" : "outline"}
-          size="lg"
-          onClick={() => setView("metrics")}
-        >
-          <BarChart3 className="size-4" />
-          Метрики
-        </Button>
-        <Button
-          variant={view === "profile" ? "default" : "outline"}
-          size="lg"
-          onClick={() => setView("profile")}
-        >
-          <User className="size-4" />
-          Профиль
-        </Button>
-        <Button
-          variant={view === "important" ? "default" : "outline"}
-          size="lg"
-          onClick={() => setView("important")}
-        >
-          <Megaphone className="size-4" />
-          Важное
-        </Button>
-        <Button
-          variant={view === "server" ? "default" : "outline"}
-          size="lg"
-          onClick={() => setView("server")}
-        >
-          <Server className="size-4" />
-          Сервер
-        </Button>
-      </nav>
+      {/* Боковое меню: закреплено слева на десктопе, выезжает из-за края
+          на мобильных (бургер) */}
+      <Sidebar
+        view={view}
+        onSelect={setView}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        username={meQuery.data?.username}
+        isAdmin={meQuery.data?.is_admin}
+        onLogout={handleLogout}
+      />
 
-      <Separator className="mb-8" />
+      <main className="lg:pl-64">
+        <div className="mx-auto max-w-3xl px-4 py-8">
+          {view === "reports" && <Reports />}
+          {view === "knowledge" && <Knowledge />}
+          {view === "metrics" && <Metrics />}
+          {view === "profile" && <Profile />}
+          {view === "important" && <Important />}
+          {view === "server" && (
+            <>
+              {/* Панель быстрых действий */}
+              <div className="mb-6 flex flex-wrap items-center gap-3">
+                <Button onClick={refreshAll} disabled={isRefreshing}>
+                  <RefreshCw className={isRefreshing ? "animate-spin" : ""} />
+                  {isRefreshing ? "Обновляю всё…" : "Обновить всё"}
+                </Button>
+                {lastUpdatedAt && (
+                  <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <Clock className="size-4" />
+                    Последнее обновление: {lastUpdatedAt}
+                  </span>
+                )}
+              </div>
 
-      {view === "reports" && <Reports />}
-      {view === "knowledge" && <Knowledge />}
-      {view === "metrics" && <Metrics />}
-      {view === "profile" && <Profile />}
-      {view === "important" && <Important />}
-      {view === "server" && (
-        <>
-          {/* Панель быстрых действий */}
-          <div className="mb-6 flex flex-wrap items-center gap-3">
-            <Button onClick={refreshAll} disabled={isRefreshing}>
-              <RefreshCw className={isRefreshing ? "animate-spin" : ""} />
-              {isRefreshing ? "Обновляю всё…" : "Обновить всё"}
-            </Button>
-            {lastUpdatedAt && (
-              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Clock className="size-4" />
-                Последнее обновление: {lastUpdatedAt}
-              </span>
-            )}
-          </div>
+              {/* Блок системных метрик */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Gauge className="size-4 text-muted-foreground" />
+                    Метрики сервера
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {metricsQuery.isLoading ? (
+                    <LoadingSkeleton />
+                  ) : metricsQuery.isError ? (
+                    <p className="text-sm text-destructive">
+                      Ошибка: {metricsQuery.error?.message}
+                    </p>
+                  ) : m ? (
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <MetricLine
+                        icon={<Cpu className="size-4 text-muted-foreground" />}
+                        label="CPU"
+                        value={m.cpu}
+                        sub={`${m.cpu_used_cores.toFixed(2)} / ${m.cpu_cores} ядер`}
+                        tooltip="Загрузка процессора"
+                      />
+                      <MetricLine
+                        icon={
+                          <MemoryStick className="size-4 text-muted-foreground" />
+                        }
+                        label="Память"
+                        value={m.memory}
+                        sub={`${fmtBytes(m.memory_used_bytes)} / ${fmtBytes(m.memory_total_bytes)}`}
+                        tooltip="Использование оперативной памяти"
+                      />
+                      <MetricLine
+                        icon={
+                          <HardDrive className="size-4 text-muted-foreground" />
+                        }
+                        label="Диск"
+                        value={m.disk}
+                        sub={`${fmtBytes(m.disk_used_bytes)} / ${fmtBytes(m.disk_total_bytes)}`}
+                        tooltip="Занято места на корневом разделе"
+                      />
+                      <div className="flex flex-col justify-center space-y-3">
+                        <NetworkLine
+                          up={m.network_up}
+                          rx={m.network.rx_bytes}
+                          tx={m.network.tx_bytes}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </CardContent>
+                {m && (
+                  <CardFooter className="justify-between">
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="size-3.5" />
+                      Аптайм: {fmtUptime(m.uptime_seconds)}
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      обновлено: {m.timestamp}
+                    </span>
+                  </CardFooter>
+                )}
+              </Card>
 
-          {/* Блок системных метрик */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Gauge className="size-4 text-muted-foreground" />
-                Метрики сервера
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {metricsQuery.isLoading ? (
-                <LoadingSkeleton />
-              ) : metricsQuery.isError ? (
-                <p className="text-sm text-destructive">
-                  Ошибка: {metricsQuery.error?.message}
-                </p>
-              ) : m ? (
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <MetricLine
-                    icon={<Cpu className="size-4 text-muted-foreground" />}
-                    label="CPU"
-                    value={m.cpu}
-                    sub={`${m.cpu_used_cores.toFixed(2)} / ${m.cpu_cores} ядер`}
-                    tooltip="Загрузка процессора"
-                  />
-                  <MetricLine
-                    icon={
-                      <MemoryStick className="size-4 text-muted-foreground" />
-                    }
-                    label="Память"
-                    value={m.memory}
-                    sub={`${fmtBytes(m.memory_used_bytes)} / ${fmtBytes(m.memory_total_bytes)}`}
-                    tooltip="Использование оперативной памяти"
-                  />
-                  <MetricLine
-                    icon={
-                      <HardDrive className="size-4 text-muted-foreground" />
-                    }
-                    label="Диск"
-                    value={m.disk}
-                    sub={`${fmtBytes(m.disk_used_bytes)} / ${fmtBytes(m.disk_total_bytes)}`}
-                    tooltip="Занято места на корневом разделе"
-                  />
-                  <div className="flex flex-col justify-center space-y-3">
-                    <NetworkLine
-                      up={m.network_up}
-                      rx={m.network.rx_bytes}
-                      tx={m.network.tx_bytes}
+              {/* Карточка Health */}
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="size-4 text-muted-foreground" />
+                    Health
+                  </CardTitle>
+                  <CardAction>
+                    <RefreshButton
+                      onClick={() => queryClient.refetchQueries(["health"])}
+                      refreshing={healthQuery.isFetching}
                     />
-                  </div>
-                </div>
-              ) : null}
-            </CardContent>
-            {m && (
-              <CardFooter className="justify-between">
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Clock className="size-3.5" />
-                  Аптайм: {fmtUptime(m.uptime_seconds)}
-                </span>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  обновлено: {m.timestamp}
-                </span>
-              </CardFooter>
-            )}
-          </Card>
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  {healthQuery.isLoading ? (
+                    <LoadingSkeleton />
+                  ) : healthQuery.isError ? (
+                    <p className="text-sm text-destructive">
+                      Ошибка: {healthQuery.error?.message}
+                    </p>
+                  ) : (
+                    <pre className="overflow-x-auto text-sm">
+                      {JSON.stringify(healthQuery.data, null, 2)}
+                    </pre>
+                  )}
+                </CardContent>
+              </Card>
 
-          {/* Карточка Health */}
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="size-4 text-muted-foreground" />
-                Health
-              </CardTitle>
-              <CardAction>
-                <RefreshButton
-                  onClick={() => queryClient.refetchQueries(["health"])}
-                  refreshing={healthQuery.isFetching}
-                />
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              {healthQuery.isLoading ? (
-                <LoadingSkeleton />
-              ) : healthQuery.isError ? (
-                <p className="text-sm text-destructive">
-                  Ошибка: {healthQuery.error?.message}
-                </p>
-              ) : (
-                <pre className="overflow-x-auto text-sm">
-                  {JSON.stringify(healthQuery.data, null, 2)}
-                </pre>
-              )}
-            </CardContent>
-          </Card>
+              {/* Карточка Message */}
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquare className="size-4 text-muted-foreground" />
+                    Message
+                  </CardTitle>
+                  <CardAction>
+                    <RefreshButton
+                      onClick={() => queryClient.refetchQueries(["message"])}
+                      refreshing={messageQuery.isFetching}
+                    />
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  {messageQuery.isLoading ? (
+                    <LoadingSkeleton />
+                  ) : messageQuery.isError ? (
+                    <p className="text-sm text-destructive">
+                      Ошибка: {messageQuery.error?.message}
+                    </p>
+                  ) : (
+                    <pre className="overflow-x-auto text-sm">
+                      {JSON.stringify(messageQuery.data, null, 2)}
+                    </pre>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
 
-          {/* Карточка Message */}
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="size-4 text-muted-foreground" />
-                Message
-              </CardTitle>
-              <CardAction>
-                <RefreshButton
-                  onClick={() => queryClient.refetchQueries(["message"])}
-                  refreshing={messageQuery.isFetching}
-                />
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              {messageQuery.isLoading ? (
-                <LoadingSkeleton />
-              ) : messageQuery.isError ? (
-                <p className="text-sm text-destructive">
-                  Ошибка: {messageQuery.error?.message}
-                </p>
-              ) : (
-                <pre className="overflow-x-auto text-sm">
-                  {JSON.stringify(messageQuery.data, null, 2)}
-                </pre>
-              )}
-            </CardContent>
-          </Card>
-        </>
-      )}
-
-      <footer className="mt-10 text-center text-xs text-muted-foreground">
-        Собрано с shadcn/ui · Tailwind CSS v4 · Zustand · TanStack Query
-      </footer>
-    </main>
+          <footer className="mt-10 text-center text-xs text-muted-foreground">
+            Собрано с shadcn/ui · Tailwind CSS v4 · Zustand · TanStack Query
+          </footer>
+        </div>
+      </main>
+    </div>
   );
 }
 
