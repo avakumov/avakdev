@@ -323,7 +323,13 @@ func (a *agent) fetchTasks() ([]AppTask, error) {
 	return parsed.Tasks, nil
 }
 
+// errAgentUnauthorized — сервер вернул 401: сессия сгорела (например,
+// прод перезапустился во время make deploy и все сессии обнулились).
+var errAgentUnauthorized = errors.New("не авторизован (401)")
+
 // updateTask обновляет статус (результат, журнал, флаги деплоя) задачи на сервере.
+// При 401 перелогинивается и повторяет запрос один раз — иначе после деплоя
+// (рестарт прода) статус не обновится и задача будет деплоиться бесконечно.
 func (a *agent) updateTask(id int, t AppTask, status string, result, taskLog *string, deployRequested *bool, deployedAt *string) error {
 	payload := map[string]any{
 		"title":       t.Title,
@@ -344,26 +350,40 @@ func (a *agent) updateTask(id int, t AppTask, status string, result, taskLog *st
 	}
 	body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequest(http.MethodPut,
-		fmt.Sprintf("%s/api/app-tasks/%d", a.serverURL, id), bytes.NewReader(body))
-	if err != nil {
+	send := func() error {
+		req, err := http.NewRequest(http.MethodPut,
+			fmt.Sprintf("%s/api/app-tasks/%d", a.serverURL, id), bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		a.setCookie(req)
+
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("обновление задачи #%d: %w", id, err)
+		}
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			a.sessionTok = ""
+			return errAgentUnauthorized
+		}
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("обновление задачи #%d: статус %d", id, resp.StatusCode)
+		}
+		return nil
+	}
+
+	if err := send(); err != nil {
+		if errors.Is(err, errAgentUnauthorized) {
+			// Сессия сгорела (рестарт прода) — перелогиниваемся и пробуем ещё раз.
+			if lerr := a.ensureSession(); lerr == nil {
+				return send()
+			}
+		}
 		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	a.setCookie(req)
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("обновление задачи #%d: %w", id, err)
-	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		a.sessionTok = ""
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("обновление задачи #%d: статус %d", id, resp.StatusCode)
 	}
 	return nil
 }

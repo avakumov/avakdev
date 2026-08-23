@@ -144,3 +144,55 @@ func TestAgentLoginRejected(t *testing.T) {
 		t.Fatal("ensureSession с неверным паролем должен падать")
 	}
 }
+
+// updateTask должен переживать 401 (сессия сгорела после рестарта прода из-за
+// деплоя): перелогиниться и повторить запрос, чтобы флаг деплоя снялся.
+func TestAgentUpdateTaskRetriesAfter401(t *testing.T) {
+	loginCount := 0
+	putCount := 0
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		loginCount++
+		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "sess-live", Path: "/api"})
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/api/app-tasks/1", func(w http.ResponseWriter, r *http.Request) {
+		putCount++
+		if putCount == 1 {
+			// Первый запрос идёт со старой сессией, сгоревшей после рестарта.
+			if c, err := r.Cookie(cookieName); err != nil || c.Value != "sess-dead" {
+				t.Errorf("первый PUT должен идти со старой сессией")
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// Повторный запрос — уже со свежей сессией.
+		if c, err := r.Cookie(cookieName); err != nil || c.Value != "sess-live" {
+			t.Errorf("повторный PUT должен идти со свежей сессией")
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	a := &agent{
+		serverURL:  srv.URL,
+		username:   "agent",
+		password:   "secret",
+		client:     srv.Client(),
+		sessionTok: "sess-dead",
+	}
+
+	task := AppTask{ID: 1, Title: "Задача"}
+	if err := a.updateTask(task.ID, task, taskStatusDone, nil, nil, nil, nil); err != nil {
+		t.Fatalf("updateTask: %v", err)
+	}
+	if putCount != 2 {
+		t.Fatalf("PUT выполнен %d раз, want 2 (первый 401 + повтор)", putCount)
+	}
+	if loginCount != 1 {
+		t.Fatalf("логин выполнен %d раз, want 1", loginCount)
+	}
+}
