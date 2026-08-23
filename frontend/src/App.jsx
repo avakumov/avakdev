@@ -332,7 +332,7 @@ function App() {
           <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Activity className="size-4" />
           </span>
-          <span className="rounded-md border-2 border-yellow-500 px-2 py-0.5 text-yellow-500">
+          <span className="rounded-md border-2 border-black bg-yellow-400 px-2 py-0.5 text-black">
             avakumov
           </span>
         </span>
