@@ -1,0 +1,27 @@
+# Конфигурация air — горячая перезагрузка Go-сервера в dev-режиме.
+# Запуск: cd server && air   (или make dev / make dev-backend).
+# При изменении .go (и .sql — миграции) файлов air пересобирает
+# и перезапускает сервер автоматически.
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Собираем сервер во временный бинарник и запускаем его.
+  cmd = "go build -o ./tmp/main ."
+  bin = "./tmp/main"
+  # .sql тоже отслеживаем: правка миграции = рестарт = миграции применятся.
+  include_ext = ["go", "sql", "tpl", "tmpl", "html"]
+  exclude_dir = ["tmp", "frontend-dist", "dist", "assets", "testdata", "vendor", "node_modules", ".git"]
+  # Правки тестов не должны перезапускать сервер.
+  exclude_regex = ["_test\\.go$"]
+  delay = 1000
+  stop_on_error = false
+  send_interrupt = true
+  kill_delay = 500
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true
