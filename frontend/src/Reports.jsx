@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useReports, updateReport } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { formatDateRu } from "./lib/formatDate.js";
+import MetricsTodayModal from "./MetricsTodayModal.jsx";
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,29 +20,6 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-// Месяцы по-русски (для отображения дат).
-const MONTHS = [
-  "января",
-  "февраля",
-  "марта",
-  "апреля",
-  "мая",
-  "июня",
-  "июля",
-  "августа",
-  "сентября",
-  "октября",
-  "ноября",
-  "декабря",
-];
-
-// "2025-01-31" -> "31 января 2025"
-function formatDate(dateStr) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  if (!y || !m || !d) return dateStr;
-  return `${d} ${MONTHS[m - 1]} ${y}`;
-}
-
 // Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
 function Textarea({ className, ...props }) {
   return (
@@ -57,7 +36,8 @@ function Textarea({ className, ...props }) {
 
 // Одна карточка отчёта: показывает день, превью и разворачивается по клику.
 // В развёрнутом виде доступно редактирование.
-function ReportRow({ report, open, onOpenChange, onSaved }) {
+function ReportRow({ report, open, onOpenChange, onSaved, onTodaySaved }) {
+  const today = new Date().toISOString().slice(0, 10);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(report.content);
   const [saving, setSaving] = useState(false);
@@ -70,6 +50,8 @@ function ReportRow({ report, open, onOpenChange, onSaved }) {
       await updateReport(report.date, draft);
       setEditing(false);
       onSaved();
+      // После сохранения отчёта за сегодня предлагаем заполнить метрики.
+      if (report.date === today) onTodaySaved?.();
     } catch (err) {
       setError(err.message || "Не удалось сохранить");
     } finally {
@@ -93,7 +75,7 @@ function ReportRow({ report, open, onOpenChange, onSaved }) {
               <ChevronRight className="size-4 text-muted-foreground" />
             )}
             <CalendarDays className="size-4 text-muted-foreground" />
-            {formatDate(report.date)}
+            {formatDateRu(report.date)}
           </CardTitle>
           {open && !editing && (
             <div onClick={(e) => e.stopPropagation()}>
@@ -162,7 +144,7 @@ function ReportRow({ report, open, onOpenChange, onSaved }) {
 }
 
 // Форма создания нового отчёта за конкретный день (по умолчанию — сегодня).
-function NewReportForm({ onSaved, reports, onOpen }) {
+function NewReportForm({ onSaved, reports, onOpen, onTodaySaved }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [content, setContent] = useState("");
@@ -182,6 +164,8 @@ function NewReportForm({ onSaved, reports, onOpen }) {
       await updateReport(date, content);
       setContent("");
       onSaved();
+      // После сохранения отчёта за сегодня предлагаем заполнить метрики.
+      if (date === today) onTodaySaved?.();
     } catch (err) {
       setError(err.message || "Не удалось сохранить");
     } finally {
@@ -256,6 +240,9 @@ function Reports() {
   const queryClient = useQueryClient();
   const reportsQuery = useReports(true);
   const [openDate, setOpenDate] = useState(null);
+  // Модалка с метриками за сегодня — после сохранения сегодняшнего отчёта.
+  const [metricsModalOpen, setMetricsModalOpen] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["reports"] });
@@ -266,6 +253,7 @@ function Reports() {
         onSaved={refresh}
         reports={reportsQuery.data}
         onOpen={(date) => setOpenDate(date)}
+        onTodaySaved={() => setMetricsModalOpen(true)}
       />
 
       {reportsQuery.isLoading ? (
@@ -282,6 +270,7 @@ function Reports() {
             open={openDate === r.date}
             onOpenChange={(v) => setOpenDate(v ? r.date : null)}
             onSaved={refresh}
+            onTodaySaved={() => setMetricsModalOpen(true)}
           />
         ))
       ) : (
@@ -293,6 +282,13 @@ function Reports() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {metricsModalOpen && (
+        <MetricsTodayModal
+          date={today}
+          onClose={() => setMetricsModalOpen(false)}
+        />
       )}
     </section>
   );

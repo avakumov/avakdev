@@ -130,6 +130,77 @@ export async function markImportantSeen() {
   return data;
 }
 
+// ==== Пользовательские метрики ====
+
+// Определения метрик пользователя и их значения с /api/user-metrics.
+// Возвращает { definitions: [{id, name, type, created}], values: [{metric_id, date, value}] }.
+export function useUserMetrics(enabled = true) {
+  return useQuery({
+    queryKey: ["user-metrics"],
+    queryFn: () => request("/api/user-metrics"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Создать новую метрику (POST /api/user-metrics). Тип: "int" | "float" | "bool".
+export async function createUserMetric(name, type) {
+  const res = await fetch(`${BASE}/api/user-metrics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, type }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось создать метрику");
+  return data;
+}
+
+// Удалить метрику вместе со значениями (DELETE /api/user-metrics/:id).
+export async function deleteUserMetric(id) {
+  const res = await fetch(`${BASE}/api/user-metrics/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить метрику");
+  return data;
+}
+
+// Переименовать метрику и поменять её единицу измерения (PUT /api/user-metrics/:id).
+export async function updateUserMetric(id, name, unit) {
+  const res = await fetch(`${BASE}/api/user-metrics/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, unit }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось изменить метрику");
+  return data;
+}
+
+// Сохранить показатель метрики за день (PUT /api/user-metrics/:id/:date).
+// За день фиксируется одно значение — повторное сохранение перезаписывает.
+export async function setUserMetricValue(id, date, value) {
+  const res = await fetch(`${BASE}/api/user-metrics/${id}/${date}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить показатель");
+  return data;
+}
+
+// Удалить показатель метрики за конкретный день (DELETE /api/user-metrics/:id/:date).
+export async function deleteUserMetricValue(id, date) {
+  const res = await fetch(`${BASE}/api/user-metrics/${id}/${date}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить показатель");
+  return data;
+}
+
 // ==== Дневные отчёты ====
 
 // Список отчётов с /api/reports

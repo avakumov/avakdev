@@ -59,6 +59,9 @@ func main() {
 	if err := initImportant(); err != nil {
 		log.Fatalf("не удалось инициализировать важное сообщение: %v", err)
 	}
+	if err := initMetrics(); err != nil {
+		log.Fatalf("не удалось инициализировать метрики: %v", err)
+	}
 	logAuthConfig()
 
 	r := gin.Default()
@@ -124,6 +127,15 @@ func main() {
 		authed.GET("/important", handleGetImportant)
 		authed.PUT("/important", handleSaveImportant)
 		authed.POST("/important/seen", handleMarkImportantSeen)
+
+		// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
+		// и значения — одно на (метрика, день).
+		authed.GET("/user-metrics", handleListUserMetrics)
+		authed.POST("/user-metrics", handleCreateUserMetric)
+		authed.PUT("/user-metrics/:id", handleUpdateUserMetric)
+		authed.DELETE("/user-metrics/:id", handleDeleteUserMetric)
+		authed.PUT("/user-metrics/:id/:date", handleSetUserMetricValue)
+		authed.DELETE("/user-metrics/:id/:date", handleDeleteUserMetricValue)
 
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)

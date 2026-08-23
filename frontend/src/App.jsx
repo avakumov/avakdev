@@ -16,6 +16,7 @@ import Reports from "./Reports.jsx";
 import Profile from "./Profile.jsx";
 import Knowledge from "./Knowledge.jsx";
 import Important from "./Important.jsx";
+import Metrics from "./Metrics.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 
 import {
@@ -53,6 +54,7 @@ import {
   User,
   BookOpen,
   Megaphone,
+  BarChart3,
   AlertTriangle,
   Check,
   Loader2,
@@ -238,7 +240,8 @@ function App() {
   const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
   const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
 
-  // Текущий раздел меню: "reports" / "knowledge" / "profile" / "important" / "server".
+  // Текущий раздел меню: "reports" / "knowledge" / "metrics" / "profile" /
+  // "important" / "server".
   const [view, setView] = useState("reports");
 
   // Пока проверяем сессию или «важное» сообщение — показываем спиннер.
@@ -258,6 +261,7 @@ function App() {
           queryClient.removeQueries({ queryKey: ["message"] });
           queryClient.removeQueries({ queryKey: ["metrics"] });
           queryClient.removeQueries({ queryKey: ["important"] });
+          queryClient.removeQueries({ queryKey: ["user-metrics"] });
           queryClient.invalidateQueries({ queryKey: ["me"] });
         }}
       />
@@ -290,6 +294,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["message"] });
     queryClient.removeQueries({ queryKey: ["metrics"] });
     queryClient.removeQueries({ queryKey: ["important"] });
+    queryClient.removeQueries({ queryKey: ["user-metrics"] });
     await queryClient.invalidateQueries({ queryKey: ["me"] });
   };
 
@@ -349,6 +354,14 @@ function App() {
           Знания
         </Button>
         <Button
+          variant={view === "metrics" ? "default" : "outline"}
+          size="lg"
+          onClick={() => setView("metrics")}
+        >
+          <BarChart3 className="size-4" />
+          Метрики
+        </Button>
+        <Button
           variant={view === "profile" ? "default" : "outline"}
           size="lg"
           onClick={() => setView("profile")}
@@ -378,6 +391,7 @@ function App() {
 
       {view === "reports" && <Reports />}
       {view === "knowledge" && <Knowledge />}
+      {view === "metrics" && <Metrics />}
       {view === "profile" && <Profile />}
       {view === "important" && <Important />}
       {view === "server" && (
