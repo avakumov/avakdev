@@ -103,7 +103,8 @@ func (a *agent) loop() {
 	}
 }
 
-// runCycle — один проход: вход, получение задач, выполнение новых.
+// runCycle — один проход: вход, получение задач, выполнение новых
+// и обработка запрошенных деплоев.
 func (a *agent) runCycle() error {
 	if err := a.ensureSession(); err != nil {
 		return err
@@ -121,7 +122,7 @@ func (a *agent) runCycle() error {
 		processed++
 		log.Printf("AGENT: беру задачу #%d «%s»", t.ID, t.Title)
 
-		if err := a.updateTask(t.ID, t, taskStatusInProgress, nil, nil); err != nil {
+		if err := a.updateTask(t.ID, t, taskStatusInProgress, nil, nil, nil, nil); err != nil {
 			log.Printf("AGENT: не удалось пометить задачу #%d «в работе»: %v", t.ID, err)
 			continue
 		}
@@ -130,12 +131,12 @@ func (a *agent) runCycle() error {
 		if err != nil {
 			log.Printf("AGENT: задача #%d не выполнена: %v", t.ID, err)
 			msg := "Не выполнена: " + err.Error()
-			if err2 := a.updateTask(t.ID, t, taskStatusFailed, &msg, &taskLog); err2 != nil {
+			if err2 := a.updateTask(t.ID, t, taskStatusFailed, &msg, &taskLog, nil, nil); err2 != nil {
 				log.Printf("AGENT: не удалось пометить задачу #%d «failed»: %v", t.ID, err2)
 			}
 			continue
 		}
-		if err := a.updateTask(t.ID, t, taskStatusDone, &result, &taskLog); err != nil {
+		if err := a.updateTask(t.ID, t, taskStatusDone, &result, &taskLog, nil, nil); err != nil {
 			log.Printf("AGENT: не удалось пометить задачу #%d «done»: %v", t.ID, err)
 		} else {
 			log.Printf("AGENT: задача #%d «%s» выполнена", t.ID, t.Title)
@@ -144,7 +145,113 @@ func (a *agent) runCycle() error {
 	if processed > 0 {
 		log.Printf("AGENT: цикл завершён, обработано задач: %d", processed)
 	}
+
+	// Запрошенные деплои: коммитим рабочее дерево и запускаем make deploy.
+	for _, t := range tasks {
+		if !t.DeployRequested {
+			continue
+		}
+		log.Printf("AGENT: задача #%d «%s»: запрошен деплой", t.ID, t.Title)
+		a.deployTask(t)
+	}
 	return nil
+}
+
+// deployTask выполняет деплой задачи: коммит изменений, make deploy,
+// обновление статуса на сервере.
+func (a *agent) deployTask(t AppTask) {
+	var logBuf strings.Builder
+	logBuf.WriteString("\n=== Деплой ===\n")
+
+	if out, err := a.gitCommit(t); err != nil {
+		log.Printf("AGENT: задача #%d: git commit не удался: %v", t.ID, err)
+		logBuf.WriteString("git commit: " + err.Error())
+	} else {
+		logBuf.WriteString(out + "\n")
+	}
+
+	deployedAt := time.Now().UTC().Format(time.RFC3339)
+	taskLog := logBuf.String()
+
+	deployOut, deployErr := a.runDeploy()
+	if deployErr != nil {
+		log.Printf("AGENT: задача #%d: деплой не удался: %v", t.ID, deployErr)
+		taskLog += "\nДеплой не удался: " + deployErr.Error()
+		if len(taskLog) > maxAgentLogChars {
+			taskLog = taskLog[:maxAgentLogChars] + "\n...(обрезано)"
+		}
+		if err2 := a.updateTask(t.ID, t, taskStatusDone, nil, &taskLog, boolPtr(false), nil); err2 != nil {
+			log.Printf("AGENT: не удалось обновить задачу #%d после неудачного деплоя: %v", t.ID, err2)
+		}
+		return
+	}
+
+	taskLog += deployOut
+	if len(taskLog) > maxAgentLogChars {
+		taskLog = taskLog[:maxAgentLogChars] + "\n...(обрезано)"
+	}
+	if err := a.updateTask(t.ID, t, taskStatusDone, nil, &taskLog, boolPtr(false), &deployedAt); err != nil {
+		log.Printf("AGENT: не удалось обновить задачу #%d после деплоя: %v", t.ID, err)
+		return
+	}
+	log.Printf("AGENT: задача #%d «%s» задеплоена (%s)", t.ID, t.Title, deployedAt)
+}
+
+// gitCommit коммитит все изменения в рабочем дереве с упоминанием задачи.
+// «Нечего коммитить» не считается ошибкой.
+func (a *agent) gitCommit(t AppTask) (string, error) {
+	if out, err := a.runGit("add", "-A"); err != nil {
+		return out, fmt.Errorf("git add: %v", err)
+	}
+
+	msg := fmt.Sprintf("avakumov-agent: задача #%d «%s»", t.ID, t.Title)
+	out, err := a.runGit("commit", "-m", msg)
+	if err != nil {
+		if strings.Contains(strings.ToLower(out), "nothing to commit") {
+			return "коммитить нечего: изменений в рабочем дереве нет", nil
+		}
+		return out, fmt.Errorf("git commit: %v", err)
+	}
+	return "коммит создан: " + msg, nil
+}
+
+// runGit выполняет git-команду в корне репозитория.
+func (a *agent) runGit(args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	c := exec.CommandContext(ctx, "git", args...)
+	c.Dir = a.repoRoot
+	c.Env = append(os.Environ(), "GIT_EDITOR=true")
+	out, err := c.CombinedOutput()
+	return truncateOutput(out), err
+}
+
+// runDeploy запускает make deploy в корне репозитория (таймаут 10 минут).
+func (a *agent) runDeploy() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	c := exec.CommandContext(ctx, "make", "deploy")
+	c.Dir = a.repoRoot
+	out, err := c.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return truncateOutput(out), errors.New("make deploy превысил таймаут 10 минут")
+	}
+	return truncateOutput(out), err
+}
+
+// truncateOutput ограничивает длину вывода команды (для логов и модели).
+func truncateOutput(out []byte) string {
+	text := string(out)
+	if len(text) > 8000 {
+		text = text[len(text)-8000:]
+		text = "...(обрезано)\n" + text
+	}
+	return text
+}
+
+// boolPtr возвращает указатель на bool.
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 // ensureSession входит на сервер задач, если у агента ещё нет cookie сессии.
@@ -216,8 +323,8 @@ func (a *agent) fetchTasks() ([]AppTask, error) {
 	return parsed.Tasks, nil
 }
 
-// updateTask обновляет статус (результат и журнал) задачи на сервере.
-func (a *agent) updateTask(id int, t AppTask, status string, result, taskLog *string) error {
+// updateTask обновляет статус (результат, журнал, флаги деплоя) задачи на сервере.
+func (a *agent) updateTask(id int, t AppTask, status string, result, taskLog *string, deployRequested *bool, deployedAt *string) error {
 	payload := map[string]any{
 		"title":       t.Title,
 		"description": t.Description,
@@ -228,6 +335,12 @@ func (a *agent) updateTask(id int, t AppTask, status string, result, taskLog *st
 	}
 	if taskLog != nil {
 		payload["log"] = *taskLog
+	}
+	if deployRequested != nil {
+		payload["deploy_requested"] = *deployRequested
+	}
+	if deployedAt != nil {
+		payload["deployed_at"] = *deployedAt
 	}
 	body, _ := json.Marshal(payload)
 
@@ -279,7 +392,8 @@ const agentSystemPrompt = `Ты — агент-разработчик внутр
 1. Сначала изучи код, потом меняй. Правки минимальные и точечные.
 2. После изменений обязательно собери проект и прогони проверки: go build, go vet, go test в server/; npm run build в frontend/.
 3. Если что-то не получается или задача неясна — так и напиши, не выдумывай.
-4. В конце верни КРАТКИЙ итог на русском (до 500 символов): какие файлы изменены и результат проверок.`
+4. НЕ запускай деплой (make deploy, deploy.sh) и не делай git push/коммиты — это отдельный механизм (кнопка «Deploy» у задачи).
+5. В конце верни КРАТКИЙ итог на русском (до 500 символов): какие файлы изменены и результат проверок.`
 
 // agentTools — инструменты, доступные модели (формат function calling OpenAI).
 var agentTools = []map[string]any{
@@ -595,7 +709,9 @@ func (a *agent) runTool(name, argsJSON string) (string, error) {
 			return "", errors.New("пустая команда")
 		}
 		// Запрещённые выражения — чтобы агент не навредил системе.
-		for _, banned := range []string{"sudo", "rm -rf /", "mkfs", "shutdown", "reboot", ":(){"} {
+		// Деплой и пуш выполняются отдельным механизмом (кнопка «Deploy»),
+		// а не через инструменты агента.
+		for _, banned := range []string{"sudo", "rm -rf /", "mkfs", "shutdown", "reboot", ":(){", "make deploy", "deploy.sh", "git push"} {
 			if strings.Contains(cmd, banned) {
 				return "", fmt.Errorf("команда содержит запрещённое выражение %q", banned)
 			}

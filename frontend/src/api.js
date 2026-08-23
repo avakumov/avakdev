@@ -248,6 +248,24 @@ export async function deleteAppTask(id) {
   return data;
 }
 
+// Запросить деплой задачи: dev-агент закоммитит изменения и запустит
+// make deploy (PUT /api/app-tasks/:id с флагом deploy_requested).
+export async function requestTaskDeploy(task) {
+  const res = await fetch(`${BASE}/api/app-tasks/${task.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      deploy_requested: true,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось запросить деплой");
+  return data;
+}
+
 // ==== Дневные отчёты ====
 
 // Список отчётов с /api/reports

@@ -4,6 +4,7 @@ import {
   createAppTask,
   updateAppTask,
   deleteAppTask,
+  requestTaskDeploy,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -34,6 +35,8 @@ import {
   Edit,
   X,
   Clock,
+  Rocket,
+  Check,
 } from "lucide-react";
 
 // Статусы задач: метка + вариант бейджа.
@@ -141,6 +144,7 @@ function TaskCard({ task, onChanged }) {
   const [editDescription, setEditDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState("");
 
   const startEdit = () => {
@@ -199,6 +203,27 @@ function TaskCard({ task, onChanged }) {
       setDeleting(false);
     }
   };
+
+  const handleDeploy = async () => {
+    if (
+      !window.confirm(
+        `Запросить деплой задачи «${task.title}»? Агент закоммитит изменения и запустит make deploy.`,
+      )
+    ) {
+      return;
+    }
+    setDeploying(true);
+    setError("");
+    try {
+      await requestTaskDeploy(task);
+      onChanged();
+    } catch (err) {
+      setError(err.message || "Не удалось запросить деплой");
+      setDeploying(false);
+    }
+  };
+
+  const canDeploy = task.status === "done" && !task.deploy_requested;
 
   return (
     <Card className="my-3" size="sm">
@@ -277,21 +302,39 @@ function TaskCard({ task, onChanged }) {
               </details>
             )}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Select
-                value={task.status}
-                onValueChange={handleStatusChange}
-              >
-                <SelectTrigger className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUSES.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={task.status} onValueChange={handleStatusChange}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUSES.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {canDeploy && (
+                  <Button onClick={handleDeploy} disabled={deploying}>
+                    {deploying ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <Rocket />
+                    )}
+                    {deploying ? "Запрашиваю…" : "Deploy"}
+                  </Button>
+                )}
+                {task.deploy_requested && (
+                  <Badge variant="default">Деплой запрошен</Badge>
+                )}
+                {task.deployed_at && (
+                  <Badge variant="secondary">
+                    <Check className="size-3" />
+                    Деплой: {task.deployed_at}
+                  </Badge>
+                )}
+              </div>
               {task.updated && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Clock className="size-3.5" />

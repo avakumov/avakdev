@@ -34,15 +34,17 @@ var validTaskStatuses = map[string]bool{
 // AppTask — задача по модификации приложения: описание того, что нужно
 // исправить, изменить или добавить. Владелец — конкретный пользователь.
 type AppTask struct {
-	ID          int    `json:"id"`
-	Username    string `json:"-"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Result      string `json:"result"`
-	Log         string `json:"log"`
-	Created     string `json:"created"`
-	Updated     string `json:"updated"`
+	ID              int    `json:"id"`
+	Username        string `json:"-"`
+	Title           string `json:"title"`
+	Description     string `json:"description"`
+	Status          string `json:"status"`
+	Result          string `json:"result"`
+	Log             string `json:"log"`
+	DeployRequested bool   `json:"deploy_requested"`
+	DeployedAt      string `json:"deployed_at"`
+	Created         string `json:"created"`
+	Updated         string `json:"updated"`
 }
 
 // appTaskStore — хранилище задач по модификации приложения.
@@ -77,6 +79,8 @@ func initAppTasks() error {
 		        status,
 		        result,
 		        log,
+		        deploy_requested,
+		        deployed_at,
 		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM app_tasks`)
@@ -87,7 +91,8 @@ func initAppTasks() error {
 	for rows.Next() {
 		var t AppTask
 		if err := rows.Scan(&t.ID, &t.Username, &t.Title, &t.Description,
-			&t.Status, &t.Result, &t.Log, &t.Created, &t.Updated); err != nil {
+			&t.Status, &t.Result, &t.Log, &t.DeployRequested, &t.DeployedAt,
+			&t.Created, &t.Updated); err != nil {
 			return err
 		}
 		appTasks.data[t.ID] = t
@@ -168,10 +173,11 @@ func (s *appTaskStore) create(username, title, description string) (AppTask, err
 	return t, nil
 }
 
-// update обновляет задачу (заголовок, описание, статус, результат, журнал).
-// result и log — указатели: nil означает «не менять» (так UI-редактор не
-// затирает данные, записанные агентом).
-func (s *appTaskStore) update(username string, id int, title, description, status string, result, log *string) (AppTask, error) {
+// update обновляет задачу (заголовок, описание, статус, результат, журнал,
+// флаг запрошенного деплоя и время деплоя).
+// result/log/deployRequested/deployedAt — указатели: nil означает «не менять»
+// (так UI-редактор не затирает данные, записанные агентом).
+func (s *appTaskStore) update(username string, id int, title, description, status string, result, log *string, deployRequested *bool, deployedAt *string) (AppTask, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return AppTask{}, errors.New("укажите заголовок задачи")
@@ -197,14 +203,22 @@ func (s *appTaskStore) update(username string, id int, title, description, statu
 	if log != nil {
 		t.Log = *log
 	}
+	if deployRequested != nil {
+		t.DeployRequested = *deployRequested
+	}
+	if deployedAt != nil {
+		t.DeployedAt = *deployedAt
+	}
 	t.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	if s.hasDB {
 		if _, err := db.Exec(context.Background(),
 			`UPDATE app_tasks
-			 SET title = $2, description = $3, status = $4, result = $5, log = $6, updated = now()
+			 SET title = $2, description = $3, status = $4, result = $5, log = $6,
+			     deploy_requested = $7, deployed_at = $8, updated = now()
 			 WHERE id = $1`,
-			id, t.Title, t.Description, t.Status, t.Result, t.Log); err != nil {
+			id, t.Title, t.Description, t.Status, t.Result, t.Log,
+			t.DeployRequested, t.DeployedAt); err != nil {
 			return AppTask{}, err
 		}
 	}
@@ -265,18 +279,20 @@ func handleUpdateAppTask(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Status      string  `json:"status"`
-		Result      *string `json:"result"`
-		Log         *string `json:"log"`
+		Title           string  `json:"title"`
+		Description     string  `json:"description"`
+		Status          string  `json:"status"`
+		Result          *string `json:"result"`
+		Log             *string `json:"log"`
+		DeployRequested *bool   `json:"deploy_requested"`
+		DeployedAt      *string `json:"deployed_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := appTasks.update(sessData.username, id, req.Title, req.Description, req.Status, req.Result, req.Log)
+	t, err := appTasks.update(sessData.username, id, req.Title, req.Description, req.Status, req.Result, req.Log, req.DeployRequested, req.DeployedAt)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {

@@ -64,19 +64,24 @@ func TestAgentServerFlow(t *testing.T) {
 			return
 		}
 		var req struct {
-			Status string  `json:"status"`
-			Result *string `json:"result"`
-			Log    *string `json:"log"`
+			Status          string  `json:"status"`
+			Result          *string `json:"result"`
+			Log             *string `json:"log"`
+			DeployRequested *bool   `json:"deploy_requested"`
+			DeployedAt      *string `json:"deployed_at"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
 		if req.Status != taskStatusInProgress && req.Status != taskStatusDone {
 			t.Errorf("PUT со статусом %q, want in_progress или done", req.Status)
 		}
-		if req.Status == taskStatusDone && (req.Result == nil || *req.Result == "") {
-			t.Errorf("PUT done без результата")
+		if req.Status == taskStatusDone && (req.Result == nil || *req.Result == "") && req.DeployedAt == nil {
+			t.Errorf("PUT done без результата и без времени деплоя")
 		}
 		if req.Status == taskStatusDone && (req.Log == nil || *req.Log == "") {
 			t.Errorf("PUT done без журнала выполнения")
+		}
+		if req.DeployedAt != nil && (req.DeployRequested == nil || *req.DeployRequested) {
+			t.Errorf("после деплоя deploy_requested должен быть false")
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"ok":true}`))
@@ -107,13 +112,18 @@ func TestAgentServerFlow(t *testing.T) {
 		t.Fatalf("tasks = %+v", tasks)
 	}
 
-	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusInProgress, nil, nil); err != nil {
+	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusInProgress, nil, nil, nil, nil); err != nil {
 		t.Fatalf("updateTask(in_progress): %v", err)
 	}
 	res := "изменён отступ"
 	taskLog := "[1] read_file(...)\nвывод сборки"
-	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusDone, &res, &taskLog); err != nil {
+	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusDone, &res, &taskLog, nil, nil); err != nil {
 		t.Fatalf("updateTask(done): %v", err)
+	}
+	// Завершение деплоя: снимаем флаг и проставляем время.
+	deployedAt := "2026-08-23T12:00:00Z"
+	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusDone, nil, &taskLog, boolPtr(false), &deployedAt); err != nil {
+		t.Fatalf("updateTask(deploy): %v", err)
 	}
 }
 
