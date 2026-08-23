@@ -145,11 +145,11 @@ export function useUserMetrics(enabled = true) {
 }
 
 // Создать новую метрику (POST /api/user-metrics). Тип: "int" | "float" | "bool".
-export async function createUserMetric(name, type) {
+export async function createUserMetric(name, type, unit = "") {
   const res = await fetch(`${BASE}/api/user-metrics`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, type }),
+    body: JSON.stringify({ name, type, unit }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Не удалось создать метрику");
