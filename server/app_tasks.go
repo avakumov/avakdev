@@ -43,6 +43,9 @@ type AppTask struct {
 	Log             string `json:"log"`
 	DeployRequested bool   `json:"deploy_requested"`
 	DeployedAt      string `json:"deployed_at"`
+	CommitHash      string `json:"commit_hash"`
+	RevertRequested bool   `json:"revert_requested"`
+	RevertedAt      string `json:"reverted_at"`
 	Created         string `json:"created"`
 	Updated         string `json:"updated"`
 }
@@ -81,6 +84,9 @@ func initAppTasks() error {
 		        log,
 		        deploy_requested,
 		        deployed_at,
+		        commit_hash,
+		        revert_requested,
+		        reverted_at,
 		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM app_tasks`)
@@ -92,6 +98,7 @@ func initAppTasks() error {
 		var t AppTask
 		if err := rows.Scan(&t.ID, &t.Username, &t.Title, &t.Description,
 			&t.Status, &t.Result, &t.Log, &t.DeployRequested, &t.DeployedAt,
+			&t.CommitHash, &t.RevertRequested, &t.RevertedAt,
 			&t.Created, &t.Updated); err != nil {
 			return err
 		}
@@ -174,10 +181,9 @@ func (s *appTaskStore) create(username, title, description string) (AppTask, err
 }
 
 // update обновляет задачу (заголовок, описание, статус, результат, журнал,
-// флаг запрошенного деплоя и время деплоя).
-// result/log/deployRequested/deployedAt — указатели: nil означает «не менять»
-// (так UI-редактор не затирает данные, записанные агентом).
-func (s *appTaskStore) update(username string, id int, title, description, status string, result, log *string, deployRequested *bool, deployedAt *string) (AppTask, error) {
+// флаги деплоя/отката, хэш коммита и времена). Указатели: nil означает
+// «не менять» (так UI-редактор не затирает данные, записанные агентом).
+func (s *appTaskStore) update(username string, id int, title, description, status string, result, log *string, deployRequested *bool, deployedAt *string, commitHash *string, revertRequested *bool, revertedAt *string) (AppTask, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return AppTask{}, errors.New("укажите заголовок задачи")
@@ -209,16 +215,27 @@ func (s *appTaskStore) update(username string, id int, title, description, statu
 	if deployedAt != nil {
 		t.DeployedAt = *deployedAt
 	}
+	if commitHash != nil {
+		t.CommitHash = *commitHash
+	}
+	if revertRequested != nil {
+		t.RevertRequested = *revertRequested
+	}
+	if revertedAt != nil {
+		t.RevertedAt = *revertedAt
+	}
 	t.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	if s.hasDB {
 		if _, err := db.Exec(context.Background(),
 			`UPDATE app_tasks
 			 SET title = $2, description = $3, status = $4, result = $5, log = $6,
-			     deploy_requested = $7, deployed_at = $8, updated = now()
+			     deploy_requested = $7, deployed_at = $8, commit_hash = $9,
+			     revert_requested = $10, reverted_at = $11, updated = now()
 			 WHERE id = $1`,
 			id, t.Title, t.Description, t.Status, t.Result, t.Log,
-			t.DeployRequested, t.DeployedAt); err != nil {
+			t.DeployRequested, t.DeployedAt, t.CommitHash,
+			t.RevertRequested, t.RevertedAt); err != nil {
 			return AppTask{}, err
 		}
 	}
@@ -286,13 +303,16 @@ func handleUpdateAppTask(c *gin.Context) {
 		Log             *string `json:"log"`
 		DeployRequested *bool   `json:"deploy_requested"`
 		DeployedAt      *string `json:"deployed_at"`
+		CommitHash      *string `json:"commit_hash"`
+		RevertRequested *bool   `json:"revert_requested"`
+		RevertedAt      *string `json:"reverted_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := appTasks.update(sessData.username, id, req.Title, req.Description, req.Status, req.Result, req.Log, req.DeployRequested, req.DeployedAt)
+	t, err := appTasks.update(sessData.username, id, req.Title, req.Description, req.Status, req.Result, req.Log, req.DeployRequested, req.DeployedAt, req.CommitHash, req.RevertRequested, req.RevertedAt)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {

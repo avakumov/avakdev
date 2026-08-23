@@ -103,8 +103,8 @@ func (a *agent) loop() {
 	}
 }
 
-// runCycle — один проход: вход, получение задач, выполнение новых
-// и обработка запрошенных деплоев.
+// runCycle — один проход: вход, получение задач, выполнение новых,
+// обработка запрошенных деплоев и откатов.
 func (a *agent) runCycle() error {
 	if err := a.ensureSession(); err != nil {
 		return err
@@ -114,6 +114,32 @@ func (a *agent) runCycle() error {
 		return err
 	}
 
+	// Коммит задачи возможен только в чистое дерево: проверяем до выполнения.
+	dirty, statusOut, err := a.gitStatusPorcelain()
+	if err != nil {
+		return err
+	}
+	if dirty {
+		log.Printf("AGENT: рабочее дерево грязное — новые задачи не выполняются:\n%s", statusOut)
+		msg := "Не выполнена: есть незакоммиченные файлы в рабочем дереве:\n" + statusOut
+		taskLog := "Дерево не чистое перед выполнением задачи:\n" + statusOut
+		for _, t := range tasks {
+			if t.Status != taskStatusNew {
+				continue
+			}
+			log.Printf("AGENT: задача #%d «%s»: не выполнена (грязное дерево)", t.ID, t.Title)
+			if err2 := a.updateTask(t.ID, t, taskPatch{
+				Status: strPtr(taskStatusFailed),
+				Result: &msg,
+				Log:    &taskLog,
+			}); err2 != nil {
+				log.Printf("AGENT: не удалось обновить задачу #%d: %v", t.ID, err2)
+			}
+		}
+	}
+
+	// Выполнение новых задач: каждая успешная задача коммитится отдельным
+	// коммитом, хэш сохраняется в задаче.
 	processed := 0
 	for _, t := range tasks {
 		if t.Status != taskStatusNew {
@@ -122,7 +148,7 @@ func (a *agent) runCycle() error {
 		processed++
 		log.Printf("AGENT: беру задачу #%d «%s»", t.ID, t.Title)
 
-		if err := a.updateTask(t.ID, t, taskStatusInProgress, nil, nil, nil, nil); err != nil {
+		if err := a.updateTask(t.ID, t, taskPatch{Status: strPtr(taskStatusInProgress)}); err != nil {
 			log.Printf("AGENT: не удалось пометить задачу #%d «в работе»: %v", t.ID, err)
 			continue
 		}
@@ -130,23 +156,57 @@ func (a *agent) runCycle() error {
 		result, taskLog, err := a.executeTask(t)
 		if err != nil {
 			log.Printf("AGENT: задача #%d не выполнена: %v", t.ID, err)
+			// Подчищаем дерево: обрывки неудачной задачи не должны попасть
+			// в следующие задачи и в коммиты.
+			if cleanOut, cerr := a.cleanTree(); cerr != nil {
+				taskLog += "\nНе удалось подчистить дерево: " + cerr.Error() + "\n" + cleanOut
+			} else {
+				taskLog += "\nДерево подчищено после неудачной задачи."
+			}
 			msg := "Не выполнена: " + err.Error()
-			if err2 := a.updateTask(t.ID, t, taskStatusFailed, &msg, &taskLog, nil, nil); err2 != nil {
+			if err2 := a.updateTask(t.ID, t, taskPatch{
+				Status: strPtr(taskStatusFailed),
+				Result: &msg,
+				Log:    &taskLog,
+			}); err2 != nil {
 				log.Printf("AGENT: не удалось пометить задачу #%d «failed»: %v", t.ID, err2)
 			}
 			continue
 		}
-		if err := a.updateTask(t.ID, t, taskStatusDone, &result, &taskLog, nil, nil); err != nil {
+
+		// Успех: коммитим задачу в чистое дерево и сохраняем хэш коммита.
+		hash, commitOut, err := a.commitTask(t)
+		if err != nil {
+			log.Printf("AGENT: задача #%d выполнена, но коммит не удался: %v", t.ID, err)
+			msg := "Выполнена, но не закоммичена: " + err.Error()
+			taskLog += "\ngit commit: " + commitOut + "\n" + err.Error()
+			if err2 := a.updateTask(t.ID, t, taskPatch{
+				Status: strPtr(taskStatusFailed),
+				Result: &msg,
+				Log:    &taskLog,
+			}); err2 != nil {
+				log.Printf("AGENT: не удалось обновить задачу #%d: %v", t.ID, err2)
+			}
+			continue
+		}
+		taskLog += "\n" + commitOut
+
+		if err := a.updateTask(t.ID, t, taskPatch{
+			Status:     strPtr(taskStatusDone),
+			Result:     &result,
+			Log:        &taskLog,
+			CommitHash: &hash,
+		}); err != nil {
 			log.Printf("AGENT: не удалось пометить задачу #%d «done»: %v", t.ID, err)
 		} else {
-			log.Printf("AGENT: задача #%d «%s» выполнена", t.ID, t.Title)
+			log.Printf("AGENT: задача #%d «%s» выполнена, коммит %s", t.ID, t.Title, shortHash(hash))
 		}
 	}
 	if processed > 0 {
 		log.Printf("AGENT: цикл завершён, обработано задач: %d", processed)
 	}
 
-	// Запрошенные деплои: коммитим рабочее дерево и запускаем make deploy.
+	// Запрошенные деплои: make deploy из чистого дерева.
 	for _, t := range tasks {
 		if !t.DeployRequested {
 			continue
@@ -154,65 +214,222 @@ func (a *agent) runCycle() error {
 		log.Printf("AGENT: задача #%d «%s»: запрошен деплой", t.ID, t.Title)
 		a.deployTask(t)
 	}
+
+	// Запрошенные откаты: git revert коммита задачи + make deploy.
+	for _, t := range tasks {
+		if !t.RevertRequested {
+			continue
+		}
+		log.Printf("AGENT: задача #%d «%s»: запрошен откат", t.ID, t.Title)
+		a.revertTask(t)
+	}
 	return nil
 }
 
-// deployTask выполняет деплой задачи: коммит изменений, make deploy,
-// обновление статуса на сервере.
+// deployTask выполняет деплой: только из чистого дерева (HEAD — уже
+// закоммиченные задачи), затем make deploy и обновление статуса.
+// Журнал задачи при этом сохраняется и дополняется.
 func (a *agent) deployTask(t AppTask) {
-	var logBuf strings.Builder
-	logBuf.WriteString("\n=== Деплой ===\n")
+	logBuf := strings.Builder{}
+	logBuf.WriteString(t.Log)
+	if logBuf.Len() > 0 && !strings.HasSuffix(t.Log, "\n") {
+		logBuf.WriteString("\n")
+	}
+	logBuf.WriteString("=== Деплой ===\n")
 
-	if out, err := a.gitCommit(t); err != nil {
-		log.Printf("AGENT: задача #%d: git commit не удался: %v", t.ID, err)
-		logBuf.WriteString("git commit: " + err.Error())
+	// Деплой только из чистого дерева.
+	dirty, statusOut, err := a.gitStatusPorcelain()
+	if err != nil {
+		log.Printf("AGENT: задача #%d: не удалось проверить состояние дерева: %v", t.ID, err)
+		logBuf.WriteString("Не удалось проверить состояние дерева: " + err.Error())
+	} else if dirty {
+		log.Printf("AGENT: задача #%d: деплой отменён — дерево грязное", t.ID)
+		logBuf.WriteString("Деплой отменён: есть незакоммиченные файлы:\n" + statusOut)
 	} else {
-		logBuf.WriteString(out + "\n")
+		deployedAt := time.Now().UTC().Format(time.RFC3339)
+
+		deployOut, deployErr := a.runDeploy()
+		if deployErr != nil {
+			log.Printf("AGENT: задача #%d: деплой не удался: %v", t.ID, deployErr)
+			logBuf.WriteString("Деплой не удался: " + deployErr.Error() + "\n" + deployOut)
+			taskLog := truncateLog(logBuf.String())
+			if err2 := a.updateTask(t.ID, t, taskPatch{
+				Status:          strPtr(taskStatusDone),
+				Log:             &taskLog,
+				DeployRequested: boolPtr(false),
+			}); err2 != nil {
+				log.Printf("AGENT: не удалось обновить задачу #%d после неудачного деплоя: %v", t.ID, err2)
+			}
+			return
+		}
+		logBuf.WriteString(deployOut)
+
+		taskLog := truncateLog(logBuf.String())
+		if err := a.updateTask(t.ID, t, taskPatch{
+			Status:          strPtr(taskStatusDone),
+			Log:             &taskLog,
+			DeployRequested: boolPtr(false),
+			DeployedAt:      &deployedAt,
+		}); err != nil {
+			log.Printf("AGENT: не удалось обновить задачу #%d после деплоя: %v", t.ID, err)
+			return
+		}
+		log.Printf("AGENT: задача #%d «%s» задеплоена (%s)", t.ID, t.Title, deployedAt)
+		return
 	}
 
-	deployedAt := time.Now().UTC().Format(time.RFC3339)
-	taskLog := logBuf.String()
+	// Отказ (грязное дерево или ошибка проверки): флаг деплоя НЕ снимаем —
+	// повторим в следующем цикле, когда дерево подчистят.
+	taskLog := truncateLog(logBuf.String())
+	if err2 := a.updateTask(t.ID, t, taskPatch{
+		Status: strPtr(taskStatusDone),
+		Log:    &taskLog,
+	}); err2 != nil {
+		log.Printf("AGENT: не удалось обновить задачу #%d: %v", t.ID, err2)
+	}
+}
+
+// revertTask откатывает задеплоенный коммит задачи: git revert + make deploy.
+func (a *agent) revertTask(t AppTask) {
+	logBuf := strings.Builder{}
+	logBuf.WriteString(t.Log)
+	if logBuf.Len() > 0 && !strings.HasSuffix(t.Log, "\n") {
+		logBuf.WriteString("\n")
+	}
+	logBuf.WriteString("=== Откат ===\n")
+
+	if t.CommitHash == "" {
+		log.Printf("AGENT: задача #%d: откат невозможен — нет commit_hash", t.ID)
+		logBuf.WriteString("Откат невозможен: у задачи нет commit_hash")
+		taskLog := truncateLog(logBuf.String())
+		a.updateTask(t.ID, t, taskPatch{
+			Status:          strPtr(taskStatusDone),
+			Log:             &taskLog,
+			RevertRequested: boolPtr(false),
+		})
+		return
+	}
+
+	out, err := a.runGit("revert", "--no-edit", t.CommitHash)
+	if err != nil {
+		log.Printf("AGENT: задача #%d: git revert не удался: %v", t.ID, err)
+		logBuf.WriteString("git revert не удался: " + err.Error() + "\n" + out)
+		// При конфликте возвращаем дерево в исходное состояние.
+		if _, abortErr := a.runGit("revert", "--abort"); abortErr == nil {
+			logBuf.WriteString("\nКонфликт отменён (git revert --abort). Требуется ручное разрешение.")
+		}
+		taskLog := truncateLog(logBuf.String())
+		a.updateTask(t.ID, t, taskPatch{
+			Status:          strPtr(taskStatusDone),
+			Log:             &taskLog,
+			RevertRequested: boolPtr(false),
+		})
+		return
+	}
+	logBuf.WriteString("revert коммит создан:\n" + out)
+
+	// Деплой отката — только из чистого дерева.
+	dirty, statusOut, err := a.gitStatusPorcelain()
+	if err != nil || dirty {
+		log.Printf("AGENT: задача #%d: дерево грязное после revert, деплой отката отменён", t.ID)
+		logBuf.WriteString("\nДеплой отката отменён: дерево грязное:\n" + statusOut)
+		taskLog := truncateLog(logBuf.String())
+		a.updateTask(t.ID, t, taskPatch{
+			Status:          strPtr(taskStatusDone),
+			Log:             &taskLog,
+			RevertRequested: boolPtr(false),
+		})
+		return
+	}
 
 	deployOut, deployErr := a.runDeploy()
 	if deployErr != nil {
-		log.Printf("AGENT: задача #%d: деплой не удался: %v", t.ID, deployErr)
-		taskLog += "\nДеплой не удался: " + deployErr.Error()
-		if len(taskLog) > maxAgentLogChars {
-			taskLog = taskLog[:maxAgentLogChars] + "\n...(обрезано)"
-		}
-		if err2 := a.updateTask(t.ID, t, taskStatusDone, nil, &taskLog, boolPtr(false), nil); err2 != nil {
-			log.Printf("AGENT: не удалось обновить задачу #%d после неудачного деплоя: %v", t.ID, err2)
-		}
+		log.Printf("AGENT: задача #%d: деплой отката не удался: %v", t.ID, deployErr)
+		logBuf.WriteString("\nДеплой отката не удался: " + deployErr.Error() + "\n" + deployOut)
+		taskLog := truncateLog(logBuf.String())
+		a.updateTask(t.ID, t, taskPatch{
+			Status:          strPtr(taskStatusDone),
+			Log:             &taskLog,
+			RevertRequested: boolPtr(false),
+		})
 		return
 	}
+	logBuf.WriteString("\n" + deployOut)
 
-	taskLog += deployOut
-	if len(taskLog) > maxAgentLogChars {
-		taskLog = taskLog[:maxAgentLogChars] + "\n...(обрезано)"
-	}
-	if err := a.updateTask(t.ID, t, taskStatusDone, nil, &taskLog, boolPtr(false), &deployedAt); err != nil {
-		log.Printf("AGENT: не удалось обновить задачу #%d после деплоя: %v", t.ID, err)
+	now := time.Now().UTC().Format(time.RFC3339)
+	taskLog := truncateLog(logBuf.String())
+	if err := a.updateTask(t.ID, t, taskPatch{
+		Status:          strPtr(taskStatusDone),
+		Log:             &taskLog,
+		RevertRequested: boolPtr(false),
+		RevertedAt:      &now,
+	}); err != nil {
+		log.Printf("AGENT: не удалось обновить задачу #%d после отката: %v", t.ID, err)
 		return
 	}
-	log.Printf("AGENT: задача #%d «%s» задеплоена (%s)", t.ID, t.Title, deployedAt)
+	log.Printf("AGENT: задача #%d «%s» откачена (%s)", t.ID, t.Title, now)
 }
 
-// gitCommit коммитит все изменения в рабочем дереве с упоминанием задачи.
-// «Нечего коммитить» не считается ошибкой.
-func (a *agent) gitCommit(t AppTask) (string, error) {
-	if out, err := a.runGit("add", "-A"); err != nil {
-		return out, fmt.Errorf("git add: %v", err)
+// commitTask коммитит изменения задачи отдельным коммитом и возвращает хэш.
+// «Нечего коммитить» (задача ничего не меняла) не ошибка: возвращается HEAD.
+func (a *agent) commitTask(t AppTask) (hash, out string, err error) {
+	if out, err = a.runGit("add", "-A"); err != nil {
+		return "", out, fmt.Errorf("git add: %v", err)
 	}
-
 	msg := fmt.Sprintf("avakumov-agent: задача #%d «%s»", t.ID, t.Title)
-	out, err := a.runGit("commit", "-m", msg)
+	commitOut, err := a.runGit("commit", "-m", msg)
+	out += commitOut
 	if err != nil {
-		if strings.Contains(strings.ToLower(out), "nothing to commit") {
-			return "коммитить нечего: изменений в рабочем дереве нет", nil
+		if strings.Contains(strings.ToLower(commitOut), "nothing to commit") {
+			h, herr := a.runGit("rev-parse", "HEAD")
+			return strings.TrimSpace(h), out + "\nизменений нет, коммитить нечего", herr
 		}
-		return out, fmt.Errorf("git commit: %v", err)
+		return "", out, fmt.Errorf("git commit: %v", err)
 	}
-	return "коммит создан: " + msg, nil
+	h, err := a.runGit("rev-parse", "HEAD")
+	return strings.TrimSpace(h), out, err
+}
+
+// gitStatusPorcelain возвращает true, если в рабочем дереве есть
+// незакоммиченные изменения (модифицированные или новые файлы).
+func (a *agent) gitStatusPorcelain() (bool, string, error) {
+	out, err := a.runGit("status", "--porcelain")
+	if err != nil {
+		return false, out, err
+	}
+	return strings.TrimSpace(out) != "", out, nil
+}
+
+// cleanTree возвращает рабочее дерево к состоянию HEAD: откатывает изменения
+// отслеживаемых файлов и удаляет новые (неотслеживаемые) файлы.
+func (a *agent) cleanTree() (string, error) {
+	out1, err := a.runGit("restore", ".")
+	if err != nil {
+		return out1, err
+	}
+	out2, err := a.runGit("clean", "-fd")
+	return out1 + out2, err
+}
+
+// truncateLog ограничивает длину журнала задачи.
+func truncateLog(s string) string {
+	if len(s) > maxAgentLogChars {
+		s = s[:maxAgentLogChars] + "\n...(обрезано)"
+	}
+	return s
+}
+
+// shortHash возвращает короткий хэш коммита (первые 7 символов).
+func shortHash(h string) string {
+	if len(h) > 7 {
+		return h[:7]
+	}
+	return h
+}
+
+// strPtr возвращает указатель на строку.
+func strPtr(s string) *string {
+	return &s
 }
 
 // runGit выполняет git-команду в корне репозитория.
@@ -327,26 +544,49 @@ func (a *agent) fetchTasks() ([]AppTask, error) {
 // прод перезапустился во время make deploy и все сессии обнулились).
 var errAgentUnauthorized = errors.New("не авторизован (401)")
 
-// updateTask обновляет статус (результат, журнал, флаги деплоя) задачи на сервере.
-// При 401 перелогинивается и повторяет запрос один раз — иначе после деплоя
-// (рестарт прода) статус не обновится и задача будет деплоиться бесконечно.
-func (a *agent) updateTask(id int, t AppTask, status string, result, taskLog *string, deployRequested *bool, deployedAt *string) error {
+// taskPatch — обновляемые агентом поля задачи. nil-поля означают «не менять».
+type taskPatch struct {
+	Status          *string
+	Result          *string
+	Log             *string
+	DeployRequested *bool
+	DeployedAt      *string
+	CommitHash      *string
+	RevertRequested *bool
+	RevertedAt      *string
+}
+
+// updateTask применяет taskPatch к задаче на сервере. При 401 перелогинивается
+// и повторяет запрос один раз — иначе после деплоя (рестарт прода) статус
+// не обновится и задача будет деплоиться/откатываться бесконечно.
+func (a *agent) updateTask(id int, t AppTask, patch taskPatch) error {
 	payload := map[string]any{
 		"title":       t.Title,
 		"description": t.Description,
-		"status":      status,
 	}
-	if result != nil {
-		payload["result"] = *result
+	if patch.Status != nil {
+		payload["status"] = *patch.Status
 	}
-	if taskLog != nil {
-		payload["log"] = *taskLog
+	if patch.Result != nil {
+		payload["result"] = *patch.Result
 	}
-	if deployRequested != nil {
-		payload["deploy_requested"] = *deployRequested
+	if patch.Log != nil {
+		payload["log"] = *patch.Log
 	}
-	if deployedAt != nil {
-		payload["deployed_at"] = *deployedAt
+	if patch.DeployRequested != nil {
+		payload["deploy_requested"] = *patch.DeployRequested
+	}
+	if patch.DeployedAt != nil {
+		payload["deployed_at"] = *patch.DeployedAt
+	}
+	if patch.CommitHash != nil {
+		payload["commit_hash"] = *patch.CommitHash
+	}
+	if patch.RevertRequested != nil {
+		payload["revert_requested"] = *patch.RevertRequested
+	}
+	if patch.RevertedAt != nil {
+		payload["reverted_at"] = *patch.RevertedAt
 	}
 	body, _ := json.Marshal(payload)
 

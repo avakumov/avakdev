@@ -266,6 +266,24 @@ export async function requestTaskDeploy(task) {
   return data;
 }
 
+// Запросить откат задачи: dev-агент сделает git revert коммита задачи
+// и передеплоит (PUT /api/app-tasks/:id с флагом revert_requested).
+export async function requestTaskRollback(task) {
+  const res = await fetch(`${BASE}/api/app-tasks/${task.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      revert_requested: true,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось запросить откат");
+  return data;
+}
+
 // ==== Дневные отчёты ====
 
 // Список отчётов с /api/reports

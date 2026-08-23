@@ -29,7 +29,7 @@ func TestAppTaskStore(t *testing.T) {
 	}
 
 	// Смена статуса.
-	updated, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusInProgress, nil, nil, nil, nil)
+	updated, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusInProgress, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -38,41 +38,42 @@ func TestAppTaskStore(t *testing.T) {
 	}
 
 	// Некорректный статус отклоняется.
-	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, "banana", nil, nil, nil, nil); err == nil {
+	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, "banana", nil, nil, nil, nil, nil, nil, nil); err == nil {
 		t.Fatal("update с неизвестным статусом должен падать")
 	}
 
-	// Результат и журнал записываются только когда переданы (nil — не затирает).
+	// Результат, журнал, хэш коммита записываются только когда переданы.
 	res := "изменён отступ в Metrics.jsx"
 	logText := "[1] read_file(...)\nфайл записан"
-	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusDone, &res, &logText, nil, nil); err != nil {
+	hash := "abc123def456"
+	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusDone, &res, &logText, nil, nil, &hash, nil, nil); err != nil {
 		t.Fatalf("update с результатом: %v", err)
 	}
-	if got, _ := appTasks.getOwned("admin", task.ID); got.Result != res || got.Log != logText || got.Status != taskStatusDone {
-		t.Fatalf("result/log/status не сохранились: %+v", got)
+	if got, _ := appTasks.getOwned("admin", task.ID); got.Result != res || got.Log != logText || got.Status != taskStatusDone || got.CommitHash != hash {
+		t.Fatalf("result/log/status/hash не сохранились: %+v", got)
 	}
-	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusInProgress, nil, nil, nil, nil); err != nil {
+	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusInProgress, nil, nil, nil, nil, nil, nil, nil); err != nil {
 		t.Fatalf("update без результата: %v", err)
 	}
-	if got, _ := appTasks.getOwned("admin", task.ID); got.Result != res || got.Log != logText {
-		t.Fatalf("update с nil затёр result/log: %q / %q", got.Result, got.Log)
+	if got, _ := appTasks.getOwned("admin", task.ID); got.Result != res || got.Log != logText || got.CommitHash != hash {
+		t.Fatalf("update с nil затёр result/log/hash: %q / %q / %q", got.Result, got.Log, got.CommitHash)
 	}
 
-	// Флаги деплоя записываются только когда переданы.
+	// Флаги деплоя и отката записываются только когда переданы.
 	req := true
 	deployedAt := "2026-08-23T12:00:00Z"
-	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusDone, nil, nil, &req, &deployedAt); err != nil {
-		t.Fatalf("update с флагами деплоя: %v", err)
+	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusDone, nil, nil, &req, &deployedAt, nil, &req, nil); err != nil {
+		t.Fatalf("update с флагами: %v", err)
 	}
-	if got, _ := appTasks.getOwned("admin", task.ID); !got.DeployRequested || got.DeployedAt != deployedAt {
-		t.Fatalf("флаги деплоя не сохранились: %+v", got)
+	if got, _ := appTasks.getOwned("admin", task.ID); !got.DeployRequested || got.DeployedAt != deployedAt || !got.RevertRequested {
+		t.Fatalf("флаги деплоя/отката не сохранились: %+v", got)
 	}
 
 	// Приватность: другой пользователь не видит и не трогает чужие задачи.
 	if tasks := appTasks.list("other"); len(tasks) != 0 {
 		t.Fatalf("list(other) = %d задач, want 0", len(tasks))
 	}
-	if _, err := appTasks.update("other", task.ID, "Чужая", "", taskStatusDone, nil, nil, nil, nil); err == nil ||
+	if _, err := appTasks.update("other", task.ID, "Чужая", "", taskStatusDone, nil, nil, nil, nil, nil, nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "не найдена") {
 		t.Fatalf("update чужой задачи должен падать: %v", err)
 	}

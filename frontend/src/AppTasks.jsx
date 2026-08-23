@@ -5,6 +5,7 @@ import {
   updateAppTask,
   deleteAppTask,
   requestTaskDeploy,
+  requestTaskRollback,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -37,6 +38,7 @@ import {
   Clock,
   Rocket,
   Check,
+  Undo2,
 } from "lucide-react";
 
 // Статусы задач: метка + вариант бейджа.
@@ -145,6 +147,7 @@ function TaskCard({ task, onChanged }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deploying, setDeploying] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
   const [error, setError] = useState("");
 
   const startEdit = () => {
@@ -223,8 +226,37 @@ function TaskCard({ task, onChanged }) {
     }
   };
 
-  const canDeploy = task.status === "done" && !task.deploy_requested;
+  // Deploy доступен для готовых задач, у которых нет активного запроса
+  // и которые ещё не были задеплоены.
+  const canDeploy =
+    task.status === "done" && !task.deploy_requested && !task.deployed_at;
+  // Откат доступен для задеплоенных задач, если откат ещё не запрошен
+  // и уже не был выполнен.
+  const canRollback =
+    task.status === "done" &&
+    !!task.deployed_at &&
+    !!task.commit_hash &&
+    !task.revert_requested &&
+    !task.reverted_at;
 
+  const handleRollback = async () => {
+    if (
+      !window.confirm(
+        `Откатить задачу «${task.title}»? Агент сделает git revert коммита ${task.commit_hash.slice(0, 7)} и передеплоит.`,
+      )
+    ) {
+      return;
+    }
+    setRollingBack(true);
+    setError("");
+    try {
+      await requestTaskRollback(task);
+      onChanged();
+    } catch (err) {
+      setError(err.message || "Не удалось запросить откат");
+      setRollingBack(false);
+    }
+  };
   return (
     <Card className="my-3" size="sm">
       <CardHeader>
@@ -325,13 +357,41 @@ function TaskCard({ task, onChanged }) {
                     {deploying ? "Запрашиваю…" : "Deploy"}
                   </Button>
                 )}
+                {canRollback && (
+                  <Button
+                    variant="outline"
+                    onClick={handleRollback}
+                    disabled={rollingBack}
+                  >
+                    {rollingBack ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <Undo2 />
+                    )}
+                    {rollingBack ? "Запрашиваю…" : "Откатить"}
+                  </Button>
+                )}
                 {task.deploy_requested && (
                   <Badge variant="default">Деплой запрошен</Badge>
+                )}
+                {task.revert_requested && (
+                  <Badge variant="default">Откат запрошен</Badge>
                 )}
                 {task.deployed_at && (
                   <Badge variant="secondary">
                     <Check className="size-3" />
                     Деплой: {task.deployed_at}
+                  </Badge>
+                )}
+                {task.reverted_at && (
+                  <Badge variant="destructive">
+                    <Undo2 className="size-3" />
+                    Откачено: {task.reverted_at}
+                  </Badge>
+                )}
+                {task.commit_hash && (
+                  <Badge variant="outline">
+                    коммит: {task.commit_hash.slice(0, 7)}
                   </Badge>
                 )}
               </div>

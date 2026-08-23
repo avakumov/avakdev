@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -112,18 +115,110 @@ func TestAgentServerFlow(t *testing.T) {
 		t.Fatalf("tasks = %+v", tasks)
 	}
 
-	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusInProgress, nil, nil, nil, nil); err != nil {
+	if err := a.updateTask(tasks[0].ID, tasks[0], taskPatch{Status: strPtr(taskStatusInProgress)}); err != nil {
 		t.Fatalf("updateTask(in_progress): %v", err)
 	}
 	res := "изменён отступ"
 	taskLog := "[1] read_file(...)\nвывод сборки"
-	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusDone, &res, &taskLog, nil, nil); err != nil {
+	hash := "abc1234"
+	if err := a.updateTask(tasks[0].ID, tasks[0], taskPatch{
+		Status:     strPtr(taskStatusDone),
+		Result:     &res,
+		Log:        &taskLog,
+		CommitHash: &hash,
+	}); err != nil {
 		t.Fatalf("updateTask(done): %v", err)
 	}
 	// Завершение деплоя: снимаем флаг и проставляем время.
 	deployedAt := "2026-08-23T12:00:00Z"
-	if err := a.updateTask(tasks[0].ID, tasks[0], taskStatusDone, nil, &taskLog, boolPtr(false), &deployedAt); err != nil {
+	if err := a.updateTask(tasks[0].ID, tasks[0], taskPatch{
+		Status:          strPtr(taskStatusDone),
+		Log:             &taskLog,
+		DeployRequested: boolPtr(false),
+		DeployedAt:      &deployedAt,
+	}); err != nil {
 		t.Fatalf("updateTask(deploy): %v", err)
+	}
+}
+
+// Проверка git-механики агента в настоящем репозитории (временный каталог):
+// чистое/грязное дерево, коммит задачи с хэшем, подчистка после неудачи.
+func TestAgentGitWorkflow(t *testing.T) {
+	root := t.TempDir()
+
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
+		out, _ := cmd.CombinedOutput()
+		return string(out)
+	}
+	t.Setenv("GIT_AUTHOR_NAME", "Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "test@test")
+	t.Setenv("GIT_COMMITTER_NAME", "Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@test")
+
+	git("init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "init")
+
+	a := &agent{repoRoot: root}
+
+	// Чистое дерево.
+	if dirty, _, err := a.gitStatusPorcelain(); err != nil || dirty {
+		t.Fatalf("дерево должно быть чистым: dirty=%v err=%v", dirty, err)
+	}
+
+	// После правки — грязное.
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if dirty, out, err := a.gitStatusPorcelain(); err != nil || !dirty || !strings.Contains(out, "a.txt") {
+		t.Fatalf("дерево должно быть грязным: dirty=%v out=%q err=%v", dirty, out, err)
+	}
+
+	// Коммит задачи: хэш не пустой, сообщение с номером задачи, дерево чистое.
+	task := AppTask{ID: 5, Title: "Правка отступа"}
+	hash, out, err := a.commitTask(task)
+	if err != nil {
+		t.Fatalf("commitTask: %v %s", err, out)
+	}
+	if len(hash) < 7 {
+		t.Fatalf("commitTask вернул короткий хэш: %q", hash)
+	}
+	if !strings.Contains(out, "задача #5") {
+		t.Fatalf("сообщение коммита не содержит задачу: %s", out)
+	}
+	if dirty, _, err := a.gitStatusPorcelain(); err != nil || dirty {
+		t.Fatalf("после коммита дерево должно быть чистым: dirty=%v", dirty)
+	}
+
+	// Подчистка после неудачи: грязное дерево + новый файл -> чистое.
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "new_file.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.cleanTree(); err != nil {
+		t.Fatalf("cleanTree: %v", err)
+	}
+	if dirty, out, err := a.gitStatusPorcelain(); err != nil || dirty {
+		t.Fatalf("после cleanTree дерево должно быть чистым: dirty=%v out=%q err=%v", dirty, out, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "a.txt")); err != nil || string(data) != "hello2" {
+		t.Fatalf("cleanTree не вернул файл к состоянию HEAD: %q %v", string(data), err)
+	}
+
+	// Откат коммита задачи.
+	if out, err := a.runGit("revert", "--no-edit", hash); err != nil {
+		t.Fatalf("revert: %v %s", err, out)
+	}
+	if dirty, _, err := a.gitStatusPorcelain(); err != nil || dirty {
+		t.Fatalf("после revert дерево должно быть чистым: dirty=%v", dirty)
 	}
 }
 
@@ -186,7 +281,7 @@ func TestAgentUpdateTaskRetriesAfter401(t *testing.T) {
 	}
 
 	task := AppTask{ID: 1, Title: "Задача"}
-	if err := a.updateTask(task.ID, task, taskStatusDone, nil, nil, nil, nil); err != nil {
+	if err := a.updateTask(task.ID, task, taskPatch{Status: strPtr(taskStatusDone)}); err != nil {
 		t.Fatalf("updateTask: %v", err)
 	}
 	if putCount != 2 {
