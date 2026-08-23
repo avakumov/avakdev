@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import {
-  Activity,
   X,
   FileText,
   BookOpen,
@@ -13,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import UserBadge from "./UserBadge.jsx";
+import Brand from "./Brand.jsx";
 
 // Пункты бокового меню.
 export const NAV_ITEMS = [
@@ -59,14 +59,14 @@ function Sidebar({ view, onSelect, open, onClose, username, isAdmin, onLogout })
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        {/* Бренд */}
+        {/* Бренд: клик ведёт на главную */}
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Activity className="size-5" />
-          </span>
-          <span className="rounded-md border-2 border-yellow-500 px-2 py-0.5 text-lg font-heading font-semibold tracking-tight text-yellow-500">
-            avakumov
-          </span>
+          <Brand
+            onClick={() => {
+              onSelect("reports");
+              onClose();
+            }}
+          />
           <Button
             variant="ghost"
             size="icon"

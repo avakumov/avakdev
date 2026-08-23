@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useHealth,
   useMessage,
@@ -20,6 +20,7 @@ import Important from "./Important.jsx";
 import Metrics from "./Metrics.jsx";
 import AppTasks from "./AppTasks.jsx";
 import MarkdownView from "./MarkdownView.jsx";
+import Brand from "./Brand.jsx";
 
 import {
   Card,
@@ -56,6 +57,28 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+
+// Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
+// работают кнопки назад/вперёд.
+const VIEW_PATHS = {
+  reports: "/",
+  knowledge: "/knowledge",
+  metrics: "/metrics",
+  profile: "/profile",
+  important: "/important",
+  app: "/app",
+  server: "/server",
+};
+
+const PATH_VIEWS = Object.fromEntries(
+  Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]),
+);
+
+// pathToView сопоставляет путь с разделом; неизвестные пути ведут в «Отчеты».
+function pathToView(path) {
+  const p = path.replace(/\/+$/, "") || "/";
+  return PATH_VIEWS[p] || "reports";
+}
 
 // Форматирование байтов в человекочитаемый вид (KB/MB/GB/TB).
 function fmtBytes(b) {
@@ -236,9 +259,26 @@ function App() {
   const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
   const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
 
-  // Текущий раздел меню: "reports" / "knowledge" / "metrics" / "important" /
-  // "app" / "profile" / "server".
-  const [view, setView] = useState("reports");
+  // Текущий раздел меню, синхронизированный с URL: рефреш не сбрасывает,
+  // кнопки назад/вперёд работают.
+  const [view, setViewState] = useState(() =>
+    pathToView(window.location.pathname),
+  );
+
+  const setView = (v) => {
+    setViewState(v);
+    const path = VIEW_PATHS[v] || "/";
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, "", path);
+    }
+  };
+
+  // Реакция на кнопки назад/вперёд браузера.
+  useEffect(() => {
+    const onPop = () => setViewState(pathToView(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // Открыто ли боковое меню на мобильных (бургер).
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -328,14 +368,7 @@ function App() {
         >
           <Menu className="size-5" />
         </Button>
-        <span className="flex items-center gap-2 font-heading font-semibold tracking-tight">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Activity className="size-4" />
-          </span>
-          <span className="rounded-md border-2 border-black bg-yellow-500 px-2 py-0.5 text-black">
-            avakumov
-          </span>
-        </span>
+        <Brand onClick={() => setView("reports")} />
         {meQuery.data && (
           <div className="ml-auto">
             <UserBadge
