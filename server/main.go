@@ -62,6 +62,9 @@ func main() {
 	if err := initMetrics(); err != nil {
 		log.Fatalf("не удалось инициализировать метрики: %v", err)
 	}
+	if err := initAppTasks(); err != nil {
+		log.Fatalf("не удалось инициализировать задачи: %v", err)
+	}
 	logAuthConfig()
 
 	r := gin.Default()
@@ -136,6 +139,12 @@ func main() {
 		authed.DELETE("/user-metrics/:id", handleDeleteUserMetric)
 		authed.PUT("/user-metrics/:id/:date", handleSetUserMetricValue)
 		authed.DELETE("/user-metrics/:id/:date", handleDeleteUserMetricValue)
+
+		// Задачи по модификации приложения (раздел «Приложение»).
+		authed.GET("/app-tasks", handleListAppTasks)
+		authed.POST("/app-tasks", handleCreateAppTask)
+		authed.PUT("/app-tasks/:id", handleUpdateAppTask)
+		authed.DELETE("/app-tasks/:id", handleDeleteAppTask)
 
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)

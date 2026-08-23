@@ -201,6 +201,53 @@ export async function deleteUserMetricValue(id, date) {
   return data;
 }
 
+// ==== Задачи по модификации приложения ====
+
+// Список задач с /api/app-tasks. Возвращает { tasks: [{id, title, description, status, created, updated}] }.
+export function useAppTasks(enabled = true) {
+  return useQuery({
+    queryKey: ["app-tasks"],
+    queryFn: () => request("/api/app-tasks"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Создать задачу (POST /api/app-tasks).
+export async function createAppTask(title, description) {
+  const res = await fetch(`${BASE}/api/app-tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, description }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось создать задачу");
+  return data;
+}
+
+// Обновить задачу: заголовок, описание, статус (PUT /api/app-tasks/:id).
+export async function updateAppTask(id, { title, description, status }) {
+  const res = await fetch(`${BASE}/api/app-tasks/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, description, status }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось обновить задачу");
+  return data;
+}
+
+// Удалить задачу (DELETE /api/app-tasks/:id).
+export async function deleteAppTask(id) {
+  const res = await fetch(`${BASE}/api/app-tasks/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить задачу");
+  return data;
+}
+
 // ==== Дневные отчёты ====
 
 // Список отчётов с /api/reports

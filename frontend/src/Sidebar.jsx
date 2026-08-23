@@ -7,6 +7,7 @@ import {
   BarChart3,
   User,
   Megaphone,
+  Wrench,
   Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ export const NAV_ITEMS = [
   { key: "metrics", label: "Метрики", icon: BarChart3 },
   { key: "profile", label: "Профиль", icon: User },
   { key: "important", label: "Важное", icon: Megaphone },
+  { key: "app", label: "Приложение", icon: Wrench },
   { key: "server", label: "Сервер", icon: Server },
 ];
 

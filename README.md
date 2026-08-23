@@ -109,6 +109,10 @@ go install github.com/air-verse/air@latest
 | DELETE| `/api/user-metrics/:id` | Удалить метрику со значениями |
 | PUT   | `/api/user-metrics/:id/:date` | Сохранить показатель за день (один на день, перезаписывает) |
 | DELETE| `/api/user-metrics/:id/:date` | Удалить показатель за день |
+| GET   | `/api/app-tasks`        | Задачи по модификации приложения (раздел «Приложение») |
+| POST  | `/api/app-tasks`        | Создать задачу (заголовок + описание) |
+| PUT   | `/api/app-tasks/:id`    | Обновить задачу: заголовок, описание, статус |
+| DELETE| `/api/app-tasks/:id`    | Удалить задачу |
 
 ## Переменные окружения
 

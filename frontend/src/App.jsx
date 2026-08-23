@@ -18,6 +18,7 @@ import Profile from "./Profile.jsx";
 import Knowledge from "./Knowledge.jsx";
 import Important from "./Important.jsx";
 import Metrics from "./Metrics.jsx";
+import AppTasks from "./AppTasks.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 
 import {
@@ -235,8 +236,8 @@ function App() {
   const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
   const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
 
-  // Текущий раздел меню: "reports" / "knowledge" / "metrics" / "profile" /
-  // "important" / "server".
+  // Текущий раздел меню: "reports" / "knowledge" / "metrics" / "important" /
+  // "app" / "profile" / "server".
   const [view, setView] = useState("reports");
 
   // Открыто ли боковое меню на мобильных (бургер).
@@ -260,6 +261,7 @@ function App() {
           queryClient.removeQueries({ queryKey: ["metrics"] });
           queryClient.removeQueries({ queryKey: ["important"] });
           queryClient.removeQueries({ queryKey: ["user-metrics"] });
+          queryClient.removeQueries({ queryKey: ["app-tasks"] });
           queryClient.invalidateQueries({ queryKey: ["me"] });
         }}
       />
@@ -293,6 +295,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["metrics"] });
     queryClient.removeQueries({ queryKey: ["important"] });
     queryClient.removeQueries({ queryKey: ["user-metrics"] });
+    queryClient.removeQueries({ queryKey: ["app-tasks"] });
     await queryClient.invalidateQueries({ queryKey: ["me"] });
   };
 
@@ -361,6 +364,7 @@ function App() {
           {view === "metrics" && <Metrics />}
           {view === "profile" && <Profile />}
           {view === "important" && <Important />}
+          {view === "app" && <AppTasks />}
           {view === "server" && (
             <>
               {/* Панель быстрых действий */}
