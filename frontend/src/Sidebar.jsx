@@ -64,7 +64,7 @@ function Sidebar({ view, onSelect, open, onClose, username, isAdmin, onLogout })
           <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Activity className="size-5" />
           </span>
-          <span className="text-lg font-heading font-semibold tracking-tight">
+          <span className="rounded-md border-2 border-yellow-500 px-2 py-0.5 text-lg font-heading font-semibold tracking-tight text-yellow-500">
             avakumov
           </span>
           <Button
