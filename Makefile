@@ -94,14 +94,26 @@ pg-setup:
 # ---------------------------------------------------------------------------
 # Разработка
 # ---------------------------------------------------------------------------
+# Go-сервер в dev: если установлен air — горячая перезагрузка при изменении
+# .go/.sql файлов (см. server/.air.toml); иначе обычный `go run .` без
+# авто-рестарта. Установка air: go install github.com/air-verse/air@latest
+ifneq ($(shell command -v air 2>/dev/null),)
+  DEV_GO := air
+else
+  DEV_GO := go run .
+  DEV_GO_WARN := @echo "(!) air не установлен — Go-сервер без авто-перезагрузки. Установка: go install github.com/air-verse/air@latest"
+endif
+
 dev: dev-check-db
+	$(DEV_GO_WARN)
 	@trap 'kill 0' INT TERM; \
-	(cd server && go run .) & \
+	(cd server && $(DEV_GO)) & \
 	(cd frontend && npm run dev) & \
 	wait
 
 dev-backend: dev-check-db
-	cd server && go run .
+	$(DEV_GO_WARN)
+	cd server && $(DEV_GO)
 
 dev-frontend:
 	cd frontend && npm run dev

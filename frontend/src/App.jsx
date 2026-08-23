@@ -187,7 +187,7 @@ function ImportantGate({ content, onDone }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <Card className="w-full max-w-lg">
+      <Card className="w-full max-w-3xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -320,10 +320,6 @@ function App() {
             </span>
             Go (Gin) + React + TanStack Query
           </h1>
-          <p className="text-muted-foreground">
-            Фронтенд отдаётся Go-сервером, данные приходят с{" "}
-            <code className="rounded bg-muted px-1.5 py-0.5 text-sm">/api</code>
-          </p>
         </div>
         {meQuery.data && (
           <UserBadge
