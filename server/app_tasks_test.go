@@ -29,7 +29,7 @@ func TestAppTaskStore(t *testing.T) {
 	}
 
 	// Смена статуса.
-	updated, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusInProgress)
+	updated, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusInProgress, nil, nil)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -38,15 +38,31 @@ func TestAppTaskStore(t *testing.T) {
 	}
 
 	// Некорректный статус отклоняется.
-	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, "banana"); err == nil {
+	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, "banana", nil, nil); err == nil {
 		t.Fatal("update с неизвестным статусом должен падать")
+	}
+
+	// Результат и журнал записываются только когда переданы (nil — не затирает).
+	res := "изменён отступ в Metrics.jsx"
+	logText := "[1] read_file(...)\nфайл записан"
+	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusDone, &res, &logText); err != nil {
+		t.Fatalf("update с результатом: %v", err)
+	}
+	if got, _ := appTasks.getOwned("admin", task.ID); got.Result != res || got.Log != logText || got.Status != taskStatusDone {
+		t.Fatalf("result/log/status не сохранились: %+v", got)
+	}
+	if _, err := appTasks.update("admin", task.ID, task.Title, task.Description, taskStatusInProgress, nil, nil); err != nil {
+		t.Fatalf("update без результата: %v", err)
+	}
+	if got, _ := appTasks.getOwned("admin", task.ID); got.Result != res || got.Log != logText {
+		t.Fatalf("update с nil затёр result/log: %q / %q", got.Result, got.Log)
 	}
 
 	// Приватность: другой пользователь не видит и не трогает чужие задачи.
 	if tasks := appTasks.list("other"); len(tasks) != 0 {
 		t.Fatalf("list(other) = %d задач, want 0", len(tasks))
 	}
-	if _, err := appTasks.update("other", task.ID, "Чужая", "", taskStatusDone); err == nil ||
+	if _, err := appTasks.update("other", task.ID, "Чужая", "", taskStatusDone, nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "не найдена") {
 		t.Fatalf("update чужой задачи должен падать: %v", err)
 	}

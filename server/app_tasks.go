@@ -19,6 +19,7 @@ const (
 	taskStatusInProgress = "in_progress"
 	taskStatusDone       = "done"
 	taskStatusCancelled  = "cancelled"
+	taskStatusFailed     = "failed"
 )
 
 // validTaskStatuses — допустимые значения статуса.
@@ -27,6 +28,7 @@ var validTaskStatuses = map[string]bool{
 	taskStatusInProgress: true,
 	taskStatusDone:       true,
 	taskStatusCancelled:  true,
+	taskStatusFailed:     true,
 }
 
 // AppTask — задача по модификации приложения: описание того, что нужно
@@ -37,6 +39,8 @@ type AppTask struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Status      string `json:"status"`
+	Result      string `json:"result"`
+	Log         string `json:"log"`
 	Created     string `json:"created"`
 	Updated     string `json:"updated"`
 }
@@ -71,6 +75,8 @@ func initAppTasks() error {
 		        title,
 		        description,
 		        status,
+		        result,
+		        log,
 		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM app_tasks`)
@@ -81,7 +87,7 @@ func initAppTasks() error {
 	for rows.Next() {
 		var t AppTask
 		if err := rows.Scan(&t.ID, &t.Username, &t.Title, &t.Description,
-			&t.Status, &t.Created, &t.Updated); err != nil {
+			&t.Status, &t.Result, &t.Log, &t.Created, &t.Updated); err != nil {
 			return err
 		}
 		appTasks.data[t.ID] = t
@@ -162,8 +168,10 @@ func (s *appTaskStore) create(username, title, description string) (AppTask, err
 	return t, nil
 }
 
-// update обновляет задачу (заголовок, описание, статус).
-func (s *appTaskStore) update(username string, id int, title, description, status string) (AppTask, error) {
+// update обновляет задачу (заголовок, описание, статус, результат, журнал).
+// result и log — указатели: nil означает «не менять» (так UI-редактор не
+// затирает данные, записанные агентом).
+func (s *appTaskStore) update(username string, id int, title, description, status string, result, log *string) (AppTask, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return AppTask{}, errors.New("укажите заголовок задачи")
@@ -183,14 +191,20 @@ func (s *appTaskStore) update(username string, id int, title, description, statu
 	t.Title = title
 	t.Description = description
 	t.Status = status
+	if result != nil {
+		t.Result = *result
+	}
+	if log != nil {
+		t.Log = *log
+	}
 	t.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	if s.hasDB {
 		if _, err := db.Exec(context.Background(),
 			`UPDATE app_tasks
-			 SET title = $2, description = $3, status = $4, updated = now()
+			 SET title = $2, description = $3, status = $4, result = $5, log = $6, updated = now()
 			 WHERE id = $1`,
-			id, title, description, status); err != nil {
+			id, t.Title, t.Description, t.Status, t.Result, t.Log); err != nil {
 			return AppTask{}, err
 		}
 	}
@@ -251,16 +265,18 @@ func handleUpdateAppTask(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Status      string `json:"status"`
+		Title       string  `json:"title"`
+		Description string  `json:"description"`
+		Status      string  `json:"status"`
+		Result      *string `json:"result"`
+		Log         *string `json:"log"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := appTasks.update(sessData.username, id, req.Title, req.Description, req.Status)
+	t, err := appTasks.update(sessData.username, id, req.Title, req.Description, req.Status, req.Result, req.Log)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {

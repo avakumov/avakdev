@@ -41,6 +41,7 @@ const STATUSES = [
   { value: "new", label: "Новая" },
   { value: "in_progress", label: "В работе" },
   { value: "done", label: "Готова" },
+  { value: "failed", label: "Не выполнена" },
   { value: "cancelled", label: "Отменена" },
 ];
 
@@ -48,7 +49,8 @@ const STATUS_META = {
   new: { label: "Новая", variant: "outline" },
   in_progress: { label: "В работе", variant: "default" },
   done: { label: "Готова", variant: "secondary" },
-  cancelled: { label: "Отменена", variant: "destructive" },
+  failed: { label: "Не выполнена", variant: "destructive" },
+  cancelled: { label: "Отменена", variant: "outline" },
 };
 
 const statusLabel = (s) => STATUS_META[s]?.label || s;
@@ -257,6 +259,22 @@ function TaskCard({ task, onChanged }) {
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                 {task.description}
               </p>
+            )}
+            {task.result && (
+              <div className="rounded-lg border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">Результат:</span>{" "}
+                {task.result}
+              </div>
+            )}
+            {task.log && (
+              <details className="group rounded-lg border">
+                <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+                  Журнал выполнения — клик, чтобы развернуть
+                </summary>
+                <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap border-t bg-muted/40 px-3 py-2 text-xs leading-relaxed text-foreground">
+                  {task.log}
+                </pre>
+              </details>
             )}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Select

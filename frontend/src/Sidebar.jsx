@@ -21,8 +21,8 @@ export const NAV_ITEMS = [
   { key: "metrics", label: "Метрики", icon: BarChart3 },
   { key: "profile", label: "Профиль", icon: User },
   { key: "important", label: "Важное", icon: Megaphone },
-  { key: "app", label: "Приложение", icon: Wrench },
   { key: "server", label: "Сервер", icon: Server },
+  { key: "app", label: "Приложение", icon: Wrench },
 ];
 
 // Боковое меню: на десктопе закреплено слева (lg+), на мобильных выезжает

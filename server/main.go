@@ -67,6 +67,9 @@ func main() {
 	}
 	logAuthConfig()
 
+	// Агент по задачам приложения — только в dev-режиме.
+	startAgent()
+
 	r := gin.Default()
 
 	// ---- API ----
