@@ -222,6 +222,43 @@ func TestAgentGitWorkflow(t *testing.T) {
 	}
 }
 
+// Если у git не настроена user.name/user.email, коммит задачи всё равно должен
+// проходить — через запасную идентичность (иначе файлы остаются
+// незакоммиченными и блокируют следующие задачи).
+func TestAgentCommitWithFallbackIdentity(t *testing.T) {
+	root := t.TempDir()
+	// Изолируемся от глобальных/системных git-конфигов и не задаём identity.
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
+		out, _ := cmd.CombinedOutput()
+		return string(out)
+	}
+
+	git("init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &agent{repoRoot: root}
+	task := AppTask{ID: 7, Title: "Новая миграция"}
+	hash, out, err := a.commitTask(task)
+	if err != nil {
+		t.Fatalf("commitTask без git identity должен проходить через фолбэк: %v %s", err, out)
+	}
+	if len(hash) < 7 {
+		t.Fatalf("commitTask вернул короткий хэш: %q", hash)
+	}
+	// Дерево должно стать чистым — коммит состоялся.
+	if dirty, _, err := a.gitStatusPorcelain(); err != nil || dirty {
+		t.Fatalf("после commitTask дерево должно быть чистым: dirty=%v err=%v", dirty, err)
+	}
+}
+
 // Неверные учётные данные не дают сессию.
 func TestAgentLoginRejected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

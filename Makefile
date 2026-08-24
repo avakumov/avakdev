@@ -20,8 +20,9 @@ help:
 	@echo "Доступные команды:"
 	@echo ""
 	@echo "  Разработка:"
-	@echo "    make dev                  — backend (с БД) + frontend одновременно"
-	@echo "    make dev-backend          — только Go-сервер (с БД) на :8080"
+	@echo "    make dev                  — агент + backend (с БД) + frontend одновременно"
+	@echo "    make dev-backend          — агент + только Go-сервер (с БД) на :8080"
+	@echo "    make dev-agent            — только агент по задачам (отдельный процесс)"
 	@echo "    make dev-frontend         — только Vite dev-сервер на :5173"
 	@echo ""
 	@echo "  PostgreSQL (системный, без Docker):"
@@ -104,16 +105,29 @@ else
   DEV_GO_WARN := @echo "(!) air не установлен — Go-сервер без авто-перезагрузки. Установка: go install github.com/air-verse/air@latest"
 endif
 
+# Агент по задачам запускается ОТДЕЛЬНЫМ процессом (AVAKUMOV_AGENT=1), чтобы
+# air, перезапускающий сервер при изменении файлов, не убивал агента посреди
+# задачи (агент сам правит файлы: код, миграции).
+AGENT_GO := AVAKUMOV_AGENT=1 go run .
+
 dev: dev-check-db
 	$(DEV_GO_WARN)
 	@trap 'kill 0' INT TERM; \
+	(cd server && $(AGENT_GO)) & \
 	(cd server && $(DEV_GO)) & \
 	(cd frontend && npm run dev) & \
 	wait
 
 dev-backend: dev-check-db
 	$(DEV_GO_WARN)
-	cd server && $(DEV_GO)
+	@trap 'kill 0' INT TERM; \
+	(cd server && $(AGENT_GO)) & \
+	(cd server && $(DEV_GO)) & \
+	wait
+
+# Только агент (без сервера и фронтенда).
+dev-agent:
+	cd server && $(AGENT_GO)
 
 dev-frontend:
 	cd frontend && npm run dev

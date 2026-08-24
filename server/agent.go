@@ -38,21 +38,22 @@ type agent struct {
 }
 
 // startAgent запускает агент в фоне, если это dev-режим и настроены учётные
-// данные для сервера задач. В остальных случаях — пишет причину отключения.
-func startAgent() {
+// данные для сервера задач. Возвращает true, если агент запущен; в остальных
+// случаях пишет причину отключения и возвращает false.
+func startAgent() bool {
 	if os.Getenv("GIN_MODE") == "release" {
 		log.Println("AGENT: отключён — в production агент не запускается")
-		return
+		return false
 	}
 	username := getenvOrEnvFile("AGENT_USERNAME", "")
 	password := getenvOrEnvFile("AGENT_PASSWORD", "")
 	if username == "" || password == "" {
 		log.Println("AGENT: отключён — задайте AGENT_USERNAME и AGENT_PASSWORD (учётка на сервере задач)")
-		return
+		return false
 	}
 	if os.Getenv("DEEPSEEK_API_KEY") == "" {
 		log.Println("AGENT: отключён — нет DEEPSEEK_API_KEY")
-		return
+		return false
 	}
 
 	pollSec, err := strconv.Atoi(getenvOrEnvFile("AGENT_POLL_INTERVAL", "120"))
@@ -72,6 +73,7 @@ func startAgent() {
 	log.Printf("AGENT: запущен (dev). Сервер задач: %s, репозиторий: %s, опрос каждые %dс",
 		a.serverURL, a.repoRoot, pollSec)
 	go a.loop()
+	return true
 }
 
 // detectRepoRoot определяет корень репозитория: по умолчанию это каталог,
@@ -115,6 +117,8 @@ func (a *agent) runCycle() error {
 	}
 
 	// Коммит задачи возможен только в чистое дерево: проверяем до выполнения.
+	// Если дерево грязное — НЕ выполняем задачи и НЕ деплоим (иначе правки
+	// одной задачи смешаются с чужими незакоммиченными изменениями).
 	dirty, statusOut, err := a.gitStatusPorcelain()
 	if err != nil {
 		return err
@@ -136,6 +140,8 @@ func (a *agent) runCycle() error {
 				log.Printf("AGENT: не удалось обновить задачу #%d: %v", t.ID, err2)
 			}
 		}
+		// Ничего больше в этом цикле не делаем — дерево всё равно грязное.
+		return nil
 	}
 
 	// Выполнение новых задач: каждая успешная задача коммитится отдельным
@@ -372,12 +378,15 @@ func (a *agent) revertTask(t AppTask) {
 
 // commitTask коммитит изменения задачи отдельным коммитом и возвращает хэш.
 // «Нечего коммитить» (задача ничего не меняла) не ошибка: возвращается HEAD.
+// Если у git не настроена user.name/user.email — подставляется запасная
+// идентичность, иначе коммит падает и файлы остаются незакоммиченными.
 func (a *agent) commitTask(t AppTask) (hash, out string, err error) {
 	if out, err = a.runGit("add", "-A"); err != nil {
 		return "", out, fmt.Errorf("git add: %v", err)
 	}
 	msg := fmt.Sprintf("avakumov-agent: задача #%d «%s»", t.ID, t.Title)
-	commitOut, err := a.runGit("commit", "-m", msg)
+	args := append(a.commitIdentityArgs(), "commit", "-m", msg)
+	commitOut, err := a.runGit(args...)
 	out += commitOut
 	if err != nil {
 		if strings.Contains(strings.ToLower(commitOut), "nothing to commit") {
@@ -388,6 +397,21 @@ func (a *agent) commitTask(t AppTask) (hash, out string, err error) {
 	}
 	h, err := a.runGit("rev-parse", "HEAD")
 	return strings.TrimSpace(h), out, err
+}
+
+// commitIdentityArgs возвращает -c user.name/user.email для коммита, если
+// в git не настроена идентичность (иначе git commit падает).
+func (a *agent) commitIdentityArgs() []string {
+	name, _ := a.runGit("config", "user.name")
+	email, _ := a.runGit("config", "user.email")
+	if strings.TrimSpace(name) != "" && strings.TrimSpace(email) != "" {
+		return nil
+	}
+	log.Printf("AGENT: git identity не настроена, коммичу как avakumov-agent")
+	return []string{
+		"-c", "user.name=avakumov-agent",
+		"-c", "user.email=agent@avakumov.local",
+	}
 }
 
 // gitStatusPorcelain возвращает true, если в рабочем дереве есть
