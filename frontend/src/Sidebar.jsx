@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import {
   X,
+  ListTodo,
   FileText,
   BookOpen,
   BarChart3,
@@ -14,8 +15,9 @@ import { Button } from "@/components/ui/button";
 import UserBadge from "./UserBadge.jsx";
 import Brand from "./Brand.jsx";
 
-// Пункты бокового меню.
+// Пункты бокового меню. «Задачи» — первым пунктом.
 export const NAV_ITEMS = [
+  { key: "tasks", label: "Задачи", icon: ListTodo },
   { key: "reports", label: "Отчеты", icon: FileText },
   { key: "knowledge", label: "Знания", icon: BookOpen },
   { key: "metrics", label: "Метрики", icon: BarChart3 },

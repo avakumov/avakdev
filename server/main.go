@@ -76,6 +76,9 @@ func main() {
 	if err := initAppTasks(); err != nil {
 		log.Fatalf("не удалось инициализировать задачи: %v", err)
 	}
+	if err := initTasks(); err != nil {
+		log.Fatalf("не удалось инициализировать раздел «Задачи»: %v", err)
+	}
 	logAuthConfig()
 
 	// Агент по задачам приложения — только в dev-режиме, отдельным процессом
@@ -162,6 +165,12 @@ func main() {
 		authed.POST("/app-tasks", handleCreateAppTask)
 		authed.PUT("/app-tasks/:id", handleUpdateAppTask)
 		authed.DELETE("/app-tasks/:id", handleDeleteAppTask)
+
+		// Задачи раздела «Задачи» (категории, время, дедлайн, статус).
+		authed.GET("/tasks", handleListTasks)
+		authed.POST("/tasks", handleCreateTask)
+		authed.PUT("/tasks/:id", handleUpdateTask)
+		authed.DELETE("/tasks/:id", handleDeleteTask)
 
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)

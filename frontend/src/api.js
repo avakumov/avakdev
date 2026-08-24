@@ -284,6 +284,54 @@ export async function requestTaskRollback(task) {
   return data;
 }
 
+// ==== Задачи (раздел «Задачи») ====
+
+// Список задач и категорий с /api/tasks.
+// Возвращает { tasks: [...], categories: [...] }.
+export function useTasks(enabled = true) {
+  return useQuery({
+    queryKey: ["tasks"],
+    queryFn: () => request("/api/tasks"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Создать задачу (POST /api/tasks).
+export async function createTask(payload) {
+  const res = await fetch(`${BASE}/api/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось создать задачу");
+  return data;
+}
+
+// Обновить задачу (PUT /api/tasks/:id).
+export async function updateTask(id, payload) {
+  const res = await fetch(`${BASE}/api/tasks/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось обновить задачу");
+  return data;
+}
+
+// Удалить задачу (DELETE /api/tasks/:id).
+export async function deleteTask(id) {
+  const res = await fetch(`${BASE}/api/tasks/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить задачу");
+  return data;
+}
+
 // ==== Дневные отчёты ====
 
 // Список отчётов с /api/reports

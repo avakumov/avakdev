@@ -18,6 +18,7 @@ import Profile from "./Profile.jsx";
 import Knowledge from "./Knowledge.jsx";
 import Important from "./Important.jsx";
 import Metrics from "./Metrics.jsx";
+import Tasks from "./Tasks.jsx";
 import AppTasks from "./AppTasks.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 import Brand from "./Brand.jsx";
@@ -61,6 +62,7 @@ import {
 // Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
 // работают кнопки назад/вперёд.
 const VIEW_PATHS = {
+  tasks: "/tasks",
   reports: "/",
   knowledge: "/knowledge",
   metrics: "/metrics",
@@ -302,6 +304,7 @@ function App() {
           queryClient.removeQueries({ queryKey: ["important"] });
           queryClient.removeQueries({ queryKey: ["user-metrics"] });
           queryClient.removeQueries({ queryKey: ["app-tasks"] });
+          queryClient.removeQueries({ queryKey: ["tasks"] });
           queryClient.invalidateQueries({ queryKey: ["me"] });
         }}
       />
@@ -336,6 +339,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["important"] });
     queryClient.removeQueries({ queryKey: ["user-metrics"] });
     queryClient.removeQueries({ queryKey: ["app-tasks"] });
+    queryClient.removeQueries({ queryKey: ["tasks"] });
     await queryClient.invalidateQueries({ queryKey: ["me"] });
   };
 
@@ -394,6 +398,7 @@ function App() {
 
       <main className="lg:pl-64">
         <div className="mx-auto max-w-3xl px-4 py-8">
+          {view === "tasks" && <Tasks />}
           {view === "reports" && <Reports />}
           {view === "knowledge" && <Knowledge />}
           {view === "metrics" && <Metrics />}
