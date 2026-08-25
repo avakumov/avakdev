@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useUserMetrics, setUserMetricValue } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatDateRu } from "./lib/formatDate.js";
+import DateDisplay from "@/components/DateDisplay.jsx";
 import { BoolToggle } from "./Metrics.jsx";
 
 import {
@@ -78,7 +78,7 @@ function MetricsTodayModal({ date, onClose }) {
           </CardTitle>
           <CardDescription className="flex items-center gap-1.5">
             <CalendarDays className="size-3.5" />
-            {formatDateRu(date)}
+            <DateDisplay date={date} />
           </CardDescription>
         </CardHeader>
 

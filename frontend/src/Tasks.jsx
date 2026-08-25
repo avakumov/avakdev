@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useTasks, createTask, updateTask, deleteTask } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatDateRu } from "./lib/formatDate.js";
+import DateDisplay from "@/components/DateDisplay.jsx";
+import DateInput from "@/components/DateInput.jsx";
 
 import {
   Card,
@@ -59,6 +60,8 @@ const fmtHours = (h) => {
   const n = Number(h || 0);
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
 };
+
+// Перенос по словам (стандартное поведение) — см. ячейку названия в TaskRow.
 
 // Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
 function Textarea({ className, ...props }) {
@@ -219,11 +222,7 @@ function TaskFormModal({ initial, categories, onClose, onSaved }) {
 
           <div className="space-y-1.5">
             <Label>Дедлайн</Label>
-            <Input
-              type="date"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-            />
+            <DateInput value={deadline} onChange={setDeadline} />
           </div>
 
           {error && (
@@ -270,42 +269,30 @@ function TaskRow({ task, onEdit, onDelete, onStatusChange }) {
 
   return (
     <tr className="border-b border-border/60 last:border-0 hover:bg-muted/30">
-      <td className="max-w-56 px-4 py-3">
-        <p className="truncate font-medium text-foreground" title={task.title}>
-          {task.title}
-        </p>
+      <td className="min-w-0 px-3 py-2 align-top">
+        <p className="wrap-break-word font-medium text-foreground">{task.title}</p>
         {task.description && (
-          <p
-            className="truncate text-xs text-muted-foreground"
-            title={task.description}
-          >
+          <p className="wrap-break-word text-xs text-muted-foreground">
             {task.description}
           </p>
         )}
       </td>
-      <td className="px-2 py-3">
+      <td className="px-1.5 py-2 align-top">
         <Badge variant="outline">{task.category || "Прочее"}</Badge>
       </td>
-      <td className="px-2 py-3 tabular-nums">{fmtHours(task.planned_hours)}</td>
-      <td className="px-2 py-3 tabular-nums">{fmtHours(task.actual_hours)}</td>
-      <td className="px-2 py-3 whitespace-nowrap">
-        {task.deadline ? (
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <CalendarDays className="size-3.5" />
-            {formatDateRu(task.deadline)}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
+      <td className="px-1.5 py-2 align-top tabular-nums">{fmtHours(task.planned_hours)}</td>
+      <td className="px-1.5 py-2 align-top tabular-nums">{fmtHours(task.actual_hours)}</td>
+      <td className="px-1.5 py-2 align-top whitespace-nowrap text-muted-foreground">
+        {task.deadline ? <DateDisplay date={task.deadline} /> : "—"}
       </td>
-      <td className="px-2 py-3">
+      <td className="px-1.5 py-2 align-top">
         <Select
           value={task.status}
           onValueChange={handleStatus}
           disabled={changing}
         >
-          <SelectTrigger className="h-7 w-32">
-            <SelectValue />
+          <SelectTrigger className="h-7 w-full min-w-0 px-2 text-xs">
+            <SelectValue className="min-w-0 truncate" />
           </SelectTrigger>
           <SelectContent>
             {STATUSES.map((s) => (
@@ -316,14 +303,18 @@ function TaskRow({ task, onEdit, onDelete, onStatusChange }) {
           </SelectContent>
         </Select>
       </td>
-      <td className="px-4 py-3 text-right">
+      <td className="px-2 py-2 align-top text-right">
         <div className="flex justify-end gap-1">
-          <Button variant="outline" size="sm" onClick={() => onEdit(task)}>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => onEdit(task)}
+          >
             <Edit />
           </Button>
           <Button
             variant="destructive"
-            size="sm"
+            size="icon-sm"
             onClick={() => onDelete(task)}
           >
             <Trash2 />
@@ -397,7 +388,7 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
           </div>
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <CalendarDays className="size-3.5" />
-            {task.deadline ? formatDateRu(task.deadline) : "Без дедлайна"}
+            {task.deadline ? <DateDisplay date={task.deadline} /> : "Без дедлайна"}
           </div>
         </div>
 
@@ -421,7 +412,7 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
           {task.updated && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Clock className="size-3" />
-              {task.updated.slice(0, 10)}
+              <DateDisplay date={task.updated} />
             </span>
           )}
         </div>
@@ -569,36 +560,45 @@ function Tasks() {
         </Card>
       ) : (
         <>
-          {/* Таблица — desktop (md и шире) */}
+          {/* Таблица — desktop (md и шире). Без горизонтального скролла:
+              table-fixed + фиксированные ширины колонок, длинные названия
+              обрезаются и раскрываются тултипом. */}
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2.5 font-medium">Название</th>
-                    <th className="px-2 py-2.5 font-medium">Категория</th>
-                    <th className="px-2 py-2.5 font-medium">План, ч</th>
-                    <th className="px-2 py-2.5 font-medium">Факт, ч</th>
-                    <th className="px-2 py-2.5 font-medium">Дедлайн</th>
-                    <th className="px-2 py-2.5 font-medium">Статус</th>
-                    <th className="px-4 py-2.5 text-right font-medium">
-                      Действия
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((t) => (
-                    <TaskRow
-                      key={t.id}
-                      task={t}
-                      onEdit={(task) => setModal({ task })}
-                      onDelete={handleDelete}
-                      onStatusChange={(status) => handleStatusChange(t, status)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-[30%]" />
+                <col className="w-[11%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[13%]" />
+                <col className="w-[16%]" />
+                <col className="w-[14%]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <th className="px-3 py-2 align-middle font-bold">Название</th>
+                  <th className="px-1.5 py-2 align-middle font-bold">Категория</th>
+                  <th className="px-1.5 py-2 align-middle font-bold">План, ч</th>
+                  <th className="px-1.5 py-2 align-middle font-bold">Факт, ч</th>
+                  <th className="px-1.5 py-2 align-middle font-bold">Дедлайн</th>
+                  <th className="px-1.5 py-2 align-middle font-bold">Статус</th>
+                  <th className="px-2 py-2 text-right align-middle font-bold">
+                    Действия
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((t) => (
+                  <TaskRow
+                    key={t.id}
+                    task={t}
+                    onEdit={(task) => setModal({ task })}
+                    onDelete={handleDelete}
+                    onStatusChange={(status) => handleStatusChange(t, status)}
+                  />
+                ))}
+              </tbody>
+            </table>
           </Card>
 
           {/* Карточки — mobile (< md) */}

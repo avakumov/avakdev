@@ -8,6 +8,7 @@ import {
   requestTaskRollback,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import DateDisplay from "@/components/DateDisplay.jsx";
 
 import {
   Card,
@@ -398,7 +399,7 @@ function TaskCard({ task, onChanged }) {
               {task.updated && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Clock className="size-3.5" />
-                  обновлено: {task.updated}
+                  обновлено: <DateDisplay date={task.updated} withTime />
                 </span>
               )}
             </div>

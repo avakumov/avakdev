@@ -20,6 +20,8 @@ import Important from "./Important.jsx";
 import Metrics from "./Metrics.jsx";
 import Tasks from "./Tasks.jsx";
 import AppTasks from "./AppTasks.jsx";
+import User from "./User.jsx";
+import DateDisplay from "@/components/DateDisplay.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 import Brand from "./Brand.jsx";
 
@@ -70,6 +72,7 @@ const VIEW_PATHS = {
   important: "/important",
   app: "/app",
   server: "/server",
+  user: "/user",
 };
 
 const PATH_VIEWS = Object.fromEntries(
@@ -378,7 +381,7 @@ function App() {
             <UserBadge
               username={meQuery.data.username}
               isAdmin={meQuery.data.is_admin}
-              onLogout={handleLogout}
+              onClick={() => setView("user")}
             />
           </div>
         )}
@@ -393,7 +396,6 @@ function App() {
         onClose={() => setSidebarOpen(false)}
         username={meQuery.data?.username}
         isAdmin={meQuery.data?.is_admin}
-        onLogout={handleLogout}
       />
 
       <main className="lg:pl-64">
@@ -405,6 +407,13 @@ function App() {
           {view === "profile" && <Profile />}
           {view === "important" && <Important />}
           {view === "app" && <AppTasks />}
+          {view === "user" && (
+            <User
+              username={meQuery.data?.username}
+              isAdmin={meQuery.data?.is_admin}
+              onLogout={handleLogout}
+            />
+          )}
           {view === "server" && (
             <>
               {/* Панель быстрых действий */}
@@ -480,7 +489,7 @@ function App() {
                       Аптайм: {fmtUptime(m.uptime_seconds)}
                     </span>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      обновлено: {m.timestamp}
+                      обновлено: <DateDisplay date={m.timestamp} withTime />
                     </span>
                   </CardFooter>
                 )}

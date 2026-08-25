@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useImportant, saveImportantMessage } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import DateDisplay from "@/components/DateDisplay.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 import MarkdownHelp from "./MarkdownHelp.jsx";
 
@@ -204,7 +205,7 @@ function Important() {
                   <Badge variant="secondary">Раз в сутки</Badge>
                   {data.updated_at && (
                     <span>
-                      обновлено: {data.updated_at}
+                      обновлено: <DateDisplay date={data.updated_at} withTime />
                       {data.updated_by ? ` · ${data.updated_by}` : ""}
                     </span>
                   )}

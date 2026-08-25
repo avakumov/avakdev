@@ -1,23 +1,16 @@
-// Форматирование дат по-русски.
+// Форматирование дат.
 
-const MONTHS = [
-  "января",
-  "февраля",
-  "марта",
-  "апреля",
-  "мая",
-  "июня",
-  "июля",
-  "августа",
-  "сентября",
-  "октября",
-  "ноября",
-  "декабря",
-];
+// "2026-08-23" или "2026-08-24T21:05:00Z" -> "23.08.2026"
+// Пустая строка/мусор возвращаются как есть.
+export function formatDateDmy(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr || "");
+  if (!m) return dateStr || "";
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
 
-// "2026-08-23" -> "23 августа 2026"
-export function formatDateRu(dateStr) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  if (!y || !m || !d) return dateStr;
-  return `${d} ${MONTHS[m - 1]} ${y}`;
+// "2026-08-24T21:05:00Z" -> "21:05"; если времени нет — пустая строка.
+export function formatTime(dateStr) {
+  const m = /T(\d{2}):(\d{2})/.exec(dateStr || "");
+  if (!m) return "";
+  return `${m[1]}:${m[2]}`;
 }

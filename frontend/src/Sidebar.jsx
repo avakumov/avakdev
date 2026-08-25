@@ -29,7 +29,7 @@ export const NAV_ITEMS = [
 
 // Боковое меню: на десктопе закреплено слева (lg+), на мобильных выезжает
 // из-за края экрана (бургер). open/onClose управляют только мобильным режимом.
-function Sidebar({ view, onSelect, open, onClose, username, isAdmin, onLogout }) {
+function Sidebar({ view, onSelect, open, onClose, username, isAdmin }) {
   // Пока сайдбар открыт на мобильных: Esc закрывает, прокрутка страницы
   // блокируется (чтобы фон не скроллился под затемнением).
   useEffect(() => {
@@ -100,12 +100,15 @@ function Sidebar({ view, onSelect, open, onClose, username, isAdmin, onLogout })
           ))}
         </nav>
 
-        {/* Пользователь (на мобильных он в верхней шапке) */}
-        <div className="hidden shrink-0 border-t border-sidebar-border p-3 lg:block">
+        {/* Пользователь (на мобильных он в верхней шапке). Клик — на его страницу. */}
+        <div className="hidden shrink-0 border-t border-sidebar-border p-2 lg:block">
           <UserBadge
             username={username}
             isAdmin={isAdmin}
-            onLogout={onLogout}
+            onClick={() => {
+              onSelect("user");
+              onClose();
+            }}
           />
         </div>
       </aside>

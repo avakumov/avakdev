@@ -3,7 +3,11 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { initTheme } from "./store.js";
 import "./index.css";
+
+// Применяем сохранённую тему до первого рендера (без «вспышки»).
+initTheme();
 
 // Клиент TanStack Query: кэширует и инвалидирует данные серверных запросов.
 const queryClient = new QueryClient({

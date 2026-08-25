@@ -18,7 +18,7 @@ function Brand({ onClick, className }) {
         }
       }}
       className={cn(
-        "flex h-7 w-fit cursor-pointer items-stretch overflow-hidden rounded-lg border-2 border-black text-black transition-opacity hover:opacity-80",
+        "flex h-7 w-fit cursor-pointer items-stretch overflow-hidden rounded-lg border-2 border-black text-black transition-opacity hover:opacity-80 dark:border-white",
         className,
       )}
     >

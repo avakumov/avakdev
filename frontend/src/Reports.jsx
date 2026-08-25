@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useReports, updateReport } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatDateRu } from "./lib/formatDate.js";
+import DateDisplay from "@/components/DateDisplay.jsx";
 import MetricsTodayModal from "./MetricsTodayModal.jsx";
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import DateInput from "@/components/DateInput.jsx";
 import {
   ChevronDown,
   ChevronRight,
@@ -75,7 +75,7 @@ function ReportRow({ report, open, onOpenChange, onSaved, onTodaySaved }) {
               <ChevronRight className="size-4 text-muted-foreground" />
             )}
             <CalendarDays className="size-4 text-muted-foreground" />
-            {formatDateRu(report.date)}
+            <DateDisplay date={report.date} />
           </CardTitle>
           {open && !editing && (
             <div onClick={(e) => e.stopPropagation()}>
@@ -183,12 +183,7 @@ function NewReportForm({ onSaved, reports, onOpen, onTodaySaved }) {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="space-y-1.5">
-          <Input
-            type="date"
-            value={date}
-            max={today}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <DateInput value={date} max={today} onChange={setDate} />
         </div>
         <Textarea
           value={content}

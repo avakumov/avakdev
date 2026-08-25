@@ -8,6 +8,8 @@ import {
   deleteUserMetricValue,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import DateDisplay from "@/components/DateDisplay.jsx";
+import DateInput from "@/components/DateInput.jsx";
 
 import {
   Card,
@@ -53,13 +55,6 @@ const TYPE_OPTIONS = [
   { value: "int", label: "Целое число" },
   { value: "bool", label: "Да / Нет" },
 ];
-
-// "2026-08-23" -> "23.08.2026"
-function formatDate(dateStr) {
-  const [y, m, d] = dateStr.split("-");
-  if (!y || !m || !d) return dateStr;
-  return `${d}.${m}.${y}`;
-}
 
 // Отображение значения в зависимости от типа.
 function displayValue(type, value) {
@@ -372,12 +367,7 @@ function MetricCard({ def, values, onChanged }) {
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
             <Label>Дата</Label>
-            <Input
-              type="date"
-              value={date}
-              max={today}
-              onChange={(e) => handleDateChange(e.target.value)}
-            />
+            <DateInput value={date} max={today} onChange={handleDateChange} />
           </div>
           <div className="min-w-40 flex-1 space-y-1.5">
             <Label>Значение</Label>
@@ -426,7 +416,7 @@ function MetricCard({ def, values, onChanged }) {
                     className="flex items-center gap-2 text-left text-muted-foreground hover:text-foreground"
                   >
                     <CalendarDays className="size-3.5" />
-                    <span className="tabular-nums">{formatDate(h.date)}</span>
+                    <DateDisplay date={h.date} className="tabular-nums" />
                     <span className="font-medium tabular-nums text-foreground">
                       {displayValue(def.type, h.value)}
                     </span>
