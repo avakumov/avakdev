@@ -399,7 +399,7 @@ function App() {
       />
 
       <main className="lg:pl-64">
-        <div className="mx-auto max-w-3xl px-4 py-8">
+        <div className="mx-auto max-w-3xl px-4 py-8 lg:max-w-5xl">
           {view === "tasks" && <Tasks />}
           {view === "reports" && <Reports />}
           {view === "knowledge" && <Knowledge />}

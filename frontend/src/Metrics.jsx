@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useUserMetrics,
   createUserMetric,
@@ -43,6 +43,7 @@ import {
   Edit,
   ChevronDown,
   ChevronRight,
+  Minus,
 } from "lucide-react";
 
 // Типы метрик: целое число, дробное число, да/нет.
@@ -274,10 +275,10 @@ function MetricEditModal({ def, onSaved, onClose }) {
 
 // Строка таблицы (десктоп): метрика + значения по дням. Всё видно и
 // редактируется прямо в таблице — ячейки дней кликабельны.
-function MetricRow({ def, values, columns, onChanged, onEdit }) {
+// Клик по названию метрики открывает её карточку (onOpenDetail).
+function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
   const [editDate, setEditDate] = useState(null); // дата редактируемой ячейки
   const [editText, setEditText] = useState("");
-  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const startCellEdit = (d) => {
@@ -322,73 +323,88 @@ function MetricRow({ def, values, columns, onChanged, onEdit }) {
     }
   };
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Удалить метрику «${def.name}» и все её показатели?`)) {
-      return;
-    }
-    setDeleting(true);
-    setError("");
-    try {
-      await deleteUserMetric(def.id);
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Не удалось удалить метрику");
-      setDeleting(false);
-    }
-  };
-
   return (
-    <>
-      <tr className="border-b border-border/60 last:border-0 hover:bg-muted/30">
-        <td className="w-48 px-3 py-2 align-top">
-          <div className="flex items-start gap-1.5">
-            <BarChart3 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0">
-              <span className="wrap-break-word font-medium text-foreground">
-                {def.name}
-              </span>
-              <span className="block text-[11px] text-muted-foreground">
-                {typeBadgeLabel(def)}
-              </span>
+    <tr className="group border-b border-border/60 last:border-0 hover:bg-muted/30">
+      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card px-3 py-1.5 align-top transition-colors group-hover:bg-muted/30">
+        <button
+          type="button"
+          onClick={() => onOpenDetail(def)}
+          title="Открыть карточку метрики"
+          className="flex w-full cursor-pointer items-start gap-1.5 rounded-md text-left"
+        >
+          <BarChart3 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0">
+            <span className="wrap-break-word font-medium text-foreground transition-colors group-hover:text-primary">
+              {def.name}
             </span>
-          </div>
-          {error && (
-            <p
-              className="mt-1 flex items-center gap-1 text-xs text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-3.5" />
-              {error}
-            </p>
-          )}
-        </td>
+            <span className="block text-[10px] leading-tight text-muted-foreground">
+              {typeBadgeLabel(def)}
+            </span>
+          </span>
+        </button>
+        {error && (
+          <p
+            className="mt-1 flex items-center gap-1 text-xs text-destructive"
+            role="alert"
+          >
+            <AlertCircle className="size-3.5" />
+            {error}
+          </p>
+        )}
+      </td>
 
         {columns.map((d) => {
           const v = values[d];
+          const isBoundary = borders?.has(d) ?? false;
           if (def.type === "bool") {
+            const label =
+              v === undefined
+                ? "Пусто. Клик — записать «да»"
+                : v === "true"
+                  ? "Да. Клик — «нет»"
+                  : "Нет. Клик — очистить";
             return (
               <td
                 key={d}
-                className="px-1 py-1.5 text-center align-top"
+                className={cn(
+                  "px-0.5 py-1 text-center align-middle",
+                  isBoundary && "border-r border-border/70",
+                )}
               >
                 <button
                   type="button"
                   onClick={() => cycleBool(d)}
-                  title="Клик — сменить: — → Да → Нет → —"
-                  className={cn(
-                    "flex w-full cursor-pointer items-center justify-center rounded-md py-1 text-sm font-medium whitespace-nowrap tabular-nums transition-colors",
-                    v === undefined && "text-muted-foreground/60 hover:bg-muted/50",
-                    v !== undefined && "bg-muted/40 hover:bg-muted",
-                  )}
+                  title={label}
+                  aria-label={label}
+                  className="inline-flex h-7 w-full cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-muted/50"
                 >
-                  {v !== undefined ? displayValue(def.type, v) : "—"}
+                  {v === undefined ? (
+                    <Minus className="size-3.5 text-muted-foreground/50" />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        // Квадрат: 15px — в 1,5 раза больше прежнего круга (10px).
+                        "mx-auto block size-3.75 shrink-0 rounded-[2px] border",
+                        v === "true"
+                          ? "border-emerald-800 bg-emerald-500 dark:border-emerald-200 dark:bg-emerald-400"
+                          : "border-red-800 bg-red-500 dark:border-red-200 dark:bg-red-400",
+                      )}
+                    />
+                  )}
                 </button>
               </td>
             );
           }
           if (editDate === d) {
             return (
-              <td key={d} className="px-1 py-1 align-top">
+              <td
+                key={d}
+                className={cn(
+                  "px-0.5 py-1 align-middle",
+                  isBoundary && "border-r border-border/70",
+                )}
+              >
                 <Input
                   type="number"
                   step={def.type === "int" ? 1 : "any"}
@@ -407,7 +423,13 @@ function MetricRow({ def, values, columns, onChanged, onEdit }) {
             );
           }
           return (
-            <td key={d} className="px-1 py-1.5 text-center align-top">
+            <td
+              key={d}
+              className={cn(
+                "px-0.5 py-1 text-center align-middle",
+                isBoundary && "border-r border-border/70",
+              )}
+            >
               <button
                 type="button"
                 onClick={() => startCellEdit(d)}
@@ -417,13 +439,14 @@ function MetricRow({ def, values, columns, onChanged, onEdit }) {
                     : "Добавить значение"
                 }
                 className={cn(
-                  "flex w-full cursor-pointer items-center justify-center rounded-md py-1 text-sm whitespace-nowrap tabular-nums transition-colors",
-                  v === undefined && "text-muted-foreground/60 hover:bg-muted/50",
-                  v !== undefined && "hover:bg-muted/50",
+                  "inline-flex h-7 w-full cursor-pointer items-center justify-center rounded-md whitespace-nowrap tabular-nums transition-colors",
+                  v === undefined
+                    ? "text-sm text-muted-foreground/50 hover:bg-muted/50"
+                    : "text-sm hover:bg-muted/50",
                 )}
               >
                 {v !== undefined ? (
-                  <span className="font-medium text-foreground">
+                  <span className="text-foreground">
                     {displayValue(def.type, v)}
                   </span>
                 ) : (
@@ -433,43 +456,20 @@ function MetricRow({ def, values, columns, onChanged, onEdit }) {
             </td>
           );
         })}
-
-        <td className="w-20 px-1 py-2 align-top text-right">
-          <div className="flex justify-end gap-1">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => onEdit(def)}
-              aria-label="Редактировать метрику"
-            >
-              <Edit />
-            </Button>
-            <Button
-              variant="destructive"
-              size="icon-sm"
-              onClick={handleDelete}
-              disabled={deleting}
-              aria-label="Удалить метрику"
-            >
-              {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
-            </Button>
-          </div>
-        </td>
       </tr>
-    </>
   );
 }
 
 // Карточка метрики (мобильные): сворачивается — в свёрнутом виде название,
 // число зафиксированных дней и тип/единица; в развёрнутом — ввод значения.
-function MetricCard({ def, values, onChanged, onEdit }) {
+function MetricCard({ def, values, onChanged, onEdit, initialOpen = false, onDeleted }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
 
   const handleDateChange = (d) => {
     setDate(d);
@@ -509,6 +509,7 @@ function MetricCard({ def, values, onChanged, onEdit }) {
     try {
       await deleteUserMetric(def.id);
       onChanged();
+      onDeleted?.();
     } catch (err) {
       setError(err.message || "Не удалось удалить метрику");
       setDeleting(false);
@@ -656,6 +657,39 @@ function Metrics() {
     queryClient.invalidateQueries({ queryKey: ["user-metrics"] });
 
   const [editTarget, setEditTarget] = useState(null); // метрика в модалке
+  const [metricTarget, setMetricTarget] = useState(null); // карточка метрики в модалке
+
+  // Данные (во время загрузки — пустые, но хуки должны быть до return).
+  const defs = metricsQuery.data?.definitions || [];
+  const valuesByMetric = {};
+  for (const v of metricsQuery.data?.values || []) {
+    (valuesByMetric[v.metric_id] ||= {})[v.date] = v.value;
+  }
+
+  // Столбцы таблицы — все даты с записями (+ сегодня). Если не влезают —
+  // таблица прокручивается по горизонтали.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const columns = collectDates(valuesByMetric);
+  const currentYear = Number(todayIso.slice(0, 4));
+  const monthGroups = groupColumns(columns);
+  // Даты, после которых заканчивается месяц (кроме последней группы):
+  // после них рисуем вертикальный разделитель на всю высоту таблицы.
+  const groupBorders = new Set(
+    monthGroups
+      .slice(0, -1)
+      .map((g) => g.dates[g.dates.length - 1]),
+  );
+  // Минимальная ширина: название (176px) + колонки дат (~30px каждая —
+  // после уменьшения в 1,5 раза ещё на 20%). Действия убраны из таблицы.
+  const tableMinWidth = 176 + columns.length * 30;
+
+  // Прокрутка таблицы всегда в конец (к последним датам): при открытии
+  // и при появлении новых колонок-дат.
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [columns.length]);
 
   if (metricsQuery.isLoading) {
     return (
@@ -672,16 +706,6 @@ function Metrics() {
       </p>
     );
   }
-
-  const defs = metricsQuery.data?.definitions || [];
-  const valuesByMetric = {};
-  for (const v of metricsQuery.data?.values || []) {
-    (valuesByMetric[v.metric_id] ||= {})[v.date] = v.value;
-  }
-
-  // Столбцы таблицы — календарные дни: последняя неделя, сегодня справа.
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const columns = lastNDays(7, todayIso);
 
   return (
     <section>
@@ -700,28 +724,47 @@ function Metrics() {
         <>
           {/* Таблица — desktop (md и шире): редактирование прямо в ячейках. */}
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
-            <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-sm">
+            <div className="overflow-x-auto" ref={scrollRef}>
+              <table
+                className="w-full table-fixed text-sm"
+                style={{ minWidth: tableMinWidth }}
+              >
                 <thead>
-                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                    <th className="w-48 px-3 py-2 align-middle font-bold">
+                  <tr className="bg-muted/40 text-left text-[11px] tracking-wide text-muted-foreground">
+                    <th
+                      rowSpan={2}
+                      className="sticky left-0 z-20 w-44 border-r border-border/70 bg-muted/40 px-3 py-1.5 align-middle font-bold uppercase"
+                    >
                       Метрика
                     </th>
+                    {monthGroups.map((g, gi) => (
+                      <th
+                        key={`${g.year}-${g.month}`}
+                        colSpan={g.dates.length}
+                        className={cn(
+                          "overflow-hidden px-0.5 py-1 text-center align-middle text-xs font-semibold whitespace-nowrap capitalize text-ellipsis",
+                          gi < monthGroups.length - 1 &&
+                            "border-r border-border/70",
+                        )}
+                      >
+                        {monthLabel(g, currentYear)}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     {columns.map((d) => (
                       <th
                         key={d}
                         title={formatDateDmy(d)}
                         className={cn(
-                          "px-1 py-2 text-center align-middle font-bold tabular-nums",
+                          "px-0.5 py-1 text-center align-middle font-bold tabular-nums",
                           d === todayIso && "text-primary",
+                          groupBorders.has(d) && "border-r border-border/70",
                         )}
                       >
-                        {formatDateDmy(d).slice(0, 5)}
+                        {String(Number(d.slice(8, 10)))}
                       </th>
                     ))}
-                    <th className="w-20 px-1 py-2 text-right align-middle font-bold">
-                      <span className="sr-only">Действия</span>
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -731,8 +774,9 @@ function Metrics() {
                       def={d}
                       values={valuesByMetric[d.id] || {}}
                       columns={columns}
+                      borders={groupBorders}
                       onChanged={refresh}
-                      onEdit={setEditTarget}
+                      onOpenDetail={setMetricTarget}
                     />
                   ))}
                 </tbody>
@@ -755,6 +799,39 @@ function Metrics() {
         </>
       )}
 
+      {/* Карточка метрики по клику на название в таблице (desktop):
+          модалка с «мобильной» версией карточки. */}
+      {metricTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setMetricTarget(null)}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1 flex justify-end">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setMetricTarget(null)}
+                aria-label="Закрыть"
+              >
+                <X />
+              </Button>
+            </div>
+            <MetricCard
+              def={metricTarget}
+              values={valuesByMetric[metricTarget.id] || {}}
+              onChanged={refresh}
+              onEdit={setEditTarget}
+              onDeleted={() => setMetricTarget(null)}
+              initialOpen
+            />
+          </div>
+        </div>
+      )}
+
       {editTarget && (
         <MetricEditModal
           def={editTarget}
@@ -766,16 +843,51 @@ function Metrics() {
   );
 }
 
-// Последние n календарных дней включительно с endIso (старые слева).
-function lastNDays(n, endIso) {
-  const arr = [];
-  const end = new Date(endIso + "T00:00:00Z");
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(end);
-    d.setUTCDate(end.getUTCDate() - i);
-    arr.push(d.toISOString().slice(0, 10));
+// Все даты, за которые есть хотя бы один показатель (по всем метрикам),
+// отсортированные по возрастанию + сегодня (чтобы всегда можно было добавить).
+function collectDates(valuesByMetric) {
+  const set = new Set();
+  for (const byDate of Object.values(valuesByMetric)) {
+    for (const d in byDate) set.add(d);
   }
-  return arr;
+  set.add(new Date().toISOString().slice(0, 10)); // сегодня
+  return [...set].sort();
+}
+
+const MONTHS = [
+  "январь",
+  "февраль",
+  "март",
+  "апрель",
+  "май",
+  "июнь",
+  "июль",
+  "август",
+  "сентябрь",
+  "октябрь",
+  "ноябрь",
+  "декабрь",
+];
+
+// Группирует отсортированные даты по (месяц, год) для шапки таблицы.
+function groupColumns(columns) {
+  const groups = [];
+  for (const d of columns) {
+    const [y, m] = d.split("-");
+    const last = groups[groups.length - 1];
+    if (last && last.year === y && last.month === m) {
+      last.dates.push(d);
+    } else {
+      groups.push({ year: y, month: m, dates: [d] });
+    }
+  }
+  return groups;
+}
+
+// Название месяца в шапке: к прошлым годам добавляется год.
+function monthLabel(group, currentYear) {
+  const name = MONTHS[Number(group.month) - 1] || group.month;
+  return Number(group.year) === currentYear ? name : `${name} ${group.year}`;
 }
 
 export default Metrics;
