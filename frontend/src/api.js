@@ -378,6 +378,41 @@ export async function deleteTask(id) {
   return data;
 }
 
+// ==== Уведомления пользователя ====
+
+// Список уведомлений с /api/notifications.
+export function useNotifications(enabled = true) {
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => request("/api/notifications"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Создать уведомление (POST /api/notifications).
+export async function createNotification(payload) {
+  const res = await fetch(`${BASE}/api/notifications`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось создать уведомление");
+  return data;
+}
+
+// Удалить уведомление (DELETE /api/notifications/:id).
+export async function deleteNotification(id) {
+  const res = await fetch(`${BASE}/api/notifications/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить уведомление");
+  return data;
+}
+
 // ==== Дневные отчёты ====
 
 // Список отчётов с /api/reports

@@ -21,6 +21,10 @@ import {
 } from "@/components/ui/card";
 import UserAvatar from "@/components/UserAvatar.jsx";
 import { AVATAR_PRESETS } from "@/lib/avatars.js";
+import {
+  NotificationsCard,
+  CreateNotificationModal,
+} from "./Notifications.jsx";
 import { cn } from "@/lib/utils";
 import {
   LogOut,
@@ -270,6 +274,7 @@ function User({ user, onLogout }) {
   const isAdmin = Boolean(user?.is_admin);
 
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [notifCreateOpen, setNotifCreateOpen] = useState(false);
 
   // Необязательные контакты (черновик формы).
   const [phone, setPhone] = useState(user?.phone || "");
@@ -427,6 +432,17 @@ function User({ user, onLogout }) {
           user={user}
           onClose={() => setAvatarOpen(false)}
           onSaved={refreshMe}
+        />
+      )}
+
+      <NotificationsCard onAdd={() => setNotifCreateOpen(true)} />
+
+      {notifCreateOpen && (
+        <CreateNotificationModal
+          onClose={() => setNotifCreateOpen(false)}
+          onCreated={() =>
+            queryClient.invalidateQueries({ queryKey: ["notifications"] })
+          }
         />
       )}
     </section>

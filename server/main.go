@@ -79,6 +79,9 @@ func main() {
 	if err := initTasks(); err != nil {
 		log.Fatalf("не удалось инициализировать раздел «Задачи»: %v", err)
 	}
+	if err := initNotifications(); err != nil {
+		log.Fatalf("не удалось инициализировать уведомления: %v", err)
+	}
 	logAuthConfig()
 
 	// Агент по задачам приложения — только в dev-режиме, отдельным процессом
@@ -173,6 +176,11 @@ func main() {
 		authed.POST("/tasks", handleCreateTask)
 		authed.PUT("/tasks/:id", handleUpdateTask)
 		authed.DELETE("/tasks/:id", handleDeleteTask)
+
+		// Уведомления пользователя (колокольчик на странице профиля).
+		authed.GET("/notifications", handleListNotifications)
+		authed.POST("/notifications", handleCreateNotification)
+		authed.DELETE("/notifications/:id", handleDeleteNotification)
 
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)

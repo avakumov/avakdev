@@ -9,6 +9,7 @@ import {
   Megaphone,
   Wrench,
   Server,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,7 @@ export const NAV_ITEMS = [
 
 // Боковое меню: на десктопе закреплено слева (lg+), на мобильных выезжает
 // из-за края экрана (бургер). open/onClose управляют только мобильным режимом.
-function Sidebar({ view, onSelect, open, onClose, user }) {
+function Sidebar({ view, onSelect, open, onClose, user, notifCount = 0, onOpenBell }) {
   // Пока сайдбар открыт на мобильных: Esc закрывает, прокрутка страницы
   // блокируется (чтобы фон не скроллился под затемнением).
   useEffect(() => {
@@ -100,8 +101,24 @@ function Sidebar({ view, onSelect, open, onClose, user }) {
           ))}
         </nav>
 
-        {/* Пользователь (на мобильных он в верхней шапке). Клик — на его страницу. */}
-        <div className="hidden shrink-0 border-t border-sidebar-border p-2 lg:block">
+        {/* Низ: колокольчик уведомлений + пользователь */}
+        <div className="hidden shrink-0 space-y-1 border-t border-sidebar-border p-2 lg:block">
+          <Button
+            variant="ghost"
+            size="lg"
+            className="w-full justify-start gap-3"
+            onClick={onOpenBell}
+          >
+            <span className="relative">
+              <Bell className="size-4" />
+              {notifCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
+                  {notifCount > 9 ? "9+" : notifCount}
+                </span>
+              )}
+            </span>
+            Уведомления
+          </Button>
           <UserBadge
             user={user}
             onClick={() => {

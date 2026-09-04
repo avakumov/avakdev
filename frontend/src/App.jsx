@@ -5,6 +5,7 @@ import {
   useMetrics,
   useMe,
   useImportant,
+  useNotifications,
   markImportantSeen,
   logout,
   setOnUnauthorized,
@@ -22,6 +23,7 @@ import Metrics from "./Metrics.jsx";
 import Tasks from "./Tasks.jsx";
 import AppTasks from "./AppTasks.jsx";
 import User from "./User.jsx";
+import { NotificationsModal } from "./Notifications.jsx";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 import Brand from "./Brand.jsx";
@@ -60,6 +62,7 @@ import {
   Check,
   Loader2,
   AlertCircle,
+  Bell,
 } from "lucide-react";
 
 // Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
@@ -259,6 +262,7 @@ function App() {
   const messageQuery = useMessage(isAuthed);
   const metricsQuery = useMetrics(5000, isAuthed);
   const importantQuery = useImportant(isAuthed);
+  const notificationsQuery = useNotifications(isAuthed);
 
   // Zustand — глобальное UI-состояние
   const queryClient = useQueryClient();
@@ -296,6 +300,8 @@ function App() {
 
   // Открыто ли боковое меню на мобильных (бургер).
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Модалка уведомлений (колокольчик).
+  const [bellOpen, setBellOpen] = useState(false);
 
   // Пока проверяем сессию или «важное» сообщение — показываем спиннер.
   // (Сообщение решает, показывать ли модалку-гейт перед основным функционалом.)
@@ -317,6 +323,7 @@ function App() {
           queryClient.removeQueries({ queryKey: ["user-metrics"] });
           queryClient.removeQueries({ queryKey: ["app-tasks"] });
           queryClient.removeQueries({ queryKey: ["tasks"] });
+          queryClient.removeQueries({ queryKey: ["notifications"] });
           queryClient.invalidateQueries({ queryKey: ["me"] });
         }}
       />
@@ -352,6 +359,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["user-metrics"] });
     queryClient.removeQueries({ queryKey: ["app-tasks"] });
     queryClient.removeQueries({ queryKey: ["tasks"] });
+    queryClient.removeQueries({ queryKey: ["notifications"] });
     await queryClient.invalidateQueries({ queryKey: ["me"] });
   };
 
@@ -386,7 +394,23 @@ function App() {
         </Button>
         <Brand onClick={() => setView("reports")} />
         {meQuery.data && (
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setBellOpen(true)}
+              aria-label="Уведомления"
+              className="relative"
+            >
+              <Bell className="size-5" />
+              {notificationsQuery.data?.notifications?.length > 0 && (
+                <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                  {notificationsQuery.data.notifications.length > 9
+                    ? "9+"
+                    : notificationsQuery.data.notifications.length}
+                </span>
+              )}
+            </Button>
             <UserBadge user={meQuery.data} onClick={() => setView("user")} />
           </div>
         )}
@@ -400,6 +424,8 @@ function App() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         user={meQuery.data}
+        notifCount={notificationsQuery.data?.notifications?.length || 0}
+        onOpenBell={() => setBellOpen(true)}
       />
 
       <main className="lg:pl-64">
@@ -560,6 +586,10 @@ function App() {
           </footer>
         </div>
       </main>
+
+      {isAuthed && bellOpen && (
+        <NotificationsModal onClose={() => setBellOpen(false)} />
+      )}
     </div>
   );
 }
