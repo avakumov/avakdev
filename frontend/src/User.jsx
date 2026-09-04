@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { updateMe, updateAvatar } from "./api.js";
+import { updateMe, updateAvatar, linkTelegram, unlinkTelegram } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppStore } from "./store.js";
 import {
@@ -276,6 +276,11 @@ function User({ user, onLogout }) {
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [notifCreateOpen, setNotifCreateOpen] = useState(false);
 
+  // Привязка Telegram.
+  const [tgBusy, setTgBusy] = useState(false);
+  const [tgError, setTgError] = useState("");
+  const [tgStep, setTgStep] = useState(false);
+
   // Необязательные контакты (черновик формы).
   const [phone, setPhone] = useState(user?.phone || "");
   const [telegram, setTelegram] = useState(user?.telegram || "");
@@ -307,6 +312,34 @@ function User({ user, onLogout }) {
       setError(err.message || "Не удалось сохранить профиль");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLinkTg = async () => {
+    setTgBusy(true);
+    setTgError("");
+    try {
+      const { url } = await linkTelegram();
+      setTgStep(true);
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      setTgError(err.message || "Не удалось создать ссылку привязки");
+    } finally {
+      setTgBusy(false);
+    }
+  };
+
+  const handleUnlinkTg = async () => {
+    setTgBusy(true);
+    setTgError("");
+    try {
+      await unlinkTelegram();
+      setTgStep(false);
+      await refreshMe();
+    } catch (err) {
+      setTgError(err.message || "Не удалось отключить Telegram");
+    } finally {
+      setTgBusy(false);
     }
   };
 
@@ -391,6 +424,66 @@ function User({ user, onLogout }) {
                   className="pl-12"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Привязка Telegram для уведомлений */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <div className="min-w-0 space-y-0.5">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <Send className="size-4 text-muted-foreground" />
+                Telegram для уведомлений
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {user?.telegram_linked
+                  ? `Подключено${user?.telegram ? ` (@${user.telegram})` : ""} — сюда придут уведомления`
+                  : "Не подключено — нажмите кнопку и запустите бота"}
+              </p>
+              {tgError && (
+                <p
+                  className="flex items-center gap-1 text-xs text-destructive"
+                  role="alert"
+                >
+                  <AlertCircle className="size-3.5" />
+                  {tgError}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {user?.telegram_linked ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleUnlinkTg}
+                  disabled={tgBusy}
+                >
+                  <X />
+                  Отключить
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLinkTg}
+                    disabled={tgBusy}
+                  >
+                    <Send />
+                    {tgBusy ? "Создаю…" : "Подключить"}
+                  </Button>
+                  {tgStep && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={refreshMe}
+                      disabled={tgBusy}
+                    >
+                      <Check />
+                      Проверить подключение
+                    </Button>
+                  )}
+                </>
+              )}
             </div>
           </div>
 

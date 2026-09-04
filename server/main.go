@@ -82,6 +82,10 @@ func main() {
 	if err := initNotifications(); err != nil {
 		log.Fatalf("не удалось инициализировать уведомления: %v", err)
 	}
+
+	// Фоновая доставка уведомлений в Telegram и обработка привязки бота.
+	startNotificationScheduler()
+	startTelegramLinkWatcher()
 	logAuthConfig()
 
 	// Агент по задачам приложения — только в dev-режиме, отдельным процессом
@@ -107,6 +111,8 @@ func main() {
 		authed.GET("/me", handleMe)
 		authed.PUT("/me", handleUpdateMe)
 		authed.PUT("/me/avatar", handleUpdateAvatar)
+		authed.POST("/me/telegram/link", handleLinkTelegram)
+		authed.POST("/me/telegram/unlink", handleUnlinkTelegram)
 		authed.POST("/logout", handleLogout)
 
 		// Маршруты, требующие прав администратора.
@@ -181,6 +187,9 @@ func main() {
 		authed.GET("/notifications", handleListNotifications)
 		authed.POST("/notifications", handleCreateNotification)
 		authed.DELETE("/notifications/:id", handleDeleteNotification)
+		// «Входящие»: наступившие по расписанию (колокольчик).
+		authed.GET("/notifications/inbox", handleListNotificationInbox)
+		authed.DELETE("/notifications/inbox/:id", handleDismissNotification)
 
 		// Профиль и генерация резюме.
 		authed.GET("/profile", handleGetProfile)

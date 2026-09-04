@@ -1,11 +1,15 @@
 import { useState } from "react";
 import {
   useNotifications,
+  useNotificationInbox,
   createNotification,
   deleteNotification,
+  dismissNotification,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
+import DateInput from "@/components/DateInput.jsx";
+import TimeInput from "@/components/TimeInput.jsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +40,7 @@ import {
   Repeat,
   Send,
   Inbox,
+  Check,
 } from "lucide-react";
 
 // Русская плюрализация: ruPlural(5, ["день","дня","дней"]) -> "дней".
@@ -100,11 +105,12 @@ function Textarea({ className, ...props }) {
 }
 
 // Модалка создания уведомления: тип (однократно/периодически), когда/период,
-// канал доставки (Telegram — пока заглушка).
+// канал доставки (уведомления/Telegram).
 export function CreateNotificationModal({ onClose, onCreated }) {
   const [text, setText] = useState("");
   const [type, setType] = useState("once");
-  const [when, setWhen] = useState(""); // datetime-local для однократного
+  const [whenDate, setWhenDate] = useState(""); // дата (DateInput) для однократного
+  const [whenTime, setWhenTime] = useState("09:00"); // время для однократного
   const [periodValue, setPeriodValue] = useState("1");
   const [periodUnit, setPeriodUnit] = useState("day"); // minute|hour|day|month|year
   const [anchorDate, setAnchorDate] = useState(""); // дата для месяц/год
@@ -124,11 +130,12 @@ export function CreateNotificationModal({ onClose, onCreated }) {
     const payload = { text, type, channel };
 
     if (type === "once") {
-      if (!when) {
-        setError("Укажите дату и время срабатывания");
+      if (!whenDate) {
+        setError("Укажите дату срабатывания");
         return;
       }
-      payload.due_at = new Date(when).toISOString();
+      const time = whenTime || "09:00";
+      payload.due_at = new Date(`${whenDate}T${time}:00`).toISOString();
       payload.period_unit = "";
       payload.period_value = 0;
     } else {
@@ -218,14 +225,23 @@ export function CreateNotificationModal({ onClose, onCreated }) {
           </div>
 
           {type === "once" ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="notif-when">Когда</Label>
-              <Input
-                id="notif-when"
-                type="datetime-local"
-                value={when}
-                onChange={(e) => setWhen(e.target.value)}
-              />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-when-date">Когда — дата</Label>
+                <DateInput
+                  id="notif-when-date"
+                  value={whenDate}
+                  onChange={setWhenDate}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-when-time">Время</Label>
+                <TimeInput
+                  id="notif-when-time"
+                  value={whenTime}
+                  onChange={setWhenTime}
+                />
+              </div>
             </div>
           ) : (
             <div className="flex items-end gap-2">
@@ -265,20 +281,12 @@ export function CreateNotificationModal({ onClose, onCreated }) {
                   ? "Дата начала (повтор — каждый месяц в этот день)"
                   : "Дата начала (повтор — каждый год в этот день)"}
               </Label>
-              <Input
+              <DateInput
                 id="notif-anchor-date"
-                type="date"
                 value={anchorDate}
-                onChange={(e) => setAnchorDate(e.target.value)}
+                onChange={setAnchorDate}
               />
             </div>
-          )}
-
-          {channel === "telegram" && (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Send className="size-3.5" />
-              Telegram-доставка пока не подключена (заглушка)
-            </p>
           )}
 
           {error && (
@@ -397,13 +405,28 @@ function NotificationRows({ onChanged }) {
   );
 }
 
-// Модалка колокольчика: список уведомлений + добавление нового.
+// Модалка колокольчика: показывает ТОЛЬКО наступившие уведомления
+// («входящие») — они появляются по расписанию, а не все сразу.
 export function NotificationsModal({ onClose }) {
   const queryClient = useQueryClient();
-  const [creating, setCreating] = useState(false);
 
-  const refresh = () =>
+  const inbox = useNotificationInbox(true);
+
+  const refreshAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["notifications-inbox"] });
     queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  };
+
+  const dismiss = async (id) => {
+    try {
+      await dismissNotification(id);
+      refreshAll();
+    } catch (err) {
+      window.alert(err.message || "Не удалось закрыть уведомление");
+    }
+  };
+
+  const items = inbox.data?.inbox || [];
 
   return (
     <div
@@ -415,42 +438,77 @@ export function NotificationsModal({ onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BellRing className="size-4 text-muted-foreground" />
-            Уведомления
-          </CardTitle>
+          <div className="flex items-start justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <BellRing className="size-4 text-muted-foreground" />
+              Уведомления
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              aria-label="Закрыть"
+              className="-mt-1 -mr-1"
+            >
+              <X />
+            </Button>
+          </div>
           <CardDescription>
-            Ваши напоминания — ближайшие сверху
+            Появляются по расписанию. Нажмите «Готово», чтобы закрыть.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="flex-1 space-y-3 overflow-y-auto">
-          <NotificationRows onChanged={refresh} />
+          {inbox.isLoading ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Загрузка…
+            </p>
+          ) : inbox.isError ? (
+            <p className="text-sm text-destructive">
+              Ошибка: {inbox.error?.message}
+            </p>
+          ) : items.length === 0 ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Bell className="size-4" />
+              Пока нет новых уведомлений
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {items.map((it) => (
+                <li
+                  key={it.id}
+                  className="flex items-start justify-between gap-3 px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="wrap-break-word font-medium text-foreground">
+                      {it.text}
+                    </p>
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      появилось:{" "}
+                      <DateDisplay date={it.created} withTime className="tabular-nums" />
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => dismiss(it.id)}
+                    className="shrink-0"
+                  >
+                    <Check />
+                    Готово
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
-
-        <div className="flex justify-between gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose}>
-            <X />
-            Закрыть
-          </Button>
-          <Button onClick={() => setCreating(true)}>
-            <Plus />
-            Добавить уведомление
-          </Button>
-        </div>
       </Card>
-
-      {creating && (
-        <CreateNotificationModal
-          onClose={() => setCreating(false)}
-          onCreated={refresh}
-        />
-      )}
     </div>
   );
 }
 
-// Карточка «Уведомления» для страницы профиля.
+// Карточка «Уведомления» для страницы профиля: добавление — над списком.
 export function NotificationsCard({ onAdd }) {
   const queryClient = useQueryClient();
   const refresh = () =>
@@ -468,11 +526,11 @@ export function NotificationsCard({ onAdd }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <NotificationRows onChanged={refresh} />
         <Button onClick={onAdd}>
           <Plus />
           Добавить уведомление
         </Button>
+        <NotificationRows onChanged={refresh} />
       </CardContent>
     </Card>
   );

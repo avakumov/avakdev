@@ -97,6 +97,22 @@ export async function updateAvatar(payload = {}) {
   return data;
 }
 
+// Создать ссылку привязки Telegram (POST /api/me/telegram/link) — { url }.
+export async function linkTelegram() {
+  const res = await fetch(`${BASE}/api/me/telegram/link`, { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось создать ссылку привязки");
+  return data;
+}
+
+// Отвязать Telegram (POST /api/me/telegram/unlink).
+export async function unlinkTelegram() {
+  const res = await fetch(`${BASE}/api/me/telegram/unlink`, { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось отключить Telegram");
+  return data;
+}
+
 // Использовать с useQueryClient().invalidateQueries(["me"]) после входа/выхода.
 export function useInvalidateMe() {
   const queryClient = useQueryClient();
@@ -389,6 +405,27 @@ export function useNotifications(enabled = true) {
     enabled,
     retry: 1,
   });
+}
+
+// «Входящие»: наступившие по расписанию уведомления (колокольчик).
+export function useNotificationInbox(enabled = true) {
+  return useQuery({
+    queryKey: ["notifications-inbox"],
+    queryFn: () => request("/api/notifications/inbox"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Закрыть «входящее» уведомление (DELETE /api/notifications/inbox/:id).
+export async function dismissNotification(id) {
+  const res = await fetch(`${BASE}/api/notifications/inbox/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось закрыть уведомление");
+  return data;
 }
 
 // Создать уведомление (POST /api/notifications).

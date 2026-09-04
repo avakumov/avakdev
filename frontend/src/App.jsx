@@ -5,7 +5,7 @@ import {
   useMetrics,
   useMe,
   useImportant,
-  useNotifications,
+  useNotificationInbox,
   markImportantSeen,
   logout,
   setOnUnauthorized,
@@ -262,7 +262,7 @@ function App() {
   const messageQuery = useMessage(isAuthed);
   const metricsQuery = useMetrics(5000, isAuthed);
   const importantQuery = useImportant(isAuthed);
-  const notificationsQuery = useNotifications(isAuthed);
+  const notificationsQuery = useNotificationInbox(isAuthed);
 
   // Zustand — глобальное UI-состояние
   const queryClient = useQueryClient();
@@ -324,6 +324,7 @@ function App() {
           queryClient.removeQueries({ queryKey: ["app-tasks"] });
           queryClient.removeQueries({ queryKey: ["tasks"] });
           queryClient.removeQueries({ queryKey: ["notifications"] });
+          queryClient.removeQueries({ queryKey: ["notifications-inbox"] });
           queryClient.invalidateQueries({ queryKey: ["me"] });
         }}
       />
@@ -360,6 +361,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["app-tasks"] });
     queryClient.removeQueries({ queryKey: ["tasks"] });
     queryClient.removeQueries({ queryKey: ["notifications"] });
+    queryClient.removeQueries({ queryKey: ["notifications-inbox"] });
     await queryClient.invalidateQueries({ queryKey: ["me"] });
   };
 
@@ -403,11 +405,11 @@ function App() {
               className="relative"
             >
               <Bell className="size-5" />
-              {notificationsQuery.data?.notifications?.length > 0 && (
+              {notificationsQuery.data?.inbox?.length > 0 && (
                 <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                  {notificationsQuery.data.notifications.length > 9
+                  {notificationsQuery.data.inbox.length > 9
                     ? "9+"
-                    : notificationsQuery.data.notifications.length}
+                    : notificationsQuery.data.inbox.length}
                 </span>
               )}
             </Button>
@@ -424,7 +426,7 @@ function App() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         user={meQuery.data}
-        notifCount={notificationsQuery.data?.notifications?.length || 0}
+        notifCount={notificationsQuery.data?.inbox?.length || 0}
         onOpenBell={() => setBellOpen(true)}
       />
 

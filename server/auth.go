@@ -31,6 +31,8 @@ type User struct {
 	AvatarData string `json:"avatar_data"`
 	// AvatarMime — MIME-тип фото аватара (например image/jpeg).
 	AvatarMime string `json:"avatar_mime"`
+	// TelegramChatID — chat_id привязанного Telegram (не показываем наружу).
+	TelegramChatID string `json:"-"`
 	// Password хранится ТОЛЬКО внутри структуры, наружу никогда не уходит.
 	Password string `json:"-"`
 }
@@ -39,14 +41,15 @@ type User struct {
 // (пароль не включается никогда).
 func userPayload(u User) gin.H {
 	return gin.H{
-		"username":      u.Username,
-		"email":         u.Email,
-		"is_admin":      u.IsAdmin,
-		"phone":         u.Phone,
-		"telegram":      u.Telegram,
-		"avatar_preset": u.AvatarPreset,
-		"avatar_data":   u.AvatarData,
-		"avatar_mime":   u.AvatarMime,
+		"username":        u.Username,
+		"email":           u.Email,
+		"is_admin":        u.IsAdmin,
+		"phone":           u.Phone,
+		"telegram":        u.Telegram,
+		"avatar_preset":   u.AvatarPreset,
+		"avatar_data":     u.AvatarData,
+		"avatar_mime":     u.AvatarMime,
+		"telegram_linked": u.TelegramChatID != "",
 	}
 }
 
@@ -178,10 +181,11 @@ func loadUser(username string) (User, bool) {
 	var u User
 	err := db.QueryRow(context.Background(),
 		`SELECT id, username, email, is_admin, phone, telegram,
-		        avatar_preset, avatar_data, avatar_mime
+		        avatar_preset, avatar_data, avatar_mime, telegram_chat_id
 		 FROM users WHERE username = $1`,
 		username).Scan(&u.ID, &u.Username, &u.Email, &u.IsAdmin, &u.Phone,
-		&u.Telegram, &u.AvatarPreset, &u.AvatarData, &u.AvatarMime)
+		&u.Telegram, &u.AvatarPreset, &u.AvatarData, &u.AvatarMime,
+		&u.TelegramChatID)
 	if err != nil {
 		return User{}, false
 	}
