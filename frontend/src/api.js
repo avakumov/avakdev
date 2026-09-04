@@ -4,6 +4,26 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 // в dev — через vite-прокси на него).
 const BASE = "";
 
+// Глобальный обработчик «сессия истекла» (401). Регистрируется в App.jsx:
+// при вызове сбрасывает кэш ["me"], и приложение показывает экран входа.
+let onUnauthorized = null;
+export function setOnUnauthorized(fn) {
+  onUnauthorized = fn;
+}
+
+// Все API-запросы идут через глобальный fetch. Перехватываем 401 в одном
+// месте, чтобы любое истечение сессии сразу возвращало пользователя на вход
+// (кроме самого /api/login — там 401 значит «неверный пароль»).
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await nativeFetch(...args);
+  const url = typeof args[0] === "string" ? args[0] : (args[0]?.url || "");
+  if (res.status === 401 && !url.includes("/api/login")) {
+    onUnauthorized?.();
+  }
+  return res;
+};
+
 async function request(path) {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) {

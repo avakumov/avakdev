@@ -7,6 +7,7 @@ import {
   useImportant,
   markImportantSeen,
   logout,
+  setOnUnauthorized,
 } from "./api.js";
 import { useAppStore } from "./store.js";
 import { useQueryClient } from "@tanstack/react-query";
@@ -261,6 +262,14 @@ function App() {
 
   // Zustand — глобальное UI-состояние
   const queryClient = useQueryClient();
+
+  // Любая 401 от API (кроме /api/login) = сессия истекла: помечаем
+  // пользователя неавторизованным — App сам переключится на экран входа.
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      queryClient.setQueryData(["me"], null);
+    });
+  }, [queryClient]);
   const lastUpdatedAt = useAppStore((s) => s.lastUpdatedAt);
   const setLastUpdatedAt = useAppStore((s) => s.setLastUpdatedAt);
 
