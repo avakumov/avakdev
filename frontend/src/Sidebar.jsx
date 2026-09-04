@@ -21,7 +21,7 @@ export const NAV_ITEMS = [
   { key: "reports", label: "Отчеты", icon: FileText },
   { key: "knowledge", label: "Знания", icon: BookOpen },
   { key: "metrics", label: "Метрики", icon: BarChart3 },
-  { key: "profile", label: "Профиль", icon: User },
+  { key: "profile", label: "Резюме", icon: User },
   { key: "important", label: "Важное", icon: Megaphone },
   { key: "server", label: "Сервер", icon: Server },
   { key: "app", label: "Приложение", icon: Wrench },
@@ -29,7 +29,7 @@ export const NAV_ITEMS = [
 
 // Боковое меню: на десктопе закреплено слева (lg+), на мобильных выезжает
 // из-за края экрана (бургер). open/onClose управляют только мобильным режимом.
-function Sidebar({ view, onSelect, open, onClose, username, isAdmin }) {
+function Sidebar({ view, onSelect, open, onClose, user }) {
   // Пока сайдбар открыт на мобильных: Esc закрывает, прокрутка страницы
   // блокируется (чтобы фон не скроллился под затемнением).
   useEffect(() => {
@@ -103,8 +103,7 @@ function Sidebar({ view, onSelect, open, onClose, username, isAdmin }) {
         {/* Пользователь (на мобильных он в верхней шапке). Клик — на его страницу. */}
         <div className="hidden shrink-0 border-t border-sidebar-border p-2 lg:block">
           <UserBadge
-            username={username}
-            isAdmin={isAdmin}
+            user={user}
             onClick={() => {
               onSelect("user");
               onClose();

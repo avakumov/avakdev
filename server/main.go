@@ -102,6 +102,8 @@ func main() {
 	authed.Use(authRequired)
 	{
 		authed.GET("/me", handleMe)
+		authed.PUT("/me", handleUpdateMe)
+		authed.PUT("/me/avatar", handleUpdateAvatar)
 		authed.POST("/logout", handleLogout)
 
 		// Маршруты, требующие прав администратора.

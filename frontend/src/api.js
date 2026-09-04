@@ -71,6 +71,32 @@ export async function logout() {
   await fetch(`${BASE}/api/logout`, { method: "POST" });
 }
 
+// Обновить контактные данные текущего пользователя (PUT /api/me):
+// необязательные телефон и Telegram.
+export async function updateMe({ phone = "", telegram = "" } = {}) {
+  const res = await fetch(`${BASE}/api/me`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, telegram }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить профиль");
+  return data;
+}
+
+// Обновить аватар текущего пользователя (PUT /api/me/avatar).
+// payload: { preset? } или { photo_data?, photo_mime? }; пустое — сброс.
+export async function updateAvatar(payload = {}) {
+  const res = await fetch(`${BASE}/api/me/avatar`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить аватар");
+  return data;
+}
+
 // Использовать с useQueryClient().invalidateQueries(["me"]) после входа/выхода.
 export function useInvalidateMe() {
   const queryClient = useQueryClient();

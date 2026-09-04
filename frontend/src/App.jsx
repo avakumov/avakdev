@@ -387,11 +387,7 @@ function App() {
         <Brand onClick={() => setView("reports")} />
         {meQuery.data && (
           <div className="ml-auto">
-            <UserBadge
-              username={meQuery.data.username}
-              isAdmin={meQuery.data.is_admin}
-              onClick={() => setView("user")}
-            />
+            <UserBadge user={meQuery.data} onClick={() => setView("user")} />
           </div>
         )}
       </header>
@@ -403,8 +399,7 @@ function App() {
         onSelect={setView}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        username={meQuery.data?.username}
-        isAdmin={meQuery.data?.is_admin}
+        user={meQuery.data}
       />
 
       <main className="lg:pl-64">
@@ -417,11 +412,7 @@ function App() {
           {view === "important" && <Important />}
           {view === "app" && <AppTasks />}
           {view === "user" && (
-            <User
-              username={meQuery.data?.username}
-              isAdmin={meQuery.data?.is_admin}
-              onLogout={handleLogout}
-            />
+            <User user={meQuery.data} onLogout={handleLogout} />
           )}
           {view === "server" && (
             <>

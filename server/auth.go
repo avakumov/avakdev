@@ -21,8 +21,33 @@ type User struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	IsAdmin  bool   `json:"is_admin"`
+	// Phone — необязательный телефон пользователя.
+	Phone string `json:"phone"`
+	// Telegram — необязательное имя пользователя в Telegram (без @).
+	Telegram string `json:"telegram"`
+	// AvatarPreset — выбранный готовый вариант аватара (id) или пусто.
+	AvatarPreset string `json:"avatar_preset"`
+	// AvatarData — своё фото аватара в base64 (без data URI префикса).
+	AvatarData string `json:"avatar_data"`
+	// AvatarMime — MIME-тип фото аватара (например image/jpeg).
+	AvatarMime string `json:"avatar_mime"`
 	// Password хранится ТОЛЬКО внутри структуры, наружу никогда не уходит.
 	Password string `json:"-"`
+}
+
+// userPayload — безопасное представление пользователя для JSON-ответов
+// (пароль не включается никогда).
+func userPayload(u User) gin.H {
+	return gin.H{
+		"username":      u.Username,
+		"email":         u.Email,
+		"is_admin":      u.IsAdmin,
+		"phone":         u.Phone,
+		"telegram":      u.Telegram,
+		"avatar_preset": u.AvatarPreset,
+		"avatar_data":   u.AvatarData,
+		"avatar_mime":   u.AvatarMime,
+	}
 }
 
 // session — активная сессия пользователя.
@@ -147,6 +172,22 @@ func adminRequired(c *gin.Context) {
 	c.Next()
 }
 
+// loadUser возвращает пользователя по имени (без пароля — он не заполняется
+// в этой выборке). Ошибка "no rows" возвращается как nil-структура + false.
+func loadUser(username string) (User, bool) {
+	var u User
+	err := db.QueryRow(context.Background(),
+		`SELECT id, username, email, is_admin, phone, telegram,
+		        avatar_preset, avatar_data, avatar_mime
+		 FROM users WHERE username = $1`,
+		username).Scan(&u.ID, &u.Username, &u.Email, &u.IsAdmin, &u.Phone,
+		&u.Telegram, &u.AvatarPreset, &u.AvatarData, &u.AvatarMime)
+	if err != nil {
+		return User{}, false
+	}
+	return u, true
+}
+
 // handleLogin аутентифицирует пользователя по username/password.
 func handleLogin(c *gin.Context) {
 	var req struct {
@@ -211,10 +252,53 @@ func handleMe(c *gin.Context) {
 		return
 	}
 	sessData, _ := sessVal.(session)
-	c.JSON(http.StatusOK, gin.H{
-		"username": sessData.username,
-		"is_admin": sessData.isAdmin,
-	})
+	u, found := loadUser(sessData.username)
+	if !found {
+		// Пользователь удалён при живой сессии — считаем сессию недействительной.
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Сессия истекла. Войдите снова."})
+		return
+	}
+	c.JSON(http.StatusOK, userPayload(u))
+}
+
+// handleUpdateMe сохраняет контактные данные текущего пользователя
+// (необязательные поля phone и telegram).
+func handleUpdateMe(c *gin.Context) {
+	sessVal, ok := c.Get("session")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Требуется вход"})
+		return
+	}
+	sessData, _ := sessVal.(session)
+
+	var req struct {
+		Phone    string `json:"phone"`
+		Telegram string `json:"telegram"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		return
+	}
+	req.Phone = strings.TrimSpace(req.Phone)
+	req.Telegram = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(req.Telegram), "@"))
+	if len(req.Phone) > 32 || len(req.Telegram) > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Значение слишком длинное"})
+		return
+	}
+
+	if _, err := db.Exec(context.Background(),
+		`UPDATE users SET phone = $1, telegram = $2 WHERE username = $3`,
+		req.Phone, req.Telegram, sessData.username); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
+		return
+	}
+
+	u, found := loadUser(sessData.username)
+	if !found {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
+		return
+	}
+	c.JSON(http.StatusOK, userPayload(u))
 }
 
 // logAuthConfig печатает состояние подключения к БД при старте.
