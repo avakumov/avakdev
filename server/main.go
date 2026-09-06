@@ -183,7 +183,9 @@ func main() {
 		// Цели (первый раздел, главная страница).
 		authed.GET("/goals", handleListGoals)
 		authed.POST("/goals", handleCreateGoal)
+		authed.POST("/goals/generate-tasks", handleGenerateGoalTasks)
 		authed.PUT("/goals/:id", handleUpdateGoal)
+		authed.PUT("/goals/:id/tasks-order", handleReorderGoalTasks)
 		authed.DELETE("/goals/:id", handleDeleteGoal)
 
 		// Задачи раздела «Задачи» (категории, время, дедлайн, статус).

@@ -432,12 +432,43 @@ export async function updateGoal(id, payload) {
 }
 
 // Удалить цель (DELETE /api/goals/:id).
-export async function deleteGoal(id) {
-  const res = await fetch(`${BASE}/api/goals/${id}`, {
-    method: "DELETE",
-  });
+// deleteTasks=true удаляет также привязанные к цели задачи.
+export async function deleteGoal(id, deleteTasks = false) {
+  const res = await fetch(
+    `${BASE}/api/goals/${id}?delete_tasks=${deleteTasks ? 1 : 0}`,
+    {
+      method: "DELETE",
+    },
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Не удалось удалить цель");
+  return data;
+}
+
+// Задать последовательность задач цели (PUT /api/goals/:id/tasks-order).
+// taskIds — полный список id задач цели в нужном порядке.
+export async function reorderGoalTasks(goalId, taskIds) {
+  const res = await fetch(`${BASE}/api/goals/${goalId}/tasks-order`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task_ids: taskIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok)
+    throw new Error(data.error || "Не удалось изменить порядок задач");
+  return data;
+}
+
+// Сгенерировать черновики задач для новой цели (POST /api/goals/generate-tasks).
+// Ничего не сохраняет: возвращает список предлагаемых задач.
+export async function generateGoalTasks(payload) {
+  const res = await fetch(`${BASE}/api/goals/generate-tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сгенерировать задачи");
   return data;
 }
 

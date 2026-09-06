@@ -29,7 +29,6 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
-  Edit,
   X,
   Clock,
   CalendarDays,
@@ -311,10 +310,16 @@ export function TaskFormModal({
   );
 }
 
-// Строка таблицы задачи (desktop).
+// Строка таблицы задачи (desktop). Открывается по клику; элементы управления
+// (кнопка удаления, селект статуса) клик не «проглатывают».
 function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
   const [changing, setChanging] = useState(false);
   const goal = task.goal_id != null ? goals.find((g) => g.id === task.goal_id) : null;
+
+  const handleRowClick = (e) => {
+    if (e.target.closest("button, a, input, [role='combobox']")) return;
+    onEdit(task);
+  };
 
   const handleStatus = async (status) => {
     setChanging(true);
@@ -326,7 +331,11 @@ function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
   };
 
   return (
-    <tr className="border-b border-border/60 last:border-0 hover:bg-muted/30">
+    <tr
+      onClick={handleRowClick}
+      title="Открыть задачу"
+      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30"
+    >
       <td className="min-w-0 px-3 py-2 align-top">
         <p className="wrap-break-word font-medium text-foreground">{task.title}</p>
         {task.description && (
@@ -368,31 +377,28 @@ function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
         </Select>
       </td>
       <td className="px-2 py-2 align-top text-right">
-        <div className="flex justify-end gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => onEdit(task)}
-          >
-            <Edit />
-          </Button>
-          <Button
-            variant="destructive"
-            size="icon-sm"
-            onClick={() => onDelete(task)}
-          >
-            <Trash2 />
-          </Button>
-        </div>
+        <Button
+          variant="destructive"
+          size="icon-sm"
+          onClick={() => onDelete(task)}
+        >
+          <Trash2 />
+        </Button>
       </td>
     </tr>
   );
 }
 
-// Карточка задачи (mobile).
+// Карточка задачи (mobile). Открывается по клику на содержимое;
+// кнопка удаления и селект статуса работают сами по себе.
 function TaskCard({ task, goals = [], onEdit, onDelete, onStatusChange }) {
   const [changing, setChanging] = useState(false);
   const goal = task.goal_id != null ? goals.find((g) => g.id === task.goal_id) : null;
+
+  const handleCardClick = (e) => {
+    if (e.target.closest("button, a, input, [role='combobox']")) return;
+    onEdit(task);
+  };
 
   const handleStatus = async (status) => {
     setChanging(true);
@@ -404,7 +410,12 @@ function TaskCard({ task, goals = [], onEdit, onDelete, onStatusChange }) {
   };
 
   return (
-    <Card className="my-3" size="sm">
+    <Card
+      className="my-3 cursor-pointer"
+      size="sm"
+      onClick={handleCardClick}
+      title="Открыть задачу"
+    >
       <CardContent className="space-y-3 pt-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -423,9 +434,6 @@ function TaskCard({ task, goals = [], onEdit, onDelete, onStatusChange }) {
             </div>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button variant="outline" size="sm" onClick={() => onEdit(task)}>
-              <Edit />
-            </Button>
             <Button
               variant="destructive"
               size="sm"
@@ -625,18 +633,18 @@ function Tasks() {
       ) : (
         <>
           {/* Таблица — desktop (md и шире). Без горизонтального скролла:
-              table-fixed + фиксированные ширины колонок, длинные названия
-              обрезаются и раскрываются тултипом. */}
+              table-fixed + фиксированные ширины колонок; длинные названия
+              переносятся по словам (wrap-break-word). */}
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
             <table className="w-full table-fixed text-sm">
               <colgroup>
-                <col className="w-[30%]" />
+                <col className="w-[40%]" />
+                <col className="w-[10%]" />
+                <col className="w-[7%]" />
+                <col className="w-[7%]" />
                 <col className="w-[11%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[13%]" />
-                <col className="w-[16%]" />
                 <col className="w-[14%]" />
+                <col className="w-[11%]" />
               </colgroup>
               <thead>
                 <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -647,7 +655,7 @@ function Tasks() {
                   <th className="px-1.5 py-2 align-middle font-bold">Дедлайн</th>
                   <th className="px-1.5 py-2 align-middle font-bold">Статус</th>
                   <th className="px-2 py-2 text-right align-middle font-bold">
-                    Действия
+                    Удалить
                   </th>
                 </tr>
               </thead>

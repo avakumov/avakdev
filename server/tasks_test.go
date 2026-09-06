@@ -126,7 +126,7 @@ func TestTaskStore(t *testing.T) {
 	}
 
 	// Удаление цели сбрасывает ссылки задач (аналог ON DELETE SET NULL).
-	if err := goals.delete("admin", goal.ID); err != nil {
+	if err := goals.delete("admin", goal.ID, false); err != nil {
 		t.Fatalf("delete goal: %v", err)
 	}
 	if got, ok := tasks.getOwned("admin", linked.ID); ok && got.GoalID != nil {

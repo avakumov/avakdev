@@ -35,7 +35,8 @@ var TaskCategories = []string{"Работа", "Личное", "Учёба", "Д�
 
 // Task — задача раздела «Задачи»: категория, планируемое и фактическое время
 // в часах, дедлайн и статус. Владелец — конкретный пользователь.
-// GoalID — ссылка на цель из раздела «Цели» (nil — задача без цели).
+// GoalID — ссылка на цель из раздела «Цели» (nil — задача без цели);
+// Position — порядок выполнения внутри цели (1..N, 0 — вне цели).
 type Task struct {
 	ID           int     `json:"id"`
 	Username     string  `json:"-"`
@@ -47,6 +48,7 @@ type Task struct {
 	Deadline     string  `json:"deadline"` // дата YYYY-MM-DD или пусто
 	Status       string  `json:"status"`
 	GoalID       *int    `json:"goal_id"`
+	Position     int     `json:"position"`
 	Created      string  `json:"created"`
 	Updated      string  `json:"updated"`
 }
@@ -85,6 +87,7 @@ func initTasks() error {
 		        COALESCE(to_char(deadline,'YYYY-MM-DD'),''),
 		        status,
 		        goal_id,
+		        position,
 		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM tasks`)
@@ -96,7 +99,7 @@ func initTasks() error {
 		var t Task
 		if err := rows.Scan(&t.ID, &t.Username, &t.Category, &t.Title,
 			&t.Description, &t.PlannedHours, &t.ActualHours, &t.Deadline,
-			&t.Status, &t.GoalID, &t.Created, &t.Updated); err != nil {
+			&t.Status, &t.GoalID, &t.Position, &t.Created, &t.Updated); err != nil {
 			return err
 		}
 		tasks.data[t.ID] = t
@@ -120,6 +123,58 @@ func (s *taskStore) list(username string) []Task {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out
+}
+
+// maxPositionLocked возвращает максимальный position среди задач цели.
+// Вызывается только при удержании s.mu.
+func (s *taskStore) maxPositionLocked(goalID int) int {
+	best := 0
+	for _, x := range s.data {
+		if x.GoalID != nil && *x.GoalID == goalID && x.Position > best {
+			best = x.Position
+		}
+	}
+	return best
+}
+
+// setGoalOrder задаёт последовательность задач цели: ids — полный список
+// id задач пользователя, привязанных к цели, в нужном порядке (позиции 1..N).
+func (s *taskStore) setGoalOrder(username string, goalID int, ids []int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current := make(map[int]bool)
+	for id, t := range s.data {
+		if t.Username == username && t.GoalID != nil && *t.GoalID == goalID {
+			current[id] = true
+		}
+	}
+	if len(ids) != len(current) {
+		return errors.New("переданы не все задачи цели")
+	}
+
+	seen := make(map[int]bool, len(ids))
+	for i, id := range ids {
+		if !current[id] || seen[id] {
+			return errors.New("некорректный список задач цели")
+		}
+		seen[id] = true
+
+		pos := i + 1
+		t := s.data[id]
+		if t.Position != pos {
+			t.Position = pos
+			s.data[id] = t
+			if s.hasDB {
+				if _, err := db.Exec(context.Background(),
+					`UPDATE tasks SET position = $2 WHERE id = $1 AND username = $3 AND goal_id = $4`,
+					id, pos, username, goalID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // getOwned возвращает задачу, если она принадлежит пользователю.
@@ -159,6 +214,11 @@ func (s *taskStore) create(username, category, title, description string, planne
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	// Новая задача в цели дописывается в конец её последовательности.
+	position := 0
+	if goalID != nil {
+		position = s.maxPositionLocked(*goalID) + 1
+	}
 	t := Task{
 		Username:     username,
 		Category:     category,
@@ -169,6 +229,7 @@ func (s *taskStore) create(username, category, title, description string, planne
 		Deadline:     deadline,
 		Status:       status,
 		GoalID:       goalID,
+		Position:     position,
 		Created:      now,
 		Updated:      now,
 	}
@@ -183,12 +244,12 @@ func (s *taskStore) create(username, category, title, description string, planne
 			gid = *goalID
 		}
 		err := db.QueryRow(context.Background(),
-			`INSERT INTO tasks (username, category, title, description, planned_hours, actual_hours, deadline, status, goal_id)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			`INSERT INTO tasks (username, category, title, description, planned_hours, actual_hours, deadline, status, goal_id, position)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			 RETURNING id,
 			           to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 			           to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
-			username, category, title, description, plannedHours, actualHours, dl, status, gid).
+			username, category, title, description, plannedHours, actualHours, dl, status, gid, position).
 			Scan(&t.ID, &t.Created, &t.Updated)
 		if err != nil {
 			return Task{}, err
@@ -235,6 +296,16 @@ func (s *taskStore) update(username string, id int, category, title, description
 		return Task{}, errors.New("задача не найдена")
 	}
 
+	// При переносе задачи в другую цель (или из «без цели») дописываем её
+	// в конец последовательности новой цели. Внутри той же цели порядок
+	// не трогаем — им управляет отдельный эндпоинт смены порядка.
+	oldGoal := t.GoalID
+	if goalID != nil && (oldGoal == nil || *oldGoal != *goalID) {
+		t.Position = s.maxPositionLocked(*goalID) + 1
+	} else if goalID == nil {
+		t.Position = 0
+	}
+
 	t.Category = category
 	t.Title = title
 	t.Description = description
@@ -258,19 +329,28 @@ func (s *taskStore) update(username string, id int, category, title, description
 			`UPDATE tasks
 			 SET category = $2, title = $3, description = $4,
 			     planned_hours = $5, actual_hours = $6, deadline = $7,
-			     status = $8, goal_id = $9, updated = now()
+			     status = $8, goal_id = $9, position = $10, updated = now()
 			 WHERE id = $1`,
 			id, t.Category, t.Title, t.Description, t.PlannedHours,
-			t.ActualHours, dl, t.Status, gid); err != nil {
+			t.ActualHours, dl, t.Status, gid, t.Position); err != nil {
 			return Task{}, err
 		}
 	}
 
 	s.data[id] = t
+
+	// Если задача покинула цель (отвязана или перенесена в другую),
+	// уплотняем позиции оставшихся задач прежней цели (1..N) — без «дырок».
+	if oldGoal != nil && (goalID == nil || *oldGoal != *goalID) {
+		if err := s.compactGoalPositionsLocked(username, *oldGoal); err != nil {
+			return Task{}, err
+		}
+	}
 	return t, nil
 }
 
-// delete удаляет задачу пользователя.
+// delete удаляет задачу пользователя. Если задача была привязана к цели,
+// оставшиеся задачи цели перенумеровываются подряд (1..N) — без «дырок».
 func (s *taskStore) delete(username string, id int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -286,6 +366,45 @@ func (s *taskStore) delete(username string, id int) error {
 		}
 	}
 	delete(s.data, id)
+
+	if t.GoalID != nil {
+		return s.compactGoalPositionsLocked(username, *t.GoalID)
+	}
+	return nil
+}
+
+// compactGoalPositionsLocked перенумеровывает задачи цели подряд (1..N),
+// сохраняя их относительный порядок. Вызывается при удержании s.mu.
+func (s *taskStore) compactGoalPositionsLocked(username string, goalID int) error {
+	ids := make([]int, 0)
+	for id, x := range s.data {
+		if x.Username == username && x.GoalID != nil && *x.GoalID == goalID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		a, b := s.data[ids[i]], s.data[ids[j]]
+		if a.Position != b.Position {
+			return a.Position < b.Position
+		}
+		return a.ID < b.ID
+	})
+	for i, id := range ids {
+		pos := i + 1
+		x := s.data[id]
+		if x.Position == pos {
+			continue
+		}
+		x.Position = pos
+		s.data[id] = x
+		if s.hasDB {
+			if _, err := db.Exec(context.Background(),
+				`UPDATE tasks SET position = $2 WHERE id = $1`,
+				id, pos); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
