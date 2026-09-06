@@ -35,6 +35,7 @@ import {
   CalendarDays,
   Hourglass,
   Filter,
+  Target,
 } from "lucide-react";
 
 // Статусы задач: метка + вариант бейджа.
@@ -52,8 +53,24 @@ const STATUS_META = {
   cancelled: { label: "Отменена", variant: "outline" },
 };
 
-const statusLabel = (s) => STATUS_META[s]?.label || s;
-const statusVariant = (s) => STATUS_META[s]?.variant || "outline";
+export const statusLabel = (s) => STATUS_META[s]?.label || s;
+export const statusVariant = (s) => STATUS_META[s]?.variant || "outline";
+
+// Базовый payload задачи для PUT/POST /api/tasks.
+// extra позволяет переопределить отдельные поля (например, статус или goal_id).
+export function taskPayload(t, extra = {}) {
+  return {
+    category: t.category || "Прочее",
+    title: t.title,
+    description: t.description || "",
+    planned_hours: Number(t.planned_hours) || 0,
+    actual_hours: Number(t.actual_hours) || 0,
+    deadline: t.deadline || "",
+    status: t.status || "todo",
+    goal_id: t.goal_id != null ? t.goal_id : null,
+    ...extra,
+  };
+}
 
 // Часы: 2 -> "2", 2.5 -> "2.5", пусто/0 -> "0".
 const fmtHours = (h) => {
@@ -78,7 +95,16 @@ function Textarea({ className, ...props }) {
 }
 
 // Модальное окно с формой задачи (создание или редактирование).
-function TaskFormModal({ initial, categories, onClose, onSaved }) {
+// goals — цели пользователя (из /api/tasks); presetGoalId — цель,
+// с которой создаётся задача сразу (кнопка «Задача» в карточке цели).
+export function TaskFormModal({
+  initial,
+  categories,
+  goals = [],
+  presetGoalId,
+  onClose,
+  onSaved,
+}) {
   const [category, setCategory] = useState(initial?.category || "");
   const [title, setTitle] = useState(initial?.title || "");
   const [description, setDescription] = useState(initial?.description || "");
@@ -90,6 +116,18 @@ function TaskFormModal({ initial, categories, onClose, onSaved }) {
   );
   const [deadline, setDeadline] = useState(initial?.deadline || "");
   const [status, setStatus] = useState(initial?.status || "todo");
+  // Ключ цели в Select: "none" — без цели, иначе строковый id.
+  // Если указанная цель пропала (например, удалена), сбрасываем на «Без цели».
+  const [goalKey, setGoalKey] = useState(() => {
+    const exists = (id) => goals.some((g) => g.id === id);
+    if (initial?.goal_id != null && exists(initial.goal_id)) {
+      return String(initial.goal_id);
+    }
+    if (presetGoalId != null && exists(presetGoalId)) {
+      return String(presetGoalId);
+    }
+    return "none";
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -109,6 +147,7 @@ function TaskFormModal({ initial, categories, onClose, onSaved }) {
       actual_hours: num(actualHours),
       deadline,
       status,
+      goal_id: goalKey === "none" ? null : Number(goalKey),
     };
     try {
       if (initial) {
@@ -220,9 +259,27 @@ function TaskFormModal({ initial, categories, onClose, onSaved }) {
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Дедлайн</Label>
-            <DateInput value={deadline} onChange={setDeadline} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Цель (необязательно)</Label>
+              <Select value={goalKey} onValueChange={setGoalKey}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Без цели" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Без цели</SelectItem>
+                  {goals.map((g) => (
+                    <SelectItem key={g.id} value={String(g.id)}>
+                      {g.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Дедлайн</Label>
+              <DateInput value={deadline} onChange={setDeadline} />
+            </div>
           </div>
 
           {error && (
@@ -255,8 +312,9 @@ function TaskFormModal({ initial, categories, onClose, onSaved }) {
 }
 
 // Строка таблицы задачи (desktop).
-function TaskRow({ task, onEdit, onDelete, onStatusChange }) {
+function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
   const [changing, setChanging] = useState(false);
+  const goal = task.goal_id != null ? goals.find((g) => g.id === task.goal_id) : null;
 
   const handleStatus = async (status) => {
     setChanging(true);
@@ -274,6 +332,12 @@ function TaskRow({ task, onEdit, onDelete, onStatusChange }) {
         {task.description && (
           <p className="wrap-break-word text-xs text-muted-foreground">
             {task.description}
+          </p>
+        )}
+        {goal && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <Target className="size-3 shrink-0" />
+            <span className="wrap-break-word">{goal.title}</span>
           </p>
         )}
       </td>
@@ -326,8 +390,9 @@ function TaskRow({ task, onEdit, onDelete, onStatusChange }) {
 }
 
 // Карточка задачи (mobile).
-function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
+function TaskCard({ task, goals = [], onEdit, onDelete, onStatusChange }) {
   const [changing, setChanging] = useState(false);
+  const goal = task.goal_id != null ? goals.find((g) => g.id === task.goal_id) : null;
 
   const handleStatus = async (status) => {
     setChanging(true);
@@ -349,6 +414,12 @@ function TaskCard({ task, onEdit, onDelete, onStatusChange }) {
               <Badge variant={statusVariant(task.status)}>
                 {statusLabel(task.status)}
               </Badge>
+              {goal && (
+                <Badge variant="outline">
+                  <Target className="mr-1 size-3" />
+                  {goal.title}
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex shrink-0 gap-1">
@@ -435,6 +506,7 @@ function Tasks() {
   const data = tasksQuery.data;
   const tasks = data?.tasks || [];
   const categories = data?.categories || [];
+  const goals = data?.goals || [];
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
@@ -451,15 +523,7 @@ function Tasks() {
   );
 
   const handleStatusChange = async (task, status) => {
-    await updateTask(task.id, {
-      category: task.category,
-      title: task.title,
-      description: task.description,
-      planned_hours: task.planned_hours,
-      actual_hours: task.actual_hours,
-      deadline: task.deadline,
-      status,
-    });
+    await updateTask(task.id, taskPayload(task, { status }));
     refresh();
   };
 
@@ -592,6 +656,7 @@ function Tasks() {
                   <TaskRow
                     key={t.id}
                     task={t}
+                    goals={goals}
                     onEdit={(task) => setModal({ task })}
                     onDelete={handleDelete}
                     onStatusChange={(status) => handleStatusChange(t, status)}
@@ -607,6 +672,7 @@ function Tasks() {
               <TaskCard
                 key={t.id}
                 task={t}
+                goals={goals}
                 onEdit={(task) => setModal({ task })}
                 onDelete={handleDelete}
                 onStatusChange={(status) => handleStatusChange(t, status)}
@@ -620,6 +686,7 @@ function Tasks() {
         <TaskFormModal
           initial={modal.task}
           categories={categories}
+          goals={goals}
           onClose={() => setModal(null)}
           onSaved={refresh}
         />

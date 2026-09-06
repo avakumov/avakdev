@@ -35,6 +35,7 @@ var TaskCategories = []string{"Работа", "Личное", "Учёба", "Д�
 
 // Task — задача раздела «Задачи»: категория, планируемое и фактическое время
 // в часах, дедлайн и статус. Владелец — конкретный пользователь.
+// GoalID — ссылка на цель из раздела «Цели» (nil — задача без цели).
 type Task struct {
 	ID           int     `json:"id"`
 	Username     string  `json:"-"`
@@ -45,6 +46,7 @@ type Task struct {
 	ActualHours  float64 `json:"actual_hours"`
 	Deadline     string  `json:"deadline"` // дата YYYY-MM-DD или пусто
 	Status       string  `json:"status"`
+	GoalID       *int    `json:"goal_id"`
 	Created      string  `json:"created"`
 	Updated      string  `json:"updated"`
 }
@@ -82,6 +84,7 @@ func initTasks() error {
 		        actual_hours,
 		        COALESCE(to_char(deadline,'YYYY-MM-DD'),''),
 		        status,
+		        goal_id,
 		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		 FROM tasks`)
@@ -93,7 +96,7 @@ func initTasks() error {
 		var t Task
 		if err := rows.Scan(&t.ID, &t.Username, &t.Category, &t.Title,
 			&t.Description, &t.PlannedHours, &t.ActualHours, &t.Deadline,
-			&t.Status, &t.Created, &t.Updated); err != nil {
+			&t.Status, &t.GoalID, &t.Created, &t.Updated); err != nil {
 			return err
 		}
 		tasks.data[t.ID] = t
@@ -131,7 +134,8 @@ func (s *taskStore) getOwned(username string, id int) (Task, bool) {
 }
 
 // create добавляет новую задачу.
-func (s *taskStore) create(username, category, title, description string, plannedHours, actualHours float64, deadline, status string) (Task, error) {
+// goalID — ссылка на цель пользователя; nil означает «без цели».
+func (s *taskStore) create(username, category, title, description string, plannedHours, actualHours float64, deadline, status string, goalID *int) (Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Task{}, errors.New("укажите заголовок задачи")
@@ -144,6 +148,11 @@ func (s *taskStore) create(username, category, title, description string, planne
 	}
 	if plannedHours < 0 || actualHours < 0 {
 		return Task{}, errors.New("время не может быть отрицательным")
+	}
+	if goalID != nil {
+		if _, ok := goals.getOwned(username, *goalID); !ok {
+			return Task{}, errors.New("цель не найдена или недоступна")
+		}
 	}
 
 	s.mu.Lock()
@@ -159,6 +168,7 @@ func (s *taskStore) create(username, category, title, description string, planne
 		ActualHours:  actualHours,
 		Deadline:     deadline,
 		Status:       status,
+		GoalID:       goalID,
 		Created:      now,
 		Updated:      now,
 	}
@@ -168,13 +178,17 @@ func (s *taskStore) create(username, category, title, description string, planne
 		if deadline != "" {
 			dl = deadline
 		}
+		var gid interface{}
+		if goalID != nil {
+			gid = *goalID
+		}
 		err := db.QueryRow(context.Background(),
-			`INSERT INTO tasks (username, category, title, description, planned_hours, actual_hours, deadline, status)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`INSERT INTO tasks (username, category, title, description, planned_hours, actual_hours, deadline, status, goal_id)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			 RETURNING id,
 			           to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 			           to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
-			username, category, title, description, plannedHours, actualHours, dl, status).
+			username, category, title, description, plannedHours, actualHours, dl, status, gid).
 			Scan(&t.ID, &t.Created, &t.Updated)
 		if err != nil {
 			return Task{}, err
@@ -192,7 +206,8 @@ func (s *taskStore) create(username, category, title, description string, planne
 }
 
 // update обновляет задачу.
-func (s *taskStore) update(username string, id int, category, title, description string, plannedHours, actualHours float64, deadline, status string) (Task, error) {
+// goalID — новая ссылка на цель пользователя; nil означает «без цели».
+func (s *taskStore) update(username string, id int, category, title, description string, plannedHours, actualHours float64, deadline, status string, goalID *int) (Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Task{}, errors.New("укажите заголовок задачи")
@@ -205,6 +220,11 @@ func (s *taskStore) update(username string, id int, category, title, description
 	}
 	if plannedHours < 0 || actualHours < 0 {
 		return Task{}, errors.New("время не может быть отрицательным")
+	}
+	if goalID != nil {
+		if _, ok := goals.getOwned(username, *goalID); !ok {
+			return Task{}, errors.New("цель не найдена или недоступна")
+		}
 	}
 
 	s.mu.Lock()
@@ -222,6 +242,7 @@ func (s *taskStore) update(username string, id int, category, title, description
 	t.ActualHours = actualHours
 	t.Deadline = deadline
 	t.Status = status
+	t.GoalID = goalID
 	t.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	if s.hasDB {
@@ -229,14 +250,18 @@ func (s *taskStore) update(username string, id int, category, title, description
 		if deadline != "" {
 			dl = deadline
 		}
+		var gid interface{}
+		if goalID != nil {
+			gid = *goalID
+		}
 		if _, err := db.Exec(context.Background(),
 			`UPDATE tasks
 			 SET category = $2, title = $3, description = $4,
 			     planned_hours = $5, actual_hours = $6, deadline = $7,
-			     status = $8, updated = now()
+			     status = $8, goal_id = $9, updated = now()
 			 WHERE id = $1`,
 			id, t.Category, t.Title, t.Description, t.PlannedHours,
-			t.ActualHours, dl, t.Status); err != nil {
+			t.ActualHours, dl, t.Status, gid); err != nil {
 			return Task{}, err
 		}
 	}
@@ -264,12 +289,30 @@ func (s *taskStore) delete(username string, id int) error {
 	return nil
 }
 
-// handleListTasks отдаёт задачи пользователя и список категорий.
+// handleListTasks отдаёт задачи пользователя, категории и цели
+// (для выбора/отображения привязки задачи к цели).
 func handleListTasks(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
+
+	// Лёгкое представление целей пользователя: только id, название, статус.
+	allGoals := goals.list(sessData.username)
+	brief := make([]struct {
+		ID     int    `json:"id"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
+	}, 0, len(allGoals))
+	for _, g := range allGoals {
+		brief = append(brief, struct {
+			ID     int    `json:"id"`
+			Title  string `json:"title"`
+			Status string `json:"status"`
+		}{g.ID, g.Title, g.Status})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"tasks":      tasks.list(sessData.username),
 		"categories": TaskCategories,
+		"goals":      brief,
 	})
 }
 
@@ -283,6 +326,7 @@ func handleCreateTask(c *gin.Context) {
 		ActualHours  float64 `json:"actual_hours"`
 		Deadline     string  `json:"deadline"`
 		Status       string  `json:"status"`
+		GoalID       *int    `json:"goal_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
@@ -292,7 +336,7 @@ func handleCreateTask(c *gin.Context) {
 		req.Status = taskTodo
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := tasks.create(sessData.username, req.Category, req.Title, req.Description, req.PlannedHours, req.ActualHours, req.Deadline, req.Status)
+	t, err := tasks.create(sessData.username, req.Category, req.Title, req.Description, req.PlannedHours, req.ActualHours, req.Deadline, req.Status, req.GoalID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -315,13 +359,14 @@ func handleUpdateTask(c *gin.Context) {
 		ActualHours  float64 `json:"actual_hours"`
 		Deadline     string  `json:"deadline"`
 		Status       string  `json:"status"`
+		GoalID       *int    `json:"goal_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := tasks.update(sessData.username, id, req.Category, req.Title, req.Description, req.PlannedHours, req.ActualHours, req.Deadline, req.Status)
+	t, err := tasks.update(sessData.username, id, req.Category, req.Title, req.Description, req.PlannedHours, req.ActualHours, req.Deadline, req.Status, req.GoalID)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {
