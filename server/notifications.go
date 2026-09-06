@@ -212,6 +212,24 @@ func (s *notificationStore) delete(username string, id int) error {
 	return nil
 }
 
+// removeFromMemory удаляет уведомление из кэша (БД уже обновлена отдельно).
+func (s *notificationStore) removeFromMemory(id int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data, id)
+}
+
+// patchDue обновляет в кэше ближайшее срабатывание (БД уже обновлена отдельно).
+func (s *notificationStore) patchDue(id int, dueAt string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n, ok := s.data[id]; ok {
+		n.DueAt = dueAt
+		n.Updated = time.Now().UTC().Format(time.RFC3339)
+		s.data[id] = n
+	}
+}
+
 // handleListNotifications отдаёт уведомления пользователя.
 func handleListNotifications(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)

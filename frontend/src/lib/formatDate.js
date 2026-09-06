@@ -7,10 +7,3 @@ export function formatDateDmy(dateStr) {
   if (!m) return dateStr || "";
   return `${m[3]}.${m[2]}.${m[1]}`;
 }
-
-// "2026-08-24T21:05:00Z" -> "21:05"; если времени нет — пустая строка.
-export function formatTime(dateStr) {
-  const m = /T(\d{2}):(\d{2})/.exec(dateStr || "");
-  if (!m) return "";
-  return `${m[1]}:${m[2]}`;
-}

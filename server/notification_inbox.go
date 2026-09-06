@@ -107,6 +107,7 @@ func handleDismissNotification(c *gin.Context) {
 			`DELETE FROM user_notifications WHERE id = $1`, notifID); err != nil {
 			log.Printf("УВЕДОМЛЕНИЯ: удаление одноразового #%d: %v", notifID, err)
 		}
+		notifications.removeFromMemory(notifID)
 	} else if ntype == notifPeriodic {
 		due, err := time.Parse(time.RFC3339, dueAt)
 		if err == nil {
@@ -117,6 +118,7 @@ func handleDismissNotification(c *gin.Context) {
 				notifID, next); err != nil {
 				log.Printf("УВЕДОМЛЕНИЯ: сдвиг периодического #%d: %v", notifID, err)
 			}
+			notifications.patchDue(notifID, next)
 		}
 	}
 

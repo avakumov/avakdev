@@ -11,6 +11,7 @@ import { Clock } from "lucide-react";
 // который рендерится в portal поверх любых модалок.
 function TimeInput({ value, onChange, className, ...props }) {
   const rootRef = useRef(null);
+  const hiddenRef = useRef(null);
   const [text, setText] = useState(value || "");
   const [focused, setFocused] = useState(false);
   const [open, setOpen] = useState(false);
@@ -44,16 +45,25 @@ function TimeInput({ value, onChange, className, ...props }) {
 
   const current = (value || "").match(/^(\d{2}):(\d{2})$/);
 
-  // Открываем popup: позиция считается от поля ввода (в координатах вьюпорта).
+  // Открываем выбор времени: на сенсорных/мобильных — нативный пикер
+  // (удобнее пальцем), на десктопе (точный указатель) — свой popup 24 часа.
   const openPicker = () => {
+    if (window.matchMedia?.("(pointer: coarse)").matches) {
+      const el = hiddenRef.current;
+      if (el?.showPicker) {
+        try {
+          el.showPicker();
+          return;
+        } catch {
+          /* не поддерживается — fallback на popup */
+        }
+      }
+    }
     const el = rootRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const W = 264; // ширина popup
-    const left = Math.max(
-      8,
-      Math.min(r.right - W, window.innerWidth - W - 8),
-    );
+    const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8));
     setPos({ top: r.bottom + 6, left });
     setDraftHour(null);
     setOpen(true);
@@ -146,6 +156,17 @@ function TimeInput({ value, onChange, className, ...props }) {
       >
         <Clock className="size-4" />
       </button>
+
+      {/* Нативный пикер времени — используется на мобильных/сенсорных. */}
+      <input
+        ref={hiddenRef}
+        type="time"
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sr-only"
+      />
 
       {open && (
         <>

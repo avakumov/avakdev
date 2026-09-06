@@ -397,6 +397,8 @@ export async function deleteTask(id) {
 // ==== Уведомления пользователя ====
 
 // Список уведомлений с /api/notifications.
+// Опрашивается каждые 30 секунд: сервер сдвигает «следующее время»
+// периодических уведомлений при доставке.
 export function useNotifications(enabled = true) {
   return useQuery({
     queryKey: ["notifications"],
@@ -404,6 +406,7 @@ export function useNotifications(enabled = true) {
     staleTime: 0,
     enabled,
     retry: 1,
+    refetchInterval: enabled ? 30_000 : false,
   });
 }
 
@@ -415,6 +418,7 @@ export function useNotificationInbox(enabled = true) {
     staleTime: 0,
     enabled,
     retry: 1,
+    refetchInterval: enabled ? 30_000 : false,
   });
 }
 

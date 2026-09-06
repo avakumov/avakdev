@@ -109,6 +109,7 @@ func deliverDueTelegramNotifications() {
 				`DELETE FROM user_notifications WHERE id = $1`, n.id); err != nil {
 				log.Printf("УВЕДОМЛЕНИЯ #%d: удаление: %v", n.id, err)
 			}
+			notifications.removeFromMemory(n.id)
 			continue
 		}
 
@@ -124,5 +125,6 @@ func deliverDueTelegramNotifications() {
 			n.id, next); err != nil {
 			log.Printf("УВЕДОМЛЕНИЯ #%d: сдвиг периода: %v", n.id, err)
 		}
+		notifications.patchDue(n.id, next)
 	}
 }
