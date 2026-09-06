@@ -394,6 +394,53 @@ export async function deleteTask(id) {
   return data;
 }
 
+// ==== Цели ====
+
+// Список целей с /api/goals.
+export function useGoals(enabled = true) {
+  return useQuery({
+    queryKey: ["goals"],
+    queryFn: () => request("/api/goals"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Создать цель (POST /api/goals).
+export async function createGoal(payload) {
+  const res = await fetch(`${BASE}/api/goals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось создать цель");
+  return data;
+}
+
+// Обновить цель (PUT /api/goals/:id).
+export async function updateGoal(id, payload) {
+  const res = await fetch(`${BASE}/api/goals/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось обновить цель");
+  return data;
+}
+
+// Удалить цель (DELETE /api/goals/:id).
+export async function deleteGoal(id) {
+  const res = await fetch(`${BASE}/api/goals/${id}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить цель");
+  return data;
+}
+
 // ==== Уведомления пользователя ====
 
 // Список уведомлений с /api/notifications.

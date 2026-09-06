@@ -79,6 +79,9 @@ func main() {
 	if err := initTasks(); err != nil {
 		log.Fatalf("не удалось инициализировать раздел «Задачи»: %v", err)
 	}
+	if err := initGoals(); err != nil {
+		log.Fatalf("не удалось инициализировать раздел «Цели»: %v", err)
+	}
 	if err := initNotifications(); err != nil {
 		log.Fatalf("не удалось инициализировать уведомления: %v", err)
 	}
@@ -176,6 +179,12 @@ func main() {
 		authed.POST("/app-tasks", handleCreateAppTask)
 		authed.PUT("/app-tasks/:id", handleUpdateAppTask)
 		authed.DELETE("/app-tasks/:id", handleDeleteAppTask)
+
+		// Цели (первый раздел, главная страница).
+		authed.GET("/goals", handleListGoals)
+		authed.POST("/goals", handleCreateGoal)
+		authed.PUT("/goals/:id", handleUpdateGoal)
+		authed.DELETE("/goals/:id", handleDeleteGoal)
 
 		// Задачи раздела «Задачи» (категории, время, дедлайн, статус).
 		authed.GET("/tasks", handleListTasks)

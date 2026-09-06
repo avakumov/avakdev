@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import {
   X,
+  Target,
   ListTodo,
   FileText,
   BookOpen,
@@ -16,8 +17,9 @@ import { Button } from "@/components/ui/button";
 import UserBadge from "./UserBadge.jsx";
 import Brand from "./Brand.jsx";
 
-// Пункты бокового меню. «Задачи» — первым пунктом.
+// Пункты бокового меню. «Цели» — первым пунктом (главная страница).
 export const NAV_ITEMS = [
+  { key: "goals", label: "Цели", icon: Target },
   { key: "tasks", label: "Задачи", icon: ListTodo },
   { key: "reports", label: "Отчеты", icon: FileText },
   { key: "knowledge", label: "Знания", icon: BookOpen },
@@ -66,7 +68,7 @@ function Sidebar({ view, onSelect, open, onClose, user, notifCount = 0, onOpenBe
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
           <Brand
             onClick={() => {
-              onSelect("reports");
+              onSelect("goals");
               onClose();
             }}
           />

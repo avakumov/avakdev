@@ -16,6 +16,7 @@ import Sidebar from "./Sidebar.jsx";
 import Login from "./Login.jsx";
 import UserBadge from "./UserBadge.jsx";
 import Reports from "./Reports.jsx";
+import Goals from "./Goals.jsx";
 import Profile from "./Profile.jsx";
 import Knowledge from "./Knowledge.jsx";
 import Important from "./Important.jsx";
@@ -66,10 +67,11 @@ import {
 } from "lucide-react";
 
 // Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
-// работают кнопки назад/вперёд.
+// работают кнопки назад/вперёд. Главная «/» — раздел «Цели».
 const VIEW_PATHS = {
+  goals: "/",
   tasks: "/tasks",
-  reports: "/",
+  reports: "/reports",
   knowledge: "/knowledge",
   metrics: "/metrics",
   profile: "/profile",
@@ -83,10 +85,10 @@ const PATH_VIEWS = Object.fromEntries(
   Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]),
 );
 
-// pathToView сопоставляет путь с разделом; неизвестные пути ведут в «Отчеты».
+// pathToView сопоставляет путь с разделом; неизвестные пути ведут в «Цели».
 function pathToView(path) {
   const p = path.replace(/\/+$/, "") || "/";
-  return PATH_VIEWS[p] || "reports";
+  return PATH_VIEWS[p] || "goals";
 }
 
 // Форматирование байтов в человекочитаемый вид (KB/MB/GB/TB).
@@ -394,7 +396,7 @@ function App() {
         >
           <Menu className="size-5" />
         </Button>
-        <Brand onClick={() => setView("reports")} />
+        <Brand onClick={() => setView("goals")} />
         {meQuery.data && (
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -432,6 +434,7 @@ function App() {
 
       <main className="lg:pl-64">
         <div className="mx-auto max-w-3xl px-4 py-8 lg:max-w-5xl">
+          {view === "goals" && <Goals />}
           {view === "tasks" && <Tasks />}
           {view === "reports" && <Reports />}
           {view === "knowledge" && <Knowledge />}
