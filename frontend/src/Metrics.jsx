@@ -387,8 +387,8 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                         // Квадрат: 15px — в 1,5 раза больше прежнего круга (10px).
                         "mx-auto block size-3.75 shrink-0 rounded-[2px] border",
                         v === "true"
-                          ? "border-emerald-800 bg-emerald-500 dark:border-emerald-200 dark:bg-emerald-400"
-                          : "border-red-800 bg-red-500 dark:border-red-200 dark:bg-red-400",
+                          ? "border-yellow-800 bg-yellow-500 dark:border-yellow-200 dark:bg-yellow-400"
+                          : "border-black bg-black dark:border-zinc-200 dark:bg-zinc-800",
                       )}
                     />
                   )}
