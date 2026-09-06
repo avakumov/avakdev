@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Плашка-подложка: как чёрный блок логотипа -->
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="#000000"/>
-  <!-- Жёлтая «молния» (та же иконка Activity, что в логотипе), крупнее -->
-  <g transform="translate(32 32) scale(1.8) translate(-12 -12)">
-    <path d="M22 12h-4l-3 9L9 3l-3 9H2" fill="none" stroke="#eab308" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-</svg>
