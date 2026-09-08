@@ -18,6 +18,8 @@ import UserBadge from "./UserBadge.jsx";
 import Brand from "./Brand.jsx";
 
 // Пункты бокового меню. «Цели» — первым пунктом (главная страница).
+// Доступные разделы приходят с сервера (/api/me → sections): список ниже
+// фильтруется по ним, чтобы видимость меню не дублировалась на клиенте.
 export const NAV_ITEMS = [
   { key: "goals", label: "Цели", icon: Target },
   { key: "tasks", label: "Задачи", icon: ListTodo },
@@ -33,6 +35,9 @@ export const NAV_ITEMS = [
 // Боковое меню: на десктопе закреплено слева (lg+), на мобильных выезжает
 // из-за края экрана (бургер). open/onClose управляют только мобильным режимом.
 function Sidebar({ view, onSelect, open, onClose, user, notifCount = 0, onOpenBell }) {
+  // Показываем только разделы, разрешённые сервером для этого пользователя.
+  const allowedSections = new Set(user?.sections || []);
+  const items = NAV_ITEMS.filter(({ key }) => allowedSections.has(key));
   // Пока сайдбар открыт на мобильных: Esc закрывает, прокрутка страницы
   // блокируется (чтобы фон не скроллился под затемнением).
   useEffect(() => {
@@ -85,7 +90,7 @@ function Sidebar({ view, onSelect, open, onClose, user, notifCount = 0, onOpenBe
 
         {/* Пункты меню */}
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
+          {items.map(({ key, label, icon: Icon }) => (
             <Button
               key={key}
               variant={view === key ? "default" : "ghost"}

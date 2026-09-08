@@ -140,6 +140,13 @@ func main() {
 			admin.GET("/metrics", func(c *gin.Context) {
 				c.JSON(http.StatusOK, collectMetrics())
 			})
+
+			// Задачи по модификации приложения (раздел «Приложение») —
+			// только для администраторов (запрос деплоя/отката изменений).
+			admin.GET("/app-tasks", handleListAppTasks)
+			admin.POST("/app-tasks", handleCreateAppTask)
+			admin.PUT("/app-tasks/:id", handleUpdateAppTask)
+			admin.DELETE("/app-tasks/:id", handleDeleteAppTask)
 		}
 
 		// Отчёты за дни (создание, редактирование, список).
@@ -173,12 +180,6 @@ func main() {
 		authed.DELETE("/user-metrics/:id", handleDeleteUserMetric)
 		authed.PUT("/user-metrics/:id/:date", handleSetUserMetricValue)
 		authed.DELETE("/user-metrics/:id/:date", handleDeleteUserMetricValue)
-
-		// Задачи по модификации приложения (раздел «Приложение»).
-		authed.GET("/app-tasks", handleListAppTasks)
-		authed.POST("/app-tasks", handleCreateAppTask)
-		authed.PUT("/app-tasks/:id", handleUpdateAppTask)
-		authed.DELETE("/app-tasks/:id", handleDeleteAppTask)
 
 		// Цели (первый раздел, главная страница).
 		authed.GET("/goals", handleListGoals)

@@ -281,9 +281,22 @@ function App() {
 
   // Текущий раздел меню, синхронизированный с URL: рефреш не сбрасывает,
   // кнопки назад/вперёд работают.
-  const [view, setViewState] = useState(() =>
+  const [viewState, setViewState] = useState(() =>
     pathToView(window.location.pathname),
   );
+
+  // Разделы, доступные пользователю, приходят с сервера в /api/me (sections).
+  const allowedSections = new Set(meQuery.data?.sections || []);
+  // Недоступный раздел (например, «Сервер» для обычного пользователя) мягко
+  // сводим к главной — сами данные всё равно защищены на сервере.
+  const view = allowedSections.has(viewState) ? viewState : "goals";
+
+  // Если раздел в URL оказался недоступен — приводим URL обратно к главной.
+  useEffect(() => {
+    if (view !== viewState) {
+      window.history.replaceState({}, "", VIEW_PATHS.goals);
+    }
+  }, [view, viewState]);
 
   const setView = (v) => {
     setViewState(v);

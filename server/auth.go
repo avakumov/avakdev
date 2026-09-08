@@ -44,6 +44,7 @@ func userPayload(u User) gin.H {
 		"username":        u.Username,
 		"email":           u.Email,
 		"is_admin":        u.IsAdmin,
+		"sections":        userSections(u.IsAdmin),
 		"phone":           u.Phone,
 		"telegram":        u.Telegram,
 		"avatar_preset":   u.AvatarPreset,
@@ -51,6 +52,28 @@ func userPayload(u User) gin.H {
 		"avatar_mime":     u.AvatarMime,
 		"telegram_linked": u.TelegramChatID != "",
 	}
+}
+
+// Разделы приложения и кто их видит. Это ЕДИНСТВЕННОЕ место, где описана
+// видимость пунктов меню: сервер сам сообщает клиенту список доступных
+// разделов (поле sections в /api/me), а фронтенд лишь отрисовывает их.
+// Сами разделы по-прежнему защищены на маршрутах (adminRequired).
+var (
+	authedSections = []string{
+		"goals", "tasks", "reports", "knowledge",
+		"metrics", "profile", "important", "user",
+	}
+	adminSections = []string{"server", "app"}
+)
+
+// userSections возвращает разделы, доступные пользователю с ролью isAdmin.
+func userSections(isAdmin bool) []string {
+	out := make([]string, 0, len(authedSections)+len(adminSections))
+	out = append(out, authedSections...)
+	if isAdmin {
+		out = append(out, adminSections...)
+	}
+	return out
 }
 
 // session — активная сессия пользователя.
