@@ -53,6 +53,15 @@ func handleUpdateAvatar(c *gin.Context) {
 	req.PhotoData = strings.TrimSpace(req.PhotoData)
 	req.PhotoMime = strings.TrimSpace(req.PhotoMime)
 
+	// Защита от старых клиентов, славаших photo_data с data URI префиксом:
+	// храним только «голый» base64.
+	if strings.HasPrefix(req.PhotoData, "data:") {
+		if i := strings.Index(req.PhotoData, ","); i >= 0 {
+			req.PhotoData = req.PhotoData[i+1:]
+		}
+	}
+	req.PhotoData = strings.TrimSpace(req.PhotoData)
+
 	if req.Preset != "" && !validAvatarPresets[req.Preset] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Неизвестный вариант аватара"})
 		return

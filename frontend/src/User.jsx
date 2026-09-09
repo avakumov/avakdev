@@ -60,6 +60,20 @@ function normalizeReadingSpeed(v) {
   );
 }
 
+// «Голый» base64 из photo (data URL или уже без префикса) — сервер хранит
+// аватар без data URI префикса.
+const avatarBase64 = (photo) =>
+  photo ? photo.replace(/^data:[^,]+,/, "") : "";
+
+// src для <img>: готовый data URL оставляем как есть, иначе собираем из
+// mime + base64 (защита от уже сохранённых значений с префиксом).
+const avatarDataSrc = (photo, mime) =>
+  photo
+    ? photo.startsWith("data:")
+      ? photo
+      : `data:${mime || "image/jpeg"};base64,${photo}`
+    : "";
+
 // Уменьшает картинку до 256px и возвращает data URL (jpeg), чтобы хранить
 // на сервере компактно (base64).
 function fileToAvatarDataUrl(file) {
@@ -137,7 +151,7 @@ function AvatarModal({ user, onClose, onSaved }) {
     try {
       await updateAvatar({
         preset,
-        photo_data: photo,
+        photo_data: avatarBase64(photo),
         photo_mime: photo ? photoMime : "",
       });
       onSaved();
@@ -154,7 +168,7 @@ function AvatarModal({ user, onClose, onSaved }) {
     preview = (
       <Avatar className="size-16">
         <AvatarImage
-          src={`data:${photoMime || "image/jpeg"};base64,${photo}`}
+          src={avatarDataSrc(photo, photoMime)}
           alt={username}
         />
         <AvatarFallback>{initials}</AvatarFallback>

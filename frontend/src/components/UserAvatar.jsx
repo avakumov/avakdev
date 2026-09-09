@@ -17,14 +17,15 @@ function UserAvatar({
 }) {
   const initials = (username || "?").slice(0, 2).toUpperCase();
 
-  // Своё фото.
+  // Своё фото. В старых записях photoData мог сохраниться уже с data URI
+  // префиксом — такой src используем как есть, иначе собираем из mime+base64.
   if (photoData) {
+    const src = photoData.startsWith("data:")
+      ? photoData
+      : `data:${photoMime || "image/jpeg"};base64,${photoData}`;
     return (
       <Avatar className={className}>
-        <AvatarImage
-          src={`data:${photoMime || "image/jpeg"};base64,${photoData}`}
-          alt={username}
-        />
+        <AvatarImage src={src} alt={username} />
         <AvatarFallback className="text-sm">{initials}</AvatarFallback>
       </Avatar>
     );
