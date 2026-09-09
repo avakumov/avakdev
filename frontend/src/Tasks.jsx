@@ -149,12 +149,10 @@ export function TaskFormModal({
       goal_id: goalKey === "none" ? null : Number(goalKey),
     };
     try {
-      if (initial) {
-        await updateTask(initial.id, payload);
-      } else {
-        await createTask(payload);
-      }
-      onSaved();
+      const saved = initial
+        ? await updateTask(initial.id, payload)
+        : await createTask(payload);
+      onSaved(saved);
       onClose();
     } catch (err) {
       setError(err.message || "Не удалось сохранить задачу");

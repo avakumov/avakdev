@@ -27,6 +27,7 @@ import {
   Loader2,
   AlertCircle,
   BookOpen,
+  Clock,
   Trash2,
   Check,
   Edit,
@@ -53,6 +54,15 @@ function Textarea({ className, ...props }) {
 }
 
 // Отрисовка Markdown-контента вынесена в общий компонент MarkdownView.jsx.
+
+// Формат времени чтения: 2 мин / 1 ч 5 мин.
+function fmtReadingTime(m) {
+  const min = Math.max(1, Math.round(m || 1));
+  if (min < 60) return `${min} мин`;
+  const h = Math.floor(min / 60);
+  const r = min % 60;
+  return r ? `${h} ч ${r} мин` : `${h} ч`;
+}
 
 // Форма генерации конспекта по теме через ИИ (DeepSeek).
 // После генерации показывает предпросмотр с возможностью сохранить.
@@ -303,10 +313,16 @@ function NoteCard({ note, onSaved }) {
               {note.content.split("\n")[0] || note.title || note.topic}
             </span>
           </CardTitle>
-          <Badge variant="secondary" className="gap-1">
-            <Repeat className="size-3.5" />
-            Повторений: {note.repetitions}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="gap-1">
+              <Clock className="size-3.5" />
+              Чтение: {fmtReadingTime(note.reading_minutes)}
+            </Badge>
+            <Badge variant="secondary" className="gap-1">
+              <Repeat className="size-3.5" />
+              Повторений: {note.repetitions}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 

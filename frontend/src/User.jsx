@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
 import {
   Card,
   CardHeader,
@@ -40,7 +41,24 @@ import {
   ImagePlus,
   Trash2,
   X,
+  Gauge,
 } from "lucide-react";
+
+// Скорость чтения заметок (раздел «День»): диапазон ползунка в профиле.
+const READING_SPEED_MIN = 500;
+const READING_SPEED_MAX = 3000;
+const READING_SPEED_DEFAULT = 1500;
+
+// Приводит скорость чтения к диапазону ползунка.
+// 0 / пусто / нечисловое значение = среднее по умолчанию.
+function normalizeReadingSpeed(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return READING_SPEED_DEFAULT;
+  return Math.min(
+    READING_SPEED_MAX,
+    Math.max(READING_SPEED_MIN, Math.round(n))
+  );
+}
 
 // Уменьшает картинку до 256px и возвращает data URL (jpeg), чтобы хранить
 // на сервере компактно (base64).
@@ -284,6 +302,10 @@ function User({ user, onLogout }) {
   // Необязательные контакты (черновик формы).
   const [phone, setPhone] = useState(user?.phone || "");
   const [telegram, setTelegram] = useState(user?.telegram || "");
+  // Скорость чтения: значение ползунка (500–5000).
+  const [readingSpeed, setReadingSpeed] = useState(
+    normalizeReadingSpeed(user?.reading_speed)
+  );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -292,6 +314,7 @@ function User({ user, onLogout }) {
   useEffect(() => {
     setPhone(user?.phone || "");
     setTelegram(user?.telegram || "");
+    setReadingSpeed(normalizeReadingSpeed(user?.reading_speed));
   }, [user]);
 
   const refreshMe = () =>
@@ -305,6 +328,7 @@ function User({ user, onLogout }) {
       await updateMe({
         phone: phone.trim(),
         telegram: telegram.trim().replace(/^@/, ""),
+        reading_speed: normalizeReadingSpeed(readingSpeed),
       });
       await refreshMe();
       setSaved(true);
@@ -427,6 +451,32 @@ function User({ user, onLogout }) {
             </div>
           </div>
 
+          {/* Скорость чтения (для раздела «День») */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <Label>Чтение символов в минуту</Label>
+              <span className="text-sm font-semibold tabular-nums">
+                {readingSpeed} симв/мин
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Gauge className="size-4 shrink-0 text-muted-foreground" />
+              <Slider
+                min={READING_SPEED_MIN}
+                max={READING_SPEED_MAX}
+                step={50}
+                value={[readingSpeed]}
+                onValueChange={(vals) => setReadingSpeed(vals[0])}
+                aria-label="Скорость чтения символов в минуту"
+                className="flex-1"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Среднее значение — {READING_SPEED_DEFAULT} символов в минуту.
+              Влияет на расчёт времени повторения заметок в разделе «День».
+            </p>
+          </div>
+
           {/* Привязка Telegram для уведомлений */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
             <div className="min-w-0 space-y-0.5">
@@ -500,7 +550,7 @@ function User({ user, onLogout }) {
           <div className="flex items-center gap-3">
             <Button onClick={handleSaveContacts} disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}
-              {saving ? "Сохраняю…" : "Сохранить контакты"}
+              {saving ? "Сохраняю…" : "Сохранить"}
             </Button>
             {saved && (
               <span className="flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">

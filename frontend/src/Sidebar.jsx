@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import {
   X,
+  CalendarDays,
   Target,
   ListTodo,
   FileText,
@@ -21,6 +22,7 @@ import Brand from "./Brand.jsx";
 // Доступные разделы приходят с сервера (/api/me → sections): список ниже
 // фильтруется по ним, чтобы видимость меню не дублировалась на клиенте.
 export const NAV_ITEMS = [
+  { key: "day", label: "День", icon: CalendarDays },
   { key: "goals", label: "Цели", icon: Target },
   { key: "tasks", label: "Задачи", icon: ListTodo },
   { key: "reports", label: "Отчеты", icon: FileText },
@@ -73,7 +75,7 @@ function Sidebar({ view, onSelect, open, onClose, user, notifCount = 0, onOpenBe
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
           <Brand
             onClick={() => {
-              onSelect("goals");
+              onSelect("day");
               onClose();
             }}
           />

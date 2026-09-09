@@ -25,6 +25,9 @@ type User struct {
 	Phone string `json:"phone"`
 	// Telegram — необязательное имя пользователя в Telegram (без @).
 	Telegram string `json:"telegram"`
+	// ReadingSpeed — скорость чтения (символов в минуту); 0 = «не задано»
+	// (при сохранении приводится к среднему значению 1500).
+	ReadingSpeed int `json:"reading_speed"`
 	// AvatarPreset — выбранный готовый вариант аватара (id) или пусто.
 	AvatarPreset string `json:"avatar_preset"`
 	// AvatarData — своё фото аватара в base64 (без data URI префикса).
@@ -47,6 +50,7 @@ func userPayload(u User) gin.H {
 		"sections":        userSections(u.IsAdmin),
 		"phone":           u.Phone,
 		"telegram":        u.Telegram,
+		"reading_speed":   u.ReadingSpeed,
 		"avatar_preset":   u.AvatarPreset,
 		"avatar_data":     u.AvatarData,
 		"avatar_mime":     u.AvatarMime,
@@ -60,7 +64,7 @@ func userPayload(u User) gin.H {
 // Сами разделы по-прежнему защищены на маршрутах (adminRequired).
 var (
 	authedSections = []string{
-		"goals", "tasks", "reports", "knowledge",
+		"day", "goals", "tasks", "reports", "knowledge",
 		"metrics", "profile", "important", "user",
 	}
 	adminSections = []string{"server", "app"}
@@ -204,11 +208,12 @@ func loadUser(username string) (User, bool) {
 	var u User
 	err := db.QueryRow(context.Background(),
 		`SELECT id, username, email, is_admin, phone, telegram,
+		        reading_speed,
 		        avatar_preset, avatar_data, avatar_mime, telegram_chat_id
 		 FROM users WHERE username = $1`,
 		username).Scan(&u.ID, &u.Username, &u.Email, &u.IsAdmin, &u.Phone,
-		&u.Telegram, &u.AvatarPreset, &u.AvatarData, &u.AvatarMime,
-		&u.TelegramChatID)
+		&u.Telegram, &u.ReadingSpeed, &u.AvatarPreset, &u.AvatarData,
+		&u.AvatarMime, &u.TelegramChatID)
 	if err != nil {
 		return User{}, false
 	}
@@ -299,8 +304,9 @@ func handleUpdateMe(c *gin.Context) {
 	sessData, _ := sessVal.(session)
 
 	var req struct {
-		Phone    string `json:"phone"`
-		Telegram string `json:"telegram"`
+		Phone        string `json:"phone"`
+		Telegram     string `json:"telegram"`
+		ReadingSpeed *int   `json:"reading_speed"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
@@ -312,12 +318,36 @@ func handleUpdateMe(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Значение слишком длинное"})
 		return
 	}
+	if req.ReadingSpeed != nil {
+		speed := *req.ReadingSpeed
+		// 0 или отрицательное = «не задано» → среднее значение по умолчанию.
+		if speed < 1 {
+			speed = 1500
+		}
+		// Диапазон ползунка в профиле: 500–3000 символов в минуту.
+		if speed > 3000 {
+			speed = 3000
+		}
+		if speed > 5000 {
+			speed = 5000
+		}
+		req.ReadingSpeed = &speed
+	}
 
-	if _, err := db.Exec(context.Background(),
-		`UPDATE users SET phone = $1, telegram = $2 WHERE username = $3`,
-		req.Phone, req.Telegram, sessData.username); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
-		return
+	if req.ReadingSpeed != nil {
+		if _, err := db.Exec(context.Background(),
+			`UPDATE users SET phone = $1, telegram = $2, reading_speed = $3 WHERE username = $4`,
+			req.Phone, req.Telegram, *req.ReadingSpeed, sessData.username); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
+			return
+		}
+	} else {
+		if _, err := db.Exec(context.Background(),
+			`UPDATE users SET phone = $1, telegram = $2 WHERE username = $3`,
+			req.Phone, req.Telegram, sessData.username); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
+			return
+		}
 	}
 
 	u, found := loadUser(sessData.username)

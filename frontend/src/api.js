@@ -71,13 +71,19 @@ export async function logout() {
   await fetch(`${BASE}/api/logout`, { method: "POST" });
 }
 
-// Обновить контактные данные текущего пользователя (PUT /api/me):
-// необязательные телефон и Telegram.
-export async function updateMe({ phone = "", telegram = "" } = {}) {
+// Обновить данные текущего пользователя (PUT /api/me):
+// необязательные телефон, Telegram и скорость чтения (0 = среднее).
+export async function updateMe(
+  { phone = "", telegram = "", reading_speed } = {}
+) {
+  const body = { phone, telegram };
+  // reading_speed присылаем только явно — чтобы не сбрасывать значение
+  // при сохранении контактов из других мест.
+  if (reading_speed !== undefined) body.reading_speed = reading_speed;
   const res = await fetch(`${BASE}/api/me`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone, telegram }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Не удалось сохранить профиль");
@@ -729,4 +735,53 @@ export async function getNoteAudio(id) {
     throw new Error(data.error || "Не удалось получить аудио");
   }
   return res.blob();
+}
+
+// ==== День (ежедневный план) ====
+
+// План на дату (GET /api/day?date=ГГГГ-ММ-ДД).
+export async function fetchDayPlan(date) {
+  return request(`/api/day?date=${date}`);
+}
+
+// История сформированных дней (GET /api/day/history).
+export async function fetchDayHistory() {
+  return request("/api/day/history");
+}
+
+// Предложения состава дня (POST /api/day/suggest).
+export async function suggestDay(payload) {
+  const res = await fetch(`${BASE}/api/day/suggest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сформировать день");
+  return data;
+}
+
+// Сохранить план дня (PUT /api/day).
+export async function saveDay(payload) {
+  const res = await fetch(`${BASE}/api/day`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить день");
+  return data;
+}
+
+// Отметить позицию плана дня выполненной/невыполненной (PUT /api/day/done).
+// Вызов без сохранённого плана безопасен (ничего не обновит).
+export async function setDayItemDone(date, kind, refId, done) {
+  const res = await fetch(`${BASE}/api/day/done`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, kind, ref_id: refId, done }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось обновить позицию дня");
+  return data;
 }

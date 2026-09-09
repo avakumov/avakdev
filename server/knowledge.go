@@ -35,6 +35,11 @@ type Note struct {
 	Created string `json:"created"`
 	// Updated — время последнего изменения (RFC3339, UTC).
 	Updated string `json:"updated"`
+	// ReadingMinutes — время чтения конспекта в минутах, рассчитанное по
+	// скорости чтения пользователя из профиля. Не хранится в БД:
+	// вычисляется на лету в handleListNotes и пересчитывается при изменении
+	// reading_speed.
+	ReadingMinutes int `json:"reading_minutes,omitempty"`
 }
 
 // noteStore — хранилище конспектов знаний.
@@ -316,8 +321,22 @@ func (ns *noteStore) saveAudio(id int, data []byte, mime string) error {
 }
 
 // handleListNotes возвращает список всех конспектов.
+// handleListNotes возвращает все конспекты с временем чтения, вычисленным
+// по скорости чтения текущего пользователя (см. readingMinutes).
 func handleListNotes(c *gin.Context) {
-	c.JSON(http.StatusOK, notes.list())
+	username := ""
+	if sessData, ok := c.MustGet("session").(session); ok {
+		username = sessData.username
+	}
+	speed := readingSpeedFor(username)
+
+	all := notes.list()
+	out := make([]Note, len(all))
+	for i, n := range all {
+		n.ReadingMinutes = readingMinutes(n.Content, speed)
+		out[i] = n
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // handleCreateNote создаёт новый конспект. Счётчик повторений стартует с нуля.

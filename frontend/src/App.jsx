@@ -17,6 +17,7 @@ import Login from "./Login.jsx";
 import UserBadge from "./UserBadge.jsx";
 import Reports from "./Reports.jsx";
 import Goals from "./Goals.jsx";
+import Day from "./Day.jsx";
 import Profile from "./Profile.jsx";
 import Knowledge from "./Knowledge.jsx";
 import Important from "./Important.jsx";
@@ -69,7 +70,8 @@ import {
 // Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
 // работают кнопки назад/вперёд. Главная «/» — раздел «Цели».
 const VIEW_PATHS = {
-  goals: "/",
+  day: "/",
+  goals: "/goals",
   tasks: "/tasks",
   reports: "/reports",
   knowledge: "/knowledge",
@@ -85,10 +87,10 @@ const PATH_VIEWS = Object.fromEntries(
   Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]),
 );
 
-// pathToView сопоставляет путь с разделом; неизвестные пути ведут в «Цели».
+// pathToView сопоставляет путь с разделом; неизвестные пути ведут в «День».
 function pathToView(path) {
   const p = path.replace(/\/+$/, "") || "/";
-  return PATH_VIEWS[p] || "goals";
+  return PATH_VIEWS[p] || "day";
 }
 
 // Форматирование байтов в человекочитаемый вид (KB/MB/GB/TB).
@@ -290,12 +292,12 @@ function App() {
   const allowedSections = new Set(meQuery.data?.sections || []);
   // Недоступный раздел (например, «Сервер» для обычного пользователя) мягко
   // сводим к главной — сами данные всё равно защищены на сервере.
-  const view = allowedSections.has(viewState) ? viewState : "goals";
+  const view = allowedSections.has(viewState) ? viewState : "day";
 
   // Если раздел в URL оказался недоступен — приводим URL обратно к главной.
   useEffect(() => {
     if (view !== viewState) {
-      window.history.replaceState({}, "", VIEW_PATHS.goals);
+      window.history.replaceState({}, "", VIEW_PATHS.day);
     }
   }, [view, viewState]);
 
@@ -410,7 +412,7 @@ function App() {
         >
           <Menu className="size-5" />
         </Button>
-        <Brand onClick={() => setView("goals")} />
+        <Brand onClick={() => setView("day")} />
         {meQuery.data && (
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -448,6 +450,7 @@ function App() {
 
       <main className="lg:pl-64">
         <div className="mx-auto max-w-3xl px-4 py-8 lg:max-w-5xl">
+          {view === "day" && <Day />}
           {view === "goals" && <Goals />}
           {view === "tasks" && <Tasks />}
           {view === "reports" && <Reports />}
