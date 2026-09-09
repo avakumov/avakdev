@@ -218,8 +218,9 @@ function ImportantGate({ content, onDone }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <Card className="w-full max-w-3xl">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4">
+      <div className="flex min-h-full items-center justify-center">
+        <Card className="w-full max-w-3xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -232,9 +233,8 @@ function ImportantGate({ content, onDone }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <MarkdownView className="max-h-80 overflow-y-auto">
-            {content}
-          </MarkdownView>
+          {/* Сообщение показывается целиком, без внутреннего скролла */}
+          <MarkdownView>{content}</MarkdownView>
           {error && (
             <p
               className="flex items-center gap-1.5 text-sm text-destructive"
@@ -250,6 +250,7 @@ function ImportantGate({ content, onDone }) {
           </Button>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
