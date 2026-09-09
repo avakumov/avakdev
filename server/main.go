@@ -58,9 +58,6 @@ func main() {
 	if err := runMigrations(); err != nil {
 		log.Fatalf("не удалось применить миграции БД: %v", err)
 	}
-	if err := initReports(); err != nil {
-		log.Fatalf("не удалось инициализировать отчёты: %v", err)
-	}
 	if err := initProfiles(); err != nil {
 		log.Fatalf("не удалось инициализировать профиль: %v", err)
 	}

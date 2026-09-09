@@ -1,289 +1,316 @@
-import { useState } from "react";
-import { useReports, updateReport } from "./api.js";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import {
+  useReports,
+  useUserMetrics,
+  fetchDayPlan,
+  fetchDayHistory,
+} from "./api.js";
 import DateDisplay from "@/components/DateDisplay.jsx";
-import MetricsTodayModal from "./MetricsTodayModal.jsx";
 
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import DateInput from "@/components/DateInput.jsx";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import {
   ChevronDown,
   ChevronRight,
-  Edit,
-  Plus,
-  Save,
-  X,
   Loader2,
   CalendarDays,
   FileText,
-  AlertCircle,
+  BarChart3,
+  ListTodo,
+  BookOpen,
+  CheckCircle2,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-// Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
-function Textarea({ className, ...props }) {
+// Минуты: 65 -> "1 ч 5 мин".
+const fmtMin = (m) => {
+  if (!m) return "0 мин";
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h} ч ${r} мин` : `${h} ч`;
+};
+
+// Значение метрики (Да/Нет) в виде «залитой» плашки, как активная кнопка в Дне.
+function MetricValue({ def, value }) {
+  if (value == null || value === "") {
+    return <span className="text-sm text-muted-foreground">—</span>;
+  }
+  if (def.type === "bool") {
+    const yes = value === "true";
+    return (
+      <span
+        className={cn(
+          "inline-flex min-w-14 items-center justify-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-white",
+          yes
+            ? "bg-emerald-600"
+            : "bg-destructive",
+        )}
+      >
+        {yes && <CheckCircle2 className="size-3.5" />}
+        {yes ? "Да" : "Нет"}
+      </span>
+    );
+  }
   return (
-    <textarea
-      data-slot="textarea"
-      className={
-        "w-full min-h-28 rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 resize-y " +
-        (className || "")
-      }
-      {...props}
-    />
+    <span className="text-sm font-medium tabular-nums">{value}</span>
   );
 }
 
-// Одна карточка отчёта: показывает день, превью и разворачивается по клику.
-// В развёрнутом виде доступно редактирование.
-function ReportRow({ report, open, onOpenChange, onSaved, onTodaySaved }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(report.content);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+// Один день в отчётах — «снимок» дня как на странице «День», но без
+// редактирования: план (задачи/повторения), метрики и текст отчёта.
+function DayCard({ date, day, report, open, onOpenChange }) {
+  const [items, setItems] = useState(null); // null — ещё не загружено
+  const metricsQuery = useUserMetrics(true);
 
-  const handleSave = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      await updateReport(report.date, draft);
-      setEditing(false);
-      onSaved();
-      // После сохранения отчёта за сегодня предлагаем заполнить метрики.
-      if (report.date === today) onTodaySaved?.();
-    } catch (err) {
-      setError(err.message || "Не удалось сохранить");
-    } finally {
-      setSaving(false);
+  // Состав дня подгружаем только при раскрытии карточки.
+  useEffect(() => {
+    if (!open || items !== null) return;
+    if (!day) {
+      setItems([]);
+      return;
     }
-  };
+    fetchDayPlan(date)
+      .then((p) => setItems(p.items || []))
+      .catch(() => setItems([]));
+  }, [open, date, day, items]);
 
-  const toggle = () => {
-    if (editing) return;
-    onOpenChange(!open);
-  };
+  const toggle = () => onOpenChange(!open);
+  const hasContent = Boolean(report?.content);
+
+  const defs = metricsQuery.data?.definitions || [];
+  const values = metricsQuery.data?.values || [];
+  const valueFor = (id) =>
+    values.find((v) => v.metric_id === id && v.date === date)?.value;
+
+  const doneCount = (items || []).filter((i) => i.done).length;
 
   return (
     <Card className="my-3" size="sm">
       <CardHeader className="cursor-pointer select-none" onClick={toggle}>
-        <div className="flex w-full items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2">
-            {open ? (
-              <ChevronDown className="size-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="size-4 text-muted-foreground" />
-            )}
-            <CalendarDays className="size-4 text-muted-foreground" />
-            <DateDisplay date={report.date} />
-          </CardTitle>
-          {open && !editing && (
-            <div onClick={(e) => e.stopPropagation()}>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setDraft(report.content);
-                  setEditing(true);
-                }}
-              >
-                <Edit />
-                Редактировать
-              </Button>
-            </div>
+        <div className="flex w-full items-center gap-2">
+          {open ? (
+            <ChevronDown className="size-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-4 text-muted-foreground" />
+          )}
+          <CalendarDays className="size-4 text-muted-foreground" />
+          <DateDisplay date={date} />
+          {hasContent && (
+            <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
           )}
         </div>
+
+        {/* Сводка дня — как шапка «Дня» */}
+        <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {day ? (
+            <>
+              <span>
+                {doneCount > 0
+                  ? `выполнено ${doneCount} из ${day.tasks + day.notes}`
+                  : `${day.tasks} задач · ${day.notes} повт.`}
+              </span>
+              <span>· {fmtMin(day.total_minutes)}</span>
+              <span>· бюджет {fmtMin(day.budget_minutes)}</span>
+            </>
+          ) : (
+            <span>Плана на этот день не было</span>
+          )}
+        </p>
       </CardHeader>
 
       {open && (
-        <CardContent>
-          {editing ? (
-            <div className="space-y-3">
-              <Textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Текст отчёта…"
-              />
-              {error && (
-                <p
-                  className="flex items-center gap-1.5 text-sm text-destructive"
-                  role="alert"
-                >
-                  <AlertCircle className="size-4" />
-                  {error}
-                </p>
-              )}
-              <div className="flex gap-2">
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? <Loader2 className="animate-spin" /> : <Save />}
-                  {saving ? "Сохраняю…" : "Сохранить"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setEditing(false);
-                    setError("");
-                  }}
-                >
-                  <X />
-                  Отмена
-                </Button>
-              </div>
-            </div>
-          ) : report.content ? (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-              {report.content}
+        <CardContent className="space-y-3">
+          {/* План дня — строки как в «Дне» */}
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <ListTodo className="size-4 text-muted-foreground" />
+              План дня
             </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">Отчёт пуст.</p>
+            {!day ? (
+              <p className="text-sm text-muted-foreground">
+                Плана на этот день не было.
+              </p>
+            ) : items === null ? (
+              <p className="text-sm text-muted-foreground">
+                <Loader2 className="mr-1 inline size-4 animate-spin" />
+                Загрузка…
+              </p>
+            ) : items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                План дня был пуст.
+              </p>
+            ) : (
+              items.map((it, i) => (
+                <div
+                  key={`${it.kind}-${it.ref_id}-${i}`}
+                  className={cn(
+                    "flex w-full items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors",
+                    it.done
+                      ? "border-emerald-500/50 bg-emerald-500/10"
+                      : "border-border/60",
+                  )}
+                >
+                  {it.kind === "task" ? (
+                    <ListTodo className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <BookOpen className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="wrap-break-word block text-sm font-medium text-foreground">
+                      {it.title}
+                    </span>
+                    {it.meta && (
+                      <span className="block text-xs text-muted-foreground">
+                        {it.meta}
+                      </span>
+                    )}
+                    {it.done && (
+                      <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 className="size-3.5" />
+                        {it.kind === "task" ? "Готова" : "Повторено"}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                    {fmtMin(it.minutes)}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Метрики за день — как в «Дне» (зелёные, если проставлены) */}
+          {defs.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <BarChart3 className="size-4 text-muted-foreground" />
+                Метрики за день
+              </p>
+              {defs.map((def) => {
+                const value = valueFor(def.id);
+                const hasValue = value != null && value !== "";
+                return (
+                  <div
+                    key={def.id}
+                    className={cn(
+                      "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 transition-colors",
+                      hasValue
+                        ? "border-emerald-500/50 bg-emerald-500/10"
+                        : "border-border/60",
+                    )}
+                  >
+                    <span className="min-w-0 text-sm font-medium">
+                      {def.name}
+                      {def.type !== "bool" && def.unit && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          {def.unit}
+                        </span>
+                      )}
+                    </span>
+                    <MetricValue def={def} value={value} />
+                  </div>
+                );
+              })}
+            </div>
           )}
+
+          {/* Текст отчёта — только просмотр */}
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <FileText className="size-4 text-muted-foreground" />
+              Отчёт за день
+            </p>
+            {hasContent ? (
+              <div className="rounded-lg border border-border/60 px-3 py-2">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                  {report.content}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Отчёта за этот день не было.
+              </p>
+            )}
+          </div>
         </CardContent>
       )}
     </Card>
   );
 }
 
-// Форма создания нового отчёта за конкретный день (по умолчанию — сегодня).
-function NewReportForm({ onSaved, reports, onOpen, onTodaySaved }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [date, setDate] = useState(today);
-  const [content, setContent] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const existingReport = reports?.find((r) => r.date === date);
-
-  const handleSave = async () => {
-    if (!date) {
-      setError("Укажите дату");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      await updateReport(date, content);
-      setContent("");
-      onSaved();
-      // После сохранения отчёта за сегодня предлагаем заполнить метрики.
-      if (date === today) onTodaySaved?.();
-    } catch (err) {
-      setError(err.message || "Не удалось сохранить");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Card className="my-3" size="sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Plus className="size-4 text-muted-foreground" />
-          Новый отчёт за день
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="space-y-1.5">
-          <DateInput value={date} max={today} onChange={setDate} />
-        </div>
-        <Textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Что произошло за этот день…"
-        />
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
-        )}
-        {existingReport && (
-          <p className="flex items-center gap-1.5 text-sm text-amber-600">
-            <AlertCircle className="size-4" />
-            На эту дату уже есть отчёт. Сохранение перезапишет его.
-          </p>
-        )}
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={handleSave} disabled={saving || !date}>
-            {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            {saving
-              ? "Сохраняю…"
-              : existingReport
-                ? "Заменить отчёт"
-                : "Сохранить отчёт"}
-          </Button>
-          {existingReport && (
-            <Button
-              variant="outline"
-              onClick={() => onOpen && onOpen(existingReport.date)}
-            >
-              <Edit />
-              Открыть существующий
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Главный компонент: список дневных отчётов (сворачиваемые, редактируемые)
-// + форма добавления нового отчёта.
+// Главный компонент: «Отчёты» — снимки прошедших дней (план + метрики +
+// текст отчёта), только для просмотра. День появляется здесь, если на него
+// есть сохранённый план (раздел «День») или текст отчёта.
 function Reports() {
-  const queryClient = useQueryClient();
   const reportsQuery = useReports(true);
+  const [history, setHistory] = useState(null);
   const [openDate, setOpenDate] = useState(null);
-  // Модалка с метриками за сегодня — после сохранения сегодняшнего отчёта.
-  const [metricsModalOpen, setMetricsModalOpen] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
 
-  const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ["reports"] });
+  useEffect(() => {
+    fetchDayHistory()
+      .then((d) => setHistory(d.days || []))
+      .catch(() => {});
+  }, []);
+
+  // Объединяем даты из планов дней и текстовых отчётов.
+  const days = [];
+  const seen = new Set();
+  for (const d of history || []) {
+    if (!seen.has(d.date)) {
+      seen.add(d.date);
+      days.push({ date: d.date, day: d, report: null });
+    }
+  }
+  for (const r of reportsQuery.data || []) {
+    const ex = days.find((x) => x.date === r.date);
+    if (ex) {
+      ex.report = r;
+    } else {
+      seen.add(r.date);
+      days.push({ date: r.date, day: null, report: r });
+    }
+  }
+  days.sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return (
     <section>
-      <NewReportForm
-        onSaved={refresh}
-        reports={reportsQuery.data}
-        onOpen={(date) => setOpenDate(date)}
-        onTodaySaved={() => setMetricsModalOpen(true)}
-      />
+      <h2 className="flex items-center gap-2 text-xl font-semibold">
+        <FileText className="size-5 text-muted-foreground" />
+        Отчёты
+        {history === null && (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        )}
+        <span className="text-sm font-normal text-muted-foreground">
+          · дни
+        </span>
+      </h2>
 
-      {reportsQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Загрузка отчётов…</p>
-      ) : reportsQuery.isError ? (
-        <p className="text-sm text-destructive">
-          Ошибка: {reportsQuery.error?.message}
-        </p>
-      ) : reportsQuery.data && reportsQuery.data.length > 0 ? (
-        reportsQuery.data.map((r) => (
-          <ReportRow
-            key={r.date}
-            report={r}
-            open={openDate === r.date}
-            onOpenChange={(v) => setOpenDate(v ? r.date : null)}
-            onSaved={refresh}
-            onTodaySaved={() => setMetricsModalOpen(true)}
-          />
-        ))
-      ) : (
+      {days.length === 0 ? (
         <Card className="my-3" size="sm">
           <CardContent>
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <FileText className="size-4" />
-              Пока нет ни одного отчёта. Создайте первый выше.
-            </p>
+            {reportsQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Загрузка…</p>
+            ) : (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <CalendarDays className="size-4" />
+                Пока нет ни одного дня. Сформируйте день в разделе «День» —
+                он появится здесь.
+              </p>
+            )}
           </CardContent>
         </Card>
-      )}
-
-      {metricsModalOpen && (
-        <MetricsTodayModal
-          date={today}
-          onClose={() => setMetricsModalOpen(false)}
-        />
+      ) : (
+        days.map(({ date, day, report }) => (
+          <DayCard
+            key={date}
+            date={date}
+            day={day}
+            report={report}
+            open={openDate === date}
+            onOpenChange={(v) => setOpenDate(v ? date : null)}
+          />
+        ))
       )}
     </section>
   );

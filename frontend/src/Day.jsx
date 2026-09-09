@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchDayPlan,
-  fetchDayHistory,
   suggestDay,
   saveDay,
   useUserMetrics,
@@ -10,6 +9,8 @@ import {
   useKnowledge,
   repeatKnowledge,
   setDayItemDone,
+  useReports,
+  updateReport,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
@@ -28,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   CalendarDays,
   Clock,
+  FileText,
   Loader2,
   AlertCircle,
   ListTodo,
@@ -38,9 +40,6 @@ import {
   XCircle,
   Sparkles,
   Save,
-  History,
-  ChevronDown,
-  ChevronRight,
   CheckCircle2,
   Repeat,
 } from "lucide-react";
@@ -193,6 +192,100 @@ function NoteReadModal({ note, done, onClose, onRepeat }) {
         </div>
       </Card>
     </div>
+  );
+}
+
+// Отчёт за текущий день (как в разделе «Отчёты», но без выбора даты):
+// показывается в конце дня; если отчёт на дату уже есть — его можно
+// перезаписать.
+function DayReportCard({ date }) {
+  const queryClient = useQueryClient();
+  const reportsQuery = useReports(true);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  const todayReport = reportsQuery.data?.find((r) => r.date === date);
+
+  // Подставляем уже сохранённый отчёт за эту дату, если он есть.
+  useEffect(() => {
+    setDraft(todayReport?.content ?? "");
+  }, [todayReport?.content]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      await updateReport(date, draft);
+      setSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    } catch (err) {
+      setError(err.message || "Не удалось сохранить отчёт");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="my-3" size="sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <FileText className="size-4 text-muted-foreground" />
+          Отчёт за сегодня · <DateDisplay date={date} />
+        </CardTitle>
+        <CardDescription>
+          Что произошло за этот день — сохранится в разделе «Отчёты».
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <textarea
+          data-slot="textarea"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setSaved(false);
+          }}
+          placeholder="Задачи выполнены, метрики зафиксированы, итоги дня…"
+          className="w-full min-h-24 rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 resize-y"
+        />
+        {todayReport && todayReport.content !== "" && (
+          <p className="flex items-center gap-1.5 text-sm text-amber-600">
+            <AlertCircle className="size-3.5" />
+            На эту дату уже есть отчёт — сохранение перезапишет его.
+          </p>
+        )}
+        {error && (
+          <p
+            className="flex items-center gap-1.5 text-sm text-destructive"
+            role="alert"
+          >
+            <AlertCircle className="size-3.5" />
+            {error}
+          </p>
+        )}
+        {saved && (
+          <p className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
+            <Check className="size-3.5" />
+            Отчёт сохранён
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={handleSave}
+            disabled={saving || draft.trim() === ""}
+          >
+            {saving ? <Loader2 className="animate-spin" /> : <Save />}
+            {saving
+              ? "Сохраняю…"
+              : todayReport && todayReport.content !== ""
+                ? "Заменить отчёт"
+                : "Сохранить отчёт"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -353,9 +446,6 @@ function Day() {
   const [saving, setSaving] = useState(false);
   const [suggest, setSuggest] = useState(null); // результат «сформировать»
   const [savedPlan, setSavedPlan] = useState(null);
-  const [history, setHistory] = useState(null);
-  const [openDates, setOpenDates] = useState({});
-  const [openedPlans, setOpenedPlans] = useState({}); // date -> items
   const [error, setError] = useState("");
   // Модалки из списка кандидатов: редактирование задачи / чтение конспекта.
   const [openTask, setOpenTask] = useState(null);
@@ -469,12 +559,8 @@ function Day() {
 
   const load = async () => {
     try {
-      const [plan, hist] = await Promise.all([
-        fetchDayPlan(date),
-        fetchDayHistory(),
-      ]);
+      const plan = await fetchDayPlan(date);
       setSavedPlan(plan);
-      setHistory(hist);
     } catch {
       /* раздел не критичен */
     }
@@ -528,27 +614,12 @@ function Day() {
       });
       setSavedPlan(plan);
       setSuggest(null);
-      const hist = await fetchDayHistory();
-      setHistory(hist);
     } catch (err) {
       setError(err.message || "Не удалось сохранить день");
     } finally {
       setSaving(false);
     }
   };
-
-  const openPast = async (d) => {
-    setOpenDates((o) => ({ ...o, [d]: !o[d] }));
-    if (!openedPlans[d]) {
-      try {
-        const plan = await fetchDayPlan(d);
-        setOpenedPlans((p) => ({ ...p, [d]: plan.items || [] }));
-      } catch {
-        /* ignore */
-      }
-    }
-  };
-
   const selectedMinutes = useMemo(() => {
     if (!suggest) return 0;
     return [...suggest.tasks, ...suggest.notes]
@@ -747,70 +818,8 @@ function Day() {
         </CardContent>
       </Card>
 
-      {/* Прошедшие дни */}
-      <Card className="my-3" size="sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <History className="size-4 text-muted-foreground" />
-            Прошедшие дни
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {!history ? (
-            <p className="text-sm text-muted-foreground">Загрузка…</p>
-          ) : history.days.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Пока нет сформированных дней.
-            </p>
-          ) : (
-            history.days.map((d) => (
-              <div key={d.date} className="rounded-lg border border-border/60">
-                <button
-                  type="button"
-                  onClick={() => openPast(d.date)}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/40"
-                >
-                  <span className="flex items-center gap-2">
-                    {openDates[d.date] ? (
-                      <ChevronDown className="size-4" />
-                    ) : (
-                      <ChevronRight className="size-4" />
-                    )}
-                    <DateDisplay date={d.date} />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {d.tasks} зад. · {d.notes} повт. · {fmtMin(d.total_minutes)}
-                  </span>
-                </button>
-                {openDates[d.date] && (
-                  <div className="space-y-1 border-t px-3 py-2">
-                    {(openedPlans[d.date] || []).length === 0 ? (
-                      <p className="text-xs text-muted-foreground">Пусто.</p>
-                    ) : (
-                      (openedPlans[d.date] || []).map((it, i) => (
-                        <button
-                          key={`${d.date}-${i}`}
-                          type="button"
-                          onClick={() => openByKind(it.kind, it.ref_id)}
-                          className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left text-xs transition-colors hover:bg-muted/40"
-                          title="Открыть"
-                        >
-                          <span className="min-w-0 truncate">
-                            {it.kind === "task" ? "☑" : "▤"} {it.title}
-                          </span>
-                          <span className="shrink-0 text-muted-foreground">
-                            {fmtMin(it.minutes)}
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+      {/* Отчёт за сегодня — в конце дня */}
+      <DayReportCard date={date} />
 
       {/* Модалки из списка кандидатов */}
       {openTask && (

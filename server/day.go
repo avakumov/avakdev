@@ -559,7 +559,7 @@ func handleDayHistory(c *gin.Context) {
 		return
 	}
 	rows, err := db.Query(context.Background(),
-		`SELECT p.day,
+		`SELECT to_char(p.day, 'YYYY-MM-DD'),
 		        p.budget_minutes,
 		        COALESCE(SUM(i.minutes), 0),
 		        COUNT(*) FILTER (WHERE i.kind = 'task'),

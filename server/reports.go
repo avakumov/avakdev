@@ -3,14 +3,14 @@ package main
 import (
 	"context"
 	"net/http"
-	"sort"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Report — дневной отчёт пользователя.
+// Report — текстовый отчёт за день пользователя.
+// Хранится в day_plans.report (одна строка на пользователя и дату),
+// поэтому отдельной таблицы reports больше нет.
 type Report struct {
 	// Date — день отчёта в формате YYYY-MM-DD.
 	Date string `json:"date"`
@@ -20,107 +20,41 @@ type Report struct {
 	Updated string `json:"updated"`
 }
 
-// reportStore — хранилище дневных отчётов.
-// Если база данных PostgreSQL настроена, отчёты хранятся в таблице reports
-// (и кэшируются в памяти). Иначе используется in-memory мапа без персистентности.
-type reportStore struct {
-	mu    sync.Mutex
-	data  map[string]Report // кэш в памяти / хранилище без БД
-	hasDB bool
-}
-
-// reports — глобальное хранилище отчётов.
-var reports *reportStore
-
-// newReportStore создаёт новое хранилище отчётов.
-// Флаг hasDB определяется наличием подключения к базе (пакетная переменная db).
-func newReportStore() *reportStore {
-	return &reportStore{
-		data:  make(map[string]Report),
-		hasDB: db != nil,
-	}
-}
-
-// initReports инициализирует глобальное хранилище отчётов.
-// При наличии БД подгружает уже сохранённые отчёты в память.
-// (Таблица создаётся версионированными миграциями goose, см. migrations/.)
-func initReports() error {
-	reports = newReportStore()
-	if !reports.hasDB {
-		return nil
-	}
-
+// handleListReports возвращает текстовые отчёты текущего пользователя
+// (только даты с непустым текстом), новые сверху.
+func handleListReports(c *gin.Context) {
+	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
-		`SELECT to_char(date,'YYYY-MM-DD'),
-		        content,
+		`SELECT to_char(day,'YYYY-MM-DD'),
+		        report,
 		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM reports`)
+		 FROM day_plans
+		 WHERE username = $1 AND report <> ''
+		 ORDER BY day DESC`,
+		sessData.username)
 	if err != nil {
-		return err
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить отчёты"})
+		return
 	}
 	defer rows.Close()
 
+	out := make([]Report, 0)
 	for rows.Next() {
 		var r Report
-		if err := rows.Scan(&r.Date, &r.Content, &r.Updated); err != nil {
-			return err
-		}
-		reports.data[r.Date] = r
-	}
-	return rows.Err()
-}
-
-// list возвращает все отчёты, отсортированные по дате (новые сверху).
-func (rs *reportStore) list() []Report {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
-	out := make([]Report, 0, len(rs.data))
-	for _, r := range rs.data {
-		out = append(out, r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Date > out[j].Date })
-	return out
-}
-
-// upsert создаёт или обновляет отчёт за указанный день.
-// При наличии БД пишет в таблицу, иначе — только в память.
-func (rs *reportStore) upsert(date, content string) (Report, error) {
-	r := Report{
-		Date:    date,
-		Content: content,
-		Updated: time.Now().UTC().Format(time.RFC3339),
-	}
-
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
-	if rs.hasDB {
-		if _, err := db.Exec(context.Background(),
-			`INSERT INTO reports (date, content, updated)
-			 VALUES ($1, $2, now())
-			 ON CONFLICT (date)
-			 DO UPDATE SET content = $2, updated = now()`,
-			date, content); err != nil {
-			return Report{}, err
+		if err := rows.Scan(&r.Date, &r.Content, &r.Updated); err == nil {
+			out = append(out, r)
 		}
 	}
-
-	rs.data[date] = r
-	return r, nil
+	c.JSON(http.StatusOK, out)
 }
 
-// handleListReports возвращает список отчётов.
-func handleListReports(c *gin.Context) {
-	c.JSON(http.StatusOK, reports.list())
-}
-
-// handleUpsertReport создаёт или обновляет отчёт за конкретный день.
-// Параметр :date — день в формате YYYY-MM-DD.
+// handleUpsertReport создаёт или обновляет текстовый отчёт за конкретный день.
+// Отчёт хранится в строке дня (day_plans): если дня ещё нет — строка
+// создаётся с пустым планом. Параметр :date — день в формате YYYY-MM-DD.
 func handleUpsertReport(c *gin.Context) {
-	date := c.Param("date")
-	if date == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Не указана дата"})
+	day, err := parseDay(c.Param("date"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -132,10 +66,30 @@ func handleUpsertReport(c *gin.Context) {
 		return
 	}
 
-	r, err := reports.upsert(date, req.Content)
-	if err != nil {
+	sessData, _ := c.MustGet("session").(session)
+	ctx := context.Background()
+
+	// Гарантируем наличие строки дня (например, отчёт без сохранённого плана).
+	if _, err := db.Exec(ctx,
+		`INSERT INTO day_plans (username, day, budget_minutes)
+		 VALUES ($1, $2, 0)
+		 ON CONFLICT (username, day) DO NOTHING`,
+		sessData.username, day); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить отчёт"})
 		return
 	}
-	c.JSON(http.StatusOK, r)
+
+	if _, err := db.Exec(ctx,
+		`UPDATE day_plans SET report = $3, updated = now()
+		 WHERE username = $1 AND day = $2`,
+		sessData.username, day, req.Content); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить отчёт"})
+		return
+	}
+
+	c.JSON(http.StatusOK, Report{
+		Date:    day,
+		Content: req.Content,
+		Updated: time.Now().UTC().Format(time.RFC3339),
+	})
 }
