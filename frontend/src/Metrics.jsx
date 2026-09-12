@@ -669,7 +669,7 @@ function Metrics() {
   // Столбцы таблицы — все даты с записями (+ сегодня). Если не влезают —
   // таблица прокручивается по горизонтали.
   const todayIso = new Date().toISOString().slice(0, 10);
-  const columns = collectDates(valuesByMetric);
+  const columns = collectDates(valuesByMetric, defs);
   const currentYear = Number(todayIso.slice(0, 4));
   const monthGroups = groupColumns(columns);
   // Даты, после которых заканчивается месяц (кроме последней группы):
@@ -843,15 +843,35 @@ function Metrics() {
   );
 }
 
-// Все даты, за которые есть хотя бы один показатель (по всем метрикам),
-// отсортированные по возрастанию + сегодня (чтобы всегда можно было добавить).
-function collectDates(valuesByMetric) {
-  const set = new Set();
+// Прибавляет n дней к дате 'YYYY-MM-DD'.
+function isoAddDays(iso, n) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Все даты таблицы — непрерывный диапазон от самой ранней даты (создание
+// метрики или первое значение) до сегодня, включая дни без показателей.
+function collectDates(valuesByMetric, defs = []) {
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  let earliest = null;
+  const consider = (d) => {
+    if (!dateRe.test(d)) return;
+    if (!earliest || d < earliest) earliest = d;
+  };
+
   for (const byDate of Object.values(valuesByMetric)) {
-    for (const d in byDate) set.add(d);
+    for (const d in byDate) consider(d);
   }
-  set.add(new Date().toISOString().slice(0, 10)); // сегодня
-  return [...set].sort();
+  for (const def of defs) {
+    consider((def.created || "").slice(0, 10));
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const start = earliest && earliest < today ? earliest : today;
+  const out = [];
+  for (let d = start; d <= today; d = isoAddDays(d, 1)) out.push(d);
+  return out;
 }
 
 const MONTHS = [
