@@ -493,15 +493,143 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
   );
 }
 
+// Модалка значения метрики за конкретную дату: изменить или удалить.
+function MetricValueModal({ def, date, value, onSaved, onClose }) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  const hasValue = value !== undefined && value !== "";
+  const canSave =
+    def.type === "bool"
+      ? draft === "true" || draft === "false"
+      : draft.trim() !== "";
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setError("");
+    try {
+      await setUserMetricValue(def.id, date, draft);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message || "Не удалось сохранить значение");
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteUserMetricValue(def.id, date);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message || "Не удалось удалить значение");
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <Card
+        className="flex w-full max-w-sm flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="size-4 text-muted-foreground" />
+            {def.name}
+          </CardTitle>
+          <CardDescription className="flex items-center gap-1.5">
+            <CalendarDays className="size-3.5" />
+            <DateDisplay date={date} />
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Значение</Label>
+            {def.type === "bool" ? (
+              <BoolToggle value={draft} onChange={setDraft} />
+            ) : (
+              <Input
+                type="number"
+                step={def.type === "int" ? 1 : "any"}
+                value={draft}
+                autoFocus
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={def.type === "int" ? "Целое число" : "Число"}
+              />
+            )}
+          </div>
+          {error && (
+            <p
+              className="flex items-center gap-1.5 text-sm text-destructive"
+              role="alert"
+            >
+              <AlertCircle className="size-4" />
+              {error}
+            </p>
+          )}
+        </CardContent>
+        <div className="flex items-center justify-between gap-2 border-t p-4">
+          <Button
+            variant="destructive"
+            onClick={handleDelete}
+            disabled={!hasValue || saving || deleting}
+            title={
+              hasValue
+                ? "Удалить значение за этот день"
+                : "За этот день значения нет"
+            }
+          >
+            {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            {deleting ? "Удаляю…" : "Удалить"}
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              disabled={saving || deleting}
+            >
+              <X />
+              Отмена
+            </Button>
+            <Button onClick={handleSave} disabled={!canSave || saving || deleting}>
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {saving ? "Сохраняю…" : "Сохранить"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // Карточка метрики (мобильные): сворачивается — в свёрнутом виде название,
 // число зафиксированных дней и тип/единица; в развёрнутом — ввод значения.
-function MetricCard({ def, values, onChanged, onEdit, initialOpen = false }) {
+function MetricCard({
+  def,
+  values,
+  columns = [],
+  onChanged,
+  onEdit,
+  initialOpen = false,
+}) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(initialOpen);
+  // Дата, для которой открыта модалка значения.
+  const [editDate, setEditDate] = useState(null);
 
   const handleDateChange = (d) => {
     setDate(d);
@@ -521,25 +649,12 @@ function MetricCard({ def, values, onChanged, onEdit, initialOpen = false }) {
     }
   };
 
-  const handleDeleteValue = async (d) => {
-    setError("");
-    try {
-      await deleteUserMetricValue(def.id, d);
-      if (d === date) setValue("");
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Не удалось удалить показатель");
-    }
-  };
-
-  const history = Object.entries(values)
-    .map(([d, v]) => ({ date: d, value: v }))
-    .sort((a, b) => (a.date < b.date ? 1 : -1))
-    .slice(0, 14);
-
   const daysCount = Object.keys(values).length;
+  // Все даты — как в таблице (новые сверху); даты без значений — с прочерком.
+  const dates = [...columns].reverse();
 
   return (
+    <>
     <Card className="my-3" size="sm">
       <CardHeader
         className="cursor-pointer select-none"
@@ -615,57 +730,75 @@ function MetricCard({ def, values, onChanged, onEdit, initialOpen = false }) {
             </p>
           )}
 
-          {history.length > 0 && (
+          {dates.length > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                Последние значения:
+                Значения по дням:
               </p>
               <ul className="divide-y rounded-lg border">
-                {history.map((h) => (
-                  <li
-                    key={h.date}
-                    className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleDateChange(h.date)}
-                      className="flex items-center gap-2 text-left text-muted-foreground hover:text-foreground"
+                {dates.map((d) => {
+                  const v = values[d];
+                  const has = v !== undefined;
+                  return (
+                    <li
+                      key={d}
+                      className="flex items-center px-3 py-1.5 text-sm"
                     >
-                      <CalendarDays className="size-3.5" />
-                      <DateDisplay date={h.date} className="tabular-nums" />
-                      {def.type === "bool" ? (
-                        <span
-                          className={cn(
-                            "inline-flex size-6 items-center justify-center text-xs font-medium",
-                            h.value === "true"
-                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                              : "bg-destructive/15 text-destructive",
-                          )}
-                        >
-                          {h.value === "true" ? "Д" : "Н"}
-                        </span>
-                      ) : (
-                        <span className="font-medium tabular-nums text-foreground">
-                          {h.value}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteValue(h.date)}
-                      className="text-muted-foreground hover:text-destructive"
-                      aria-label="Удалить значение за этот день"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </li>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => setEditDate(d)}
+                        title="Открыть значение за день"
+                        className="flex flex-1 items-center gap-2 text-left text-muted-foreground hover:text-foreground"
+                      >
+                        <CalendarDays className="size-3.5" />
+                        <DateDisplay date={d} className="tabular-nums" />
+                        {def.type === "bool" ? (
+                          has ? (
+                            <span
+                              className={cn(
+                                "inline-flex size-6 items-center justify-center text-xs font-medium",
+                                v === "true"
+                                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                  : "bg-destructive/15 text-destructive",
+                              )}
+                            >
+                              {v === "true" ? "Д" : "Н"}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )
+                        ) : (
+                          <span
+                            className={
+                              has
+                                ? "font-medium tabular-nums text-foreground"
+                                : "text-muted-foreground"
+                            }
+                          >
+                            {has ? v : "—"}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
         </CardContent>
       )}
     </Card>
+
+      {editDate && (
+        <MetricValueModal
+          def={def}
+          date={editDate}
+          value={values[editDate]}
+          onSaved={onChanged}
+          onClose={() => setEditDate(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -814,6 +947,7 @@ function Metrics() {
                 key={d.id}
                 def={d}
                 values={valuesByMetric[d.id] || {}}
+                columns={columns}
                 onChanged={refresh}
                 onEdit={setEditTarget}
               />
@@ -846,6 +980,7 @@ function Metrics() {
             <MetricCard
               def={metricTarget}
               values={valuesByMetric[metricTarget.id] || {}}
+              columns={columns}
               onChanged={refresh}
               onEdit={setEditTarget}
               initialOpen
