@@ -190,11 +190,12 @@ function pluralDays(n) {
   return "дней";
 }
 
-// Модалка изменения метрики: название (+ единица для числовых).
-function MetricEditModal({ def, onSaved, onClose }) {
+// Модалка изменения метрики: название (+ единица для числовых) и удаление.
+function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
   const [editName, setEditName] = useState(def.name);
   const [editUnit, setEditUnit] = useState(def.unit || "");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const handleSave = async () => {
@@ -207,6 +208,24 @@ function MetricEditModal({ def, onSaved, onClose }) {
     } catch (err) {
       setError(err.message || "Не удалось изменить метрику");
       setSaving(false);
+    }
+  };
+
+  // Удаление метрики со всеми её показателями.
+  const handleDelete = async () => {
+    if (!window.confirm(`Удалить метрику «${def.name}» и все её показатели?`)) {
+      return;
+    }
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteUserMetric(def.id);
+      onSaved();
+      onDeleted?.();
+      onClose();
+    } catch (err) {
+      setError(err.message || "Не удалось удалить метрику");
+      setDeleting(false);
     }
   };
 
@@ -255,18 +274,32 @@ function MetricEditModal({ def, onSaved, onClose }) {
             </p>
           )}
         </CardContent>
-        <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            <X />
-            Отмена
-          </Button>
+        <div className="flex items-center justify-between gap-2 border-t p-4">
           <Button
-            onClick={handleSave}
-            disabled={saving || !editName.trim()}
+            variant="destructive"
+            onClick={handleDelete}
+            disabled={saving || deleting}
           >
-            {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            {saving ? "Сохраняю…" : "Сохранить"}
+            {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            {deleting ? "Удаляю…" : "Удалить метрику"}
           </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              disabled={saving || deleting}
+            >
+              <X />
+              Отмена
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving || deleting || !editName.trim()}
+            >
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {saving ? "Сохраняю…" : "Сохранить"}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>
@@ -325,7 +358,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
 
   return (
     <tr className="group border-b border-border/60 last:border-0 hover:bg-muted/30">
-      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card px-3 py-1.5 align-top transition-colors group-hover:bg-muted/30">
+      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card px-3 py-1.5 align-top transition-colors group-hover:bg-[color-mix(in_oklch,var(--muted)_30%,var(--card))]">
         <button
           type="button"
           onClick={() => onOpenDetail(def)}
@@ -376,21 +409,21 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                   onClick={() => cycleBool(d)}
                   title={label}
                   aria-label={label}
-                  className="inline-flex h-7 w-full cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-muted/50"
+                  className={cn(
+                    "inline-flex h-7 w-full cursor-pointer items-center justify-center transition-colors",
+                    v === undefined
+                      ? "hover:bg-muted/50"
+                      : v === "true"
+                        ? "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
+                        : "bg-destructive/15 text-destructive hover:bg-destructive/25",
+                  )}
                 >
                   {v === undefined ? (
                     <Minus className="size-3.5 text-muted-foreground/50" />
                   ) : (
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        // Квадрат: 15px — в 1,5 раза больше прежнего круга (10px).
-                        "mx-auto block size-3.75 shrink-0 rounded-[2px] border",
-                        v === "true"
-                          ? "border-yellow-800 bg-yellow-500 dark:border-yellow-200 dark:bg-yellow-400"
-                          : "border-black bg-black dark:border-zinc-200 dark:bg-zinc-800",
-                      )}
-                    />
+                    <span className="text-xs font-medium tabular-nums">
+                      {v === "true" ? "Д" : "Н"}
+                    </span>
                   )}
                 </button>
               </td>
@@ -462,12 +495,11 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
 
 // Карточка метрики (мобильные): сворачивается — в свёрнутом виде название,
 // число зафиксированных дней и тип/единица; в развёрнутом — ввод значения.
-function MetricCard({ def, values, onChanged, onEdit, initialOpen = false, onDeleted }) {
+function MetricCard({ def, values, onChanged, onEdit, initialOpen = false }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(initialOpen);
 
@@ -497,22 +529,6 @@ function MetricCard({ def, values, onChanged, onEdit, initialOpen = false, onDel
       onChanged();
     } catch (err) {
       setError(err.message || "Не удалось удалить показатель");
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!window.confirm(`Удалить метрику «${def.name}» и все её показатели?`)) {
-      return;
-    }
-    setDeleting(true);
-    setError("");
-    try {
-      await deleteUserMetric(def.id);
-      onChanged();
-      onDeleted?.();
-    } catch (err) {
-      setError(err.message || "Не удалось удалить метрику");
-      setDeleting(false);
     }
   };
 
@@ -553,16 +569,10 @@ function MetricCard({ def, values, onChanged, onEdit, initialOpen = false, onDel
               variant="outline"
               size="sm"
               onClick={() => onEdit(def)}
+              title="Редактировать метрику"
+              aria-label="Редактировать метрику"
             >
               <Edit />
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
             </Button>
           </div>
         </div>
@@ -623,9 +633,22 @@ function MetricCard({ def, values, onChanged, onEdit, initialOpen = false, onDel
                     >
                       <CalendarDays className="size-3.5" />
                       <DateDisplay date={h.date} className="tabular-nums" />
-                      <span className="font-medium tabular-nums text-foreground">
-                        {displayValue(def.type, h.value)}
-                      </span>
+                      {def.type === "bool" ? (
+                        <span
+                          className={cn(
+                            "inline-flex size-6 items-center justify-center text-xs font-medium",
+                            h.value === "true"
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                              : "bg-destructive/15 text-destructive",
+                          )}
+                        >
+                          {h.value === "true" ? "Д" : "Н"}
+                        </span>
+                      ) : (
+                        <span className="font-medium tabular-nums text-foreground">
+                          {h.value}
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"
@@ -726,14 +749,14 @@ function Metrics() {
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
             <div className="overflow-x-auto" ref={scrollRef}>
               <table
-                className="w-full table-fixed text-sm"
-                style={{ minWidth: tableMinWidth }}
+                className="table-fixed text-sm"
+                style={{ width: tableMinWidth }}
               >
                 <thead>
                   <tr className="bg-muted/40 text-left text-[11px] tracking-wide text-muted-foreground">
                     <th
                       rowSpan={2}
-                      className="sticky left-0 z-20 w-44 border-r border-border/70 bg-muted/40 px-3 py-1.5 align-middle font-bold uppercase"
+                      className="sticky left-0 z-20 w-44 border-r border-border/70 bg-[color-mix(in_oklch,var(--muted)_40%,var(--card))] px-3 py-1.5 align-middle font-bold uppercase"
                     >
                       Метрика
                     </th>
@@ -780,7 +803,7 @@ function Metrics() {
                     />
                   ))}
                 </tbody>
-              </table>
+                </table>
             </div>
           </Card>
 
@@ -825,7 +848,6 @@ function Metrics() {
               values={valuesByMetric[metricTarget.id] || {}}
               onChanged={refresh}
               onEdit={setEditTarget}
-              onDeleted={() => setMetricTarget(null)}
               initialOpen
             />
           </div>
@@ -837,6 +859,7 @@ function Metrics() {
           def={editTarget}
           onSaved={refresh}
           onClose={() => setEditTarget(null)}
+          onDeleted={() => setMetricTarget(null)}
         />
       )}
     </section>

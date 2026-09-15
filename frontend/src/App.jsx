@@ -449,7 +449,17 @@ function App() {
       />
 
       <main className="lg:pl-64">
-        <div className="mx-auto max-w-3xl px-4 py-8 lg:max-w-5xl">
+        <div
+          className={
+            "mx-auto px-4 py-8 " +
+            (view === "metrics"
+              ? // Таблицу метрик не ограничиваем шириной текстовой колонки:
+                // колонки дат остаются минимальными, а если не влезают —
+                // появляется горизонтальная прокрутка.
+                "max-w-none"
+              : "max-w-3xl lg:max-w-5xl")
+          }
+        >
           {view === "day" && <Day />}
           {view === "goals" && <Goals />}
           {view === "tasks" && <Tasks />}
