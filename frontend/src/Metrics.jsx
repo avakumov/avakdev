@@ -9,7 +9,11 @@ import {
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
-import DateInput from "@/components/DateInput.jsx";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatDateDmy } from "@/lib/formatDate.js";
 
@@ -612,182 +616,152 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
   );
 }
 
-// Карточка метрики (мобильные): сворачивается — в свёрнутом виде название,
-// число зафиксированных дней и тип/единица; в развёрнутом — ввод значения.
-function MetricCard({
-  def,
-  values,
-  columns = [],
-  onChanged,
-  onEdit,
-  initialOpen = false,
-}) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [date, setDate] = useState(today);
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [open, setOpen] = useState(initialOpen);
+// Карточка метрики (мобильные): название и сетка квадратных плиток —
+// по одной на день, без дат: внутри только значение (Д/Н или число),
+// плитки заполняют ширину и переносятся на новую строку. Клик открывает
+// модалку значения за этот день.
+function MetricCard({ def, values, columns = [], onChanged, onEdit }) {
+  // Свёрнута по умолчанию: видно название, тип и число дней.
+  const [open, setOpen] = useState(false);
   // Дата, для которой открыта модалка значения.
   const [editDate, setEditDate] = useState(null);
 
-  const handleDateChange = (d) => {
-    setDate(d);
-    setValue(values[d] ?? "");
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      await setUserMetricValue(def.id, date, value);
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Не удалось сохранить показатель");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const daysCount = Object.keys(values).length;
-  // Все даты — как в таблице (новые сверху); даты без значений — с прочерком.
-  const dates = [...columns].reverse();
+  // Все даты — как в таблице, от первой (старой) к последней (сегодня).
+  const dates = [...columns];
+
+  // Подсказка с датой: hover/фокус (Radix) или долгое нажатие (тач).
+  const [tipDate, setTipDate] = useState(null);
+  const pressTimer = useRef(null);
+  const hideTimer = useRef(null);
+  const longPressed = useRef(false);
+
+  useEffect(
+    () => () => {
+      clearTimeout(pressTimer.current);
+      clearTimeout(hideTimer.current);
+    },
+    [],
+  );
+
+  const startLongPress = (d) => {
+    longPressed.current = false;
+    clearTimeout(pressTimer.current);
+    clearTimeout(hideTimer.current);
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      setTipDate(d);
+      hideTimer.current = setTimeout(() => setTipDate(null), 2000);
+    }, 450);
+  };
+
+  const cancelLongPress = () => clearTimeout(pressTimer.current);
+
+  // После долгого нажатия клик только скрывает подсказку (модалку не открываем).
+  const handleTileClick = (d) => {
+    if (longPressed.current) {
+      longPressed.current = false;
+      setTipDate(null);
+      return;
+    }
+    setEditDate(d);
+  };
 
   return (
     <>
-    <Card className="my-3" size="sm">
-      <CardHeader
-        className="cursor-pointer select-none"
-        onClick={() => setOpen(!open)}
-      >
-        <div className="flex w-full flex-wrap items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2">
-            {open ? (
-              <ChevronDown className="size-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="size-4 text-muted-foreground" />
-            )}
-            <BarChart3 className="size-4 text-muted-foreground" />
-            {def.name}
-          </CardTitle>
-          <div
-            className="flex items-center gap-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Badge variant="secondary">{typeBadgeLabel(def)}</Badge>
-            {daysCount > 0 && (
-              <Badge variant="secondary">
-                {daysCount} {pluralDays(daysCount)}
-              </Badge>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onEdit(def)}
-              title="Редактировать метрику"
-              aria-label="Редактировать метрику"
-            >
-              <Edit />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-
-      {open && (
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1.5">
-              <Label>Дата</Label>
-              <DateInput value={date} max={today} onChange={handleDateChange} />
-            </div>
-            <div className="min-w-40 flex-1 space-y-1.5">
-              <Label>Значение</Label>
-              {def.type === "bool" ? (
-                <BoolToggle value={value} onChange={setValue} />
+      <Card className="my-3" size="sm">
+        <CardHeader
+          className="cursor-pointer select-none"
+          onClick={() => setOpen(!open)}
+        >
+          <div className="flex w-full flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              {open ? (
+                <ChevronDown className="size-4 text-muted-foreground" />
               ) : (
-                <Input
-                  type="number"
-                  step={def.type === "int" ? 1 : "any"}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  placeholder={def.type === "int" ? "Целое число" : "Число"}
-                />
+                <ChevronRight className="size-4 text-muted-foreground" />
               )}
-            </div>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="animate-spin" /> : <Save />}
-              {saving ? "Сохраняю…" : "Сохранить"}
-            </Button>
-          </div>
-
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
+              <BarChart3 className="size-4 text-muted-foreground" />
+              {def.name}
+            </CardTitle>
+            <div
+              className="flex items-center gap-2"
+              onClick={(e) => e.stopPropagation()}
             >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
+              <Badge variant="secondary">{typeBadgeLabel(def)}</Badge>
+              {daysCount > 0 && (
+                <Badge variant="secondary">
+                  {daysCount} {pluralDays(daysCount)}
+                </Badge>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onEdit(def)}
+                title="Редактировать метрику"
+                aria-label="Редактировать метрику"
+              >
+                <Edit />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
 
-          {dates.length > 0 && (
-            <div>
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                Значения по дням:
+        {open && (
+          <CardContent>
+            {dates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Пока нет ни одного дня для отображения.
               </p>
-              <ul className="divide-y rounded-lg border">
-                {dates.map((d) => {
-                  const v = values[d];
-                  const has = v !== undefined;
-                  return (
-                    <li
-                      key={d}
-                      className="flex items-center px-3 py-1.5 text-sm"
-                    >
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] gap-1">
+              {dates.map((d) => {
+                const v = values[d];
+                const has = v !== undefined && v !== "";
+                return (
+                  <Tooltip
+                    key={d}
+                    open={tipDate === d}
+                    onOpenChange={(v) =>
+                      setTipDate(v ? d : (prev) => (prev === d ? null : prev))
+                    }
+                  >
+                    <TooltipTrigger asChild>
                       <button
                         type="button"
-                        onClick={() => setEditDate(d)}
-                        title="Открыть значение за день"
-                        className="flex flex-1 items-center gap-2 text-left text-muted-foreground hover:text-foreground"
-                      >
-                        <CalendarDays className="size-3.5" />
-                        <DateDisplay date={d} className="tabular-nums" />
-                        {def.type === "bool" ? (
-                          has ? (
-                            <span
-                              className={cn(
-                                "inline-flex size-6 items-center justify-center text-xs font-medium",
-                                v === "true"
-                                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                                  : "bg-destructive/15 text-destructive",
-                              )}
-                            >
-                              {v === "true" ? "Д" : "Н"}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )
-                        ) : (
-                          <span
-                            className={
-                              has
-                                ? "font-medium tabular-nums text-foreground"
-                                : "text-muted-foreground"
-                            }
-                          >
-                            {has ? v : "—"}
-                          </span>
+                        onClick={() => handleTileClick(d)}
+                        onPointerDown={() => startLongPress(d)}
+                        onPointerUp={cancelLongPress}
+                        onPointerLeave={cancelLongPress}
+                        onPointerCancel={cancelLongPress}
+                        onContextMenu={(e) => e.preventDefault()}
+                        aria-label={`${def.name} за ${formatDateDmy(d)}`}
+                        className={cn(
+                          "flex aspect-square touch-manipulation select-none items-center justify-center border text-xs font-medium tabular-nums transition-colors",
+                          !has &&
+                            "border-border/60 text-muted-foreground/60 hover:bg-muted/50",
+                          has &&
+                            def.type === "bool" &&
+                            (v === "true"
+                              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
+                              : "border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25"),
+                          has &&
+                            def.type !== "bool" &&
+                            "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60",
                         )}
+                      >
+                        {!has ? "—" : def.type === "bool" ? (v === "true" ? "Д" : "Н") : v}
                       </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                    </TooltipTrigger>
+                    <TooltipContent>{formatDateDmy(d)}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
             </div>
           )}
-        </CardContent>
-      )}
-    </Card>
+          </CardContent>
+        )}
+      </Card>
 
       {editDate && (
         <MetricValueModal
@@ -983,7 +957,6 @@ function Metrics() {
               columns={columns}
               onChanged={refresh}
               onEdit={setEditTarget}
-              initialOpen
             />
           </div>
         </div>
