@@ -11,8 +11,14 @@ import {
   setDayItemDone,
   useReports,
   updateReport,
+  useLastBookmark,
+  useReadingTime,
+  useBooks,
+  setReadingGoal,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAppStore } from "./store.js";
+import { todayStr, formatClock } from "@/lib/formatDate.js";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 import { TaskFormModal } from "./Tasks.jsx";
@@ -42,14 +48,9 @@ import {
   Save,
   CheckCircle2,
   Repeat,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const todayStr = () => {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
 
 const fmtMin = (m) => {
   if (!m) return "0 мин";
@@ -436,9 +437,17 @@ function MetricRow({ def, value, busy, onSet, hasValue }) {
   );
 }
 
+// Подпись фрагмента закладки для карточки «Чтение».
+const bookmarkLabel = (s, max = 80) => {
+  const t = String(s || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+};
+
 // Раздел «День»: формирование плана на сегодня (задачи + повторение знаний),
 // метрики без времени; внизу — прошедшие дни.
-function Day() {
+function Day({ onNavigate }) {
   const queryClient = useQueryClient();
   const date = todayStr();
   const [hours, setHours] = useState("2");
@@ -456,6 +465,67 @@ function Day() {
   // Полные данные задач (для модалки) и конспектов (для чтения).
   const tasksQuery = useTasks(true);
   const knowledgeQuery = useKnowledge(true);
+
+  // Чтение: рекомендация на день, время за сегодня и последняя закладка
+  // для продолжения. Цель дня своя у каждой даты (по умолчанию 1 час).
+  const openReading = useAppStore((s) => s.openReading);
+  const lastBookmarkQuery = useLastBookmark(true);
+  const lastBookmark = lastBookmarkQuery.data || null;
+  // Прочитанные книги для чтения в «Дне» не используем: сервер отдаёт их
+  // в конце списка, поэтому первая непрочитанная — первая в списке.
+  const booksQuery = useBooks(true);
+  const nextBook = (booksQuery.data || []).find((b) => !b.finished_at) || null;
+  const readingTarget = lastBookmark ? null : nextBook;
+  const readingTimeQuery = useReadingTime(date);
+  const todayReadingSeconds = readingTimeQuery.data?.seconds || 0;
+  const readingGoalSeconds = readingTimeQuery.data?.goal_seconds || 3600;
+  const readingGoalReached = todayReadingSeconds >= readingGoalSeconds;
+  // Правка цели на сегодня: черновик в минутах (null — редактор закрыт).
+  const [goalDraft, setGoalDraft] = useState(null);
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [goalError, setGoalError] = useState("");
+
+  const openGoalEditor = () => {
+    setGoalDraft(String(Math.round(readingGoalSeconds / 60)));
+    setGoalError("");
+  };
+
+  // Сохраняем цель только на сегодняшний день (в минутах).
+  const handleSaveGoal = async () => {
+    const minutes = Math.round(Number(goalDraft));
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 1440) {
+      setGoalError("От 1 до 1440 мин");
+      return;
+    }
+    setSavingGoal(true);
+    setGoalError("");
+    try {
+      await setReadingGoal(date, minutes * 60);
+      await queryClient.invalidateQueries({ queryKey: ["reading-time", date] });
+      setGoalDraft(null);
+    } catch (err) {
+      setGoalError(err.message || "Не удалось сохранить цель");
+    } finally {
+      setSavingGoal(false);
+    }
+  };
+
+  // «Читать»: открываем «Чтение» на последней закладке, а если её нет —
+  // на первой непрочитанной книге. Прочитанные книги не предлагаем.
+  const handleRead = () => {
+    if (lastBookmark) {
+      openReading({
+        bookId: lastBookmark.book_id,
+        anchor: lastBookmark.anchor,
+        excerpt: lastBookmark.excerpt,
+      });
+    } else if (nextBook) {
+      openReading({ bookId: nextBook.id });
+    } else {
+      openReading({});
+    }
+    onNavigate?.("reading");
+  };
 
   // Открыть модалку по kind+id: полный объект берём из соответствующих
   // запросов (в списках кандидата/плана только краткая строка).
@@ -803,6 +873,141 @@ function Day() {
           </Card>
         )
       )}
+
+      {/* Чтение: цель на день (по умолчанию 1 ч, правится на эту дату),
+          прочитанное за сегодня и переход к последней закладке. При достижении
+          цели карточка зеленеет. */}
+      <Card
+        className={cn(
+          "my-3",
+          readingGoalReached && "border-emerald-500/50 bg-emerald-500/10",
+        )}
+        size="sm"
+      >
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <BookOpen className="size-4 text-muted-foreground" />
+            Чтение
+          </CardTitle>
+          <CardDescription>
+            Рекомендация на день — {fmtMin(readingGoalSeconds / 60)}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {goalDraft === null ? (
+            <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
+              {readingTimeQuery.isLoading ? (
+                "Смотрю время чтения…"
+              ) : (
+                <>
+                  Сегодня:{" "}
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      readingGoalReached
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-foreground",
+                    )}
+                  >
+                    {formatClock(todayReadingSeconds)}
+                  </span>
+                  из{" "}
+                  <span className="tabular-nums text-foreground">
+                    {formatClock(readingGoalSeconds)}
+                  </span>
+                  {readingGoalReached && (
+                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="size-3.5" />
+                      цель дня выполнена
+                    </span>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    onClick={openGoalEditor}
+                    title="Изменить цель чтения на сегодня"
+                    aria-label="Изменить цель чтения на сегодня"
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                </>
+              )}
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                Цель чтения на сегодня:
+              </span>
+              <Input
+                type="number"
+                min="1"
+                max="1440"
+                step="5"
+                value={goalDraft}
+                onChange={(e) => setGoalDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveGoal();
+                  if (e.key === "Escape") setGoalDraft(null);
+                }}
+                className="w-20"
+                aria-label="Цель чтения в минутах"
+                autoFocus
+              />
+              <span className="text-sm text-muted-foreground">мин</span>
+              <Button size="sm" onClick={handleSaveGoal} disabled={savingGoal}>
+                {savingGoal ? <Loader2 className="animate-spin" /> : <Save />}
+                Сохранить
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setGoalDraft(null)}
+                disabled={savingGoal}
+              >
+                <X />
+                Отмена
+              </Button>
+              {goalError && (
+                <span className="flex items-center gap-1 text-xs text-destructive">
+                  <AlertCircle className="size-3.5" />
+                  {goalError}
+                </span>
+              )}
+            </div>
+          )}
+          <p className="text-sm text-muted-foreground">
+            {lastBookmarkQuery.isLoading || booksQuery.isLoading ? (
+              "Смотрю книги…"
+            ) : lastBookmark ? (
+              <>
+                Продолжить:{" "}
+                <span className="text-foreground">
+                  «{bookmarkLabel(lastBookmark.excerpt)}»
+                </span>
+                {lastBookmark.book_title && ` — ${lastBookmark.book_title}`}
+              </>
+            ) : nextBook ? (
+              <>
+                Начну книгу:{" "}
+                <span className="text-foreground">{nextBook.title}</span>
+              </>
+            ) : (booksQuery.data || []).length > 0 ? (
+              "Все книги прочитаны."
+            ) : (
+              "Книг пока нет — добавьте в разделе «Чтение»."
+            )}
+          </p>
+          <Button
+            size="sm"
+            onClick={handleRead}
+            disabled={lastBookmarkQuery.isLoading || booksQuery.isLoading}
+          >
+            <BookOpen />
+            Читать
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Метрики на день */}
       <Card className="my-3" size="sm">

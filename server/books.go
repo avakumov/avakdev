@@ -35,6 +35,8 @@ type Book struct {
 	Author  string `json:"author"`
 	Format  string `json:"format"`
 	Created string `json:"created"`
+	// FinishedAt — когда книга отмечена прочитанной (пусто — не прочитана).
+	FinishedAt string `json:"finished_at"`
 	// HTML — сконвертированный текст; в списке не отдаётся (omitempty).
 	HTML string `json:"html,omitempty"`
 }
@@ -45,12 +47,17 @@ const maxBookBytes = 40 << 20
 // bookCreatedExpr — единый формат времени создания (RFC3339, UTC).
 const bookCreatedExpr = `to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 
+// bookFinishedExpr — отметка о прочтении (RFC3339, UTC; пусто — не прочитана).
+const bookFinishedExpr = `COALESCE(to_char(finished_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')`
+
 // handleListBooks возвращает книги текущего пользователя (без текста).
+// Непрочитанные идут первыми, прочитанные — в конце списка.
 func handleListBooks(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
-		`SELECT id, title, author, format, `+bookCreatedExpr+`
-		 FROM books WHERE username = $1 ORDER BY id DESC`,
+		`SELECT id, title, author, format, `+bookCreatedExpr+`, `+bookFinishedExpr+`
+		 FROM books WHERE username = $1
+		 ORDER BY (finished_at IS NOT NULL), id DESC`,
 		sessData.username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить книги"})
@@ -61,7 +68,7 @@ func handleListBooks(c *gin.Context) {
 	out := make([]Book, 0)
 	for rows.Next() {
 		var b Book
-		if err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.Created); err == nil {
+		if err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.Created, &b.FinishedAt); err == nil {
 			out = append(out, b)
 		}
 	}
@@ -79,10 +86,10 @@ func handleGetBook(c *gin.Context) {
 
 	var b Book
 	err = db.QueryRow(context.Background(),
-		`SELECT id, title, author, format, html, `+bookCreatedExpr+`
+		`SELECT id, title, author, format, html, `+bookCreatedExpr+`, `+bookFinishedExpr+`
 		 FROM books WHERE id = $1 AND username = $2`,
 		id, sessData.username).
-		Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.HTML, &b.Created)
+		Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.HTML, &b.Created, &b.FinishedAt)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Книга не найдена"})
 		return
@@ -156,6 +163,37 @@ func handleDeleteBook(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// handleSetBookFinished отмечает книгу прочитанной (finished=true) или
+// возвращает её в чтение (finished=false).
+func handleSetBookFinished(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID книги"})
+		return
+	}
+	var req struct {
+		Finished bool `json:"finished"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		return
+	}
+	sessData, _ := c.MustGet("session").(session)
+
+	var finishedAt string
+	err = db.QueryRow(context.Background(),
+		`UPDATE books
+		 SET finished_at = CASE WHEN $3 THEN now() ELSE NULL END
+		 WHERE id = $1 AND username = $2
+		 RETURNING `+bookFinishedExpr,
+		id, sessData.username, req.Finished).Scan(&finishedAt)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Книга не найдена"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": id, "finished_at": finishedAt})
 }
 
 // convertBook определяет формат файла и преобразует книгу в HTML.

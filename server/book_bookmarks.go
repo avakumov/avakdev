@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 )
 
 // Раздел «Чтение»: закладки в книгах. Пользователь выделяет текст в книге,
@@ -34,6 +36,38 @@ func bookmarkBookAccess(bookID int, username string) bool {
 	err := db.QueryRow(context.Background(),
 		`SELECT 1 FROM books WHERE id = $1 AND username = $2`, bookID, username).Scan(&one)
 	return err == nil
+}
+
+// handleLastBookmark возвращает последнюю добавленную закладку пользователя
+// (по всем книгам) — с неё продолжается чтение. Прочитанные книги не берём:
+// в «Дне» они больше не предлагаются. Если закладок нет, отдаёт null.
+func handleLastBookmark(c *gin.Context) {
+	sessData, _ := c.MustGet("session").(session)
+
+	var out struct {
+		BookID    int    `json:"book_id"`
+		BookTitle string `json:"book_title"`
+		Anchor    int    `json:"anchor"`
+		Excerpt   string `json:"excerpt"`
+	}
+	err := db.QueryRow(context.Background(),
+		`SELECT bm.book_id, b.title, bm.anchor, bm.excerpt
+		 FROM book_bookmarks bm
+		 JOIN books b ON b.id = bm.book_id AND b.username = bm.username
+		 WHERE bm.username = $1 AND b.finished_at IS NULL
+		 ORDER BY bm.created DESC, bm.id DESC
+		 LIMIT 1`,
+		sessData.username).
+		Scan(&out.BookID, &out.BookTitle, &out.Anchor, &out.Excerpt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		c.JSON(http.StatusOK, nil)
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить последнюю закладку"})
+		return
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // handleListBookmarks возвращает закладки книги в порядке по тексту.

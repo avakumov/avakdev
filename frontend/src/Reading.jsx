@@ -7,9 +7,14 @@ import {
   fetchBookmarks,
   addBookmark,
   deleteBookmark,
+  fetchReadingTime,
+  addReadingTime,
+  setBookFinished,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppStore } from "./store.js";
+import { cn } from "@/lib/utils";
+import { todayStr, formatClock } from "@/lib/formatDate.js";
 import {
   Card,
   CardHeader,
@@ -31,6 +36,8 @@ import {
   Moon,
   Bookmark,
   BookmarkPlus,
+  BookCheck,
+  RotateCcw,
 } from "lucide-react";
 
 // Допустимый размер шрифта книги (px) и шаг изменения.
@@ -38,6 +45,11 @@ const FONT_MIN = 12;
 const FONT_MAX = 32;
 const FONT_STEP = 1;
 const FONT_DEFAULT = 16;
+
+// Счётчик чтения: без прокрутки дольше этого времени отсчёт встаёт на паузу.
+const READING_IDLE_MS = 2 * 60 * 1000;
+// Запас цели дня на случай, если сервер её не отдал (по умолчанию — 1 час).
+const READING_GOAL_FALLBACK = 3600;
 
 // Стили текста книги (HTML приходит с сервера уже очищенным).
 // Размер шрифта задаётся извне (кнопками «−/+»).
@@ -111,11 +123,15 @@ function flashRange(range, layer) {
   }
 }
 
+// Порог «дошли до конца книги» для вопроса о прочтении (px).
+const BOOK_END_THRESHOLD = 40;
+
 // Модалка чтения книги: занимает всё окно, сверху — название, автор,
 // кнопки размера шрифта и закрытие, ниже — прокручиваемый текст.
-function BookModal({ book, onClose }) {
+function BookModal({ book, initialJump = null, onClose }) {
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
+  const queryClient = useQueryClient();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [fontSize, setFontSize] = useState(FONT_DEFAULT);
@@ -125,11 +141,82 @@ function BookModal({ book, onClose }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null); // { text, error }
-  const [pendingJump, setPendingJump] = useState(null); // закладка для перехода
+  const [pendingJump, setPendingJump] = useState(initialJump); // закладка для перехода
+  // Прочитана ли книга и спрашиваем ли об этом (дошли до конца текста).
+  const [finished, setFinished] = useState(Boolean(book.finished_at));
+  const [askFinished, setAskFinished] = useState(false);
+  const [savingFinished, setSavingFinished] = useState(false);
+  const endAskedRef = useRef(false);
   const scrollRef = useRef(null);
   const layerRef = useRef(null);
   const textRef = useRef(null);
   const noticeTimer = useRef(null);
+  // Счётчик чтения: секунды этой сессии, сумма за сегодня и цель дня.
+  // Сумма за сегодня берётся из базы при открытии книги (см. эффект ниже).
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [daySeconds, setDaySeconds] = useState(0);
+  const [goalSeconds, setGoalSeconds] = useState(READING_GOAL_FALLBACK);
+  const [running, setRunning] = useState(false);
+  const accMsRef = useRef(0); // накопленное время сессии, мс
+  const runStartRef = useRef(0); // начало текущего отсчёта (0 — пауза)
+  const idleTimerRef = useRef(null);
+  const sentSecondsRef = useRef(0); // сколько секунд сессии уже отправлено
+  const dayRef = useRef(todayStr());
+
+  // Накопленное время сессии, секунды (включая идущий отсчёт).
+  const sessionMs = () =>
+    accMsRef.current + (runStartRef.current ? Date.now() - runStartRef.current : 0);
+
+  // Фиксируем идущий отсчёт в накопленном и останавливаем его.
+  const stopReading = () => {
+    if (runStartRef.current) {
+      accMsRef.current += Date.now() - runStartRef.current;
+      runStartRef.current = 0;
+    }
+    clearTimeout(idleTimerRef.current);
+  };
+
+  // Отправляем ещё не сохранённые секунды чтения за сегодня.
+  const flushReadingTime = (keepalive = false) => {
+    stopReading();
+    const total = Math.floor(accMsRef.current / 1000);
+    const delta = total - sentSecondsRef.current;
+    if (delta <= 0) return;
+    sentSecondsRef.current = total;
+    addReadingTime(dayRef.current, delta, keepalive)
+      .then(() =>
+        // Обновляем сегодняшнюю сумму в кэше — её показывает карточка
+        // «Чтение» в «Дне».
+        queryClient.invalidateQueries({ queryKey: ["reading-time", dayRef.current] }),
+      )
+      .catch(() => {
+        // Не отправилось — вернём секунды в несохранённые.
+        sentSecondsRef.current -= delta;
+      });
+  };
+
+  // Закрытие книги: сначала отправляем накопленное время чтения.
+  const handleClose = () => {
+    flushReadingTime();
+    onClose();
+  };
+
+  // Отсчёт встаёт на паузу (нет прокрутки больше READING_IDLE_MS).
+  const pauseReading = () => {
+    stopReading();
+    setSessionSeconds(Math.floor(accMsRef.current / 1000));
+    setRunning(false);
+  };
+
+  // Прокрутка — признак чтения: начинаем или продолжаем отсчёт.
+  const resumeReading = () => {
+    if (!runStartRef.current) {
+      runStartRef.current = Date.now();
+      setRunning(true);
+    }
+    clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(pauseReading, READING_IDLE_MS);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -147,9 +234,77 @@ function BookModal({ book, onClose }) {
     };
   }, [book.id]);
 
+  // Время чтения за сегодня: берём сохранённое в базе при открытии книги,
+  // дальше сверху показываем «сегодня» + текущая сессия.
+  useEffect(() => {
+    let alive = true;
+    fetchReadingTime(dayRef.current)
+      .then((d) => {
+        if (!alive) return;
+        setDaySeconds(d.seconds || 0);
+        if (d.goal_seconds) setGoalSeconds(d.goal_seconds);
+      })
+      .catch(() => {
+        // Время чтения не критично для самой книги.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Тик раз в секунду — только для отображения (время считается по Date.now).
+  useEffect(() => {
+    if (!running) return;
+    setSessionSeconds(Math.floor(sessionMs() / 1000));
+    const id = setInterval(() => {
+      setSessionSeconds(Math.floor(sessionMs() / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  // Прокрутка пользователя запускает/продолжает отсчёт. Намеренно слушаем
+  // действия (колесо, тач, клавиши, полоса прокрутки), а не событие scroll:
+  // программный переход к закладке не должен запускать таймер.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const scrollKeys = new Set([
+      "ArrowUp",
+      "ArrowDown",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+      " ",
+    ]);
+    const onKey = (e) => {
+      if (scrollKeys.has(e.key)) resumeReading();
+    };
+    scroller.addEventListener("wheel", resumeReading, { passive: true });
+    scroller.addEventListener("touchmove", resumeReading, { passive: true });
+    scroller.addEventListener("mousedown", resumeReading);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      scroller.removeEventListener("wheel", resumeReading);
+      scroller.removeEventListener("touchmove", resumeReading);
+      scroller.removeEventListener("mousedown", resumeReading);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  // Уход со страницы (закрытие вкладки, перезагрузка, выход из сессии) —
+  // тоже сохраняем накопленное время.
+  useEffect(
+    () => () => {
+      clearTimeout(idleTimerRef.current);
+      flushReadingTime(true);
+    },
+    [],
+  );
+
   // Esc закрывает книгу.
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const onKey = (e) => e.key === "Escape" && handleClose();
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -230,15 +385,16 @@ function BookModal({ book, onClose }) {
 
   // Переход к закладке. Панель закрываем сразу, а прокрутку и подсветку
   // делаем в следующем кадре — после того как макет пересобрался
-  // (при открытой панели геометрия текста другая).
+  // (при открытой панели геометрия текста другая). Ждём ещё и загрузки
+  // текста книги, если переход запрошен в момент открытия.
   useEffect(() => {
-    if (!pendingJump) return;
-    const bm = pendingJump;
-    setPendingJump(null);
-
+    if (!pendingJump || !data) return;
     const root = textRef.current;
     const scroller = scrollRef.current;
     if (!root || !scroller) return;
+
+    const bm = pendingJump;
+    setPendingJump(null);
     const start = pointAtOffset(root, bm.anchor);
     if (!start) return;
     const range = document.createRange();
@@ -250,7 +406,7 @@ function BookModal({ book, onClose }) {
     const srect = scroller.getBoundingClientRect();
     scroller.scrollTop += rect.top - srect.top - srect.height / 3;
     flashRange(range, layerRef.current);
-  }, [pendingJump]);
+  }, [pendingJump, data]);
 
   const goToBookmark = (bm) => {
     setPanelOpen(false);
@@ -266,6 +422,37 @@ function BookModal({ book, onClose }) {
     }
   };
 
+  // Дошли до конца книги — спрашиваем, прочитана ли она (один раз за сессию).
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el || finished || endAskedRef.current) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - BOOK_END_THRESHOLD) {
+      endAskedRef.current = true;
+      setAskFinished(true);
+    }
+  };
+
+  // Отметить книгу прочитанной: в списке она уедет в конец, а в «Дне»
+  // больше не будет предлагаться для чтения.
+  const handleMarkFinished = async () => {
+    setSavingFinished(true);
+    try {
+      await setBookFinished(book.id, true);
+      setFinished(true);
+      setAskFinished(false);
+      queryClient.invalidateQueries({ queryKey: ["books"] });
+      queryClient.invalidateQueries({ queryKey: ["last-bookmark"] });
+      showNotice("Книга отмечена прочитанной");
+    } catch (err) {
+      showNotice(err.message || "Не удалось отметить книгу", true);
+    } finally {
+      setSavingFinished(false);
+    }
+  };
+
+  // Цель дня достигнута (с учётом уже сохранённого за сегодня).
+  const goalReached = daySeconds + sessionSeconds >= goalSeconds;
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[color-mix(in_oklch,var(--background)_90%,var(--foreground))] text-[color-mix(in_oklch,var(--foreground)_85%,var(--background))]">
       {/* Шапка чтения */}
@@ -276,8 +463,34 @@ function BookModal({ book, onClose }) {
           </p>
           <p className="truncate text-xs text-muted-foreground">
             {data?.author || book.author || ""}
+            {finished && (
+              <span className="text-emerald-600 dark:text-emerald-400">
+                {" · прочитана"}
+              </span>
+            )}
           </p>
         </div>
+
+        {/* Время чтения сегодня: чч:мм:сс (сохранённое в базе + текущая
+            сессия). Зелёное — цель дня достигнута; приглушённое — отсчёт
+            на паузе (нет прокрутки больше 2 минут). */}
+        <span
+          title={
+            `Сегодня: ${formatClock(daySeconds + sessionSeconds)}` +
+            ` · сессия: ${formatClock(sessionSeconds)}` +
+            ` · цель дня: ${formatClock(goalSeconds)}`
+          }
+          className={cn(
+            "w-18 shrink-0 text-center text-xs tabular-nums",
+            goalReached
+              ? "text-emerald-600 dark:text-emerald-400"
+              : running
+                ? "text-foreground"
+                : "text-muted-foreground",
+          )}
+        >
+          {formatClock(daySeconds + sessionSeconds)}
+        </span>
 
         {/* Быстрая смена темы */}
         <Button
@@ -346,13 +559,33 @@ function BookModal({ book, onClose }) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={onClose}
+          onClick={handleClose}
           title="Закрыть книгу"
           aria-label="Закрыть книгу"
         >
           <X />
         </Button>
       </div>
+
+      {/* Конец книги: вопрос о прочтении */}
+      {askFinished && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-emerald-500/10 px-4 py-2 text-sm">
+          <BookCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+          Книга прочитана?
+          <Button size="sm" onClick={handleMarkFinished} disabled={savingFinished}>
+            {savingFinished ? <Loader2 className="animate-spin" /> : <BookCheck />}
+            Да, прочитана
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setAskFinished(false)}
+            disabled={savingFinished}
+          >
+            Позже
+          </Button>
+        </div>
+      )}
 
       {/* Сообщение над текстом */}
       {notice && (
@@ -409,7 +642,7 @@ function BookModal({ book, onClose }) {
       )}
 
       {/* Текст книги — во всю ширину окна */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll}>
         <div ref={layerRef} className="relative w-full px-6 py-6">
           {error ? (
             <p
@@ -443,14 +676,39 @@ function BookModal({ book, onClose }) {
 function Reading() {
   const queryClient = useQueryClient();
   const booksQuery = useBooks(true);
+  // Запрос «открыть книгу» из другого раздела (карточка «Чтение» в «Дне»).
+  const readingRequest = useAppStore((s) => s.readingRequest);
+  const clearReadingRequest = useAppStore((s) => s.clearReadingRequest);
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [openBook, setOpenBook] = useState(null);
+  const [openJump, setOpenJump] = useState(null); // закладка для перехода
   const [deletingId, setDeletingId] = useState(null);
+  const [finishingId, setFinishingId] = useState(null);
+  const closeBook = () => {
+    setOpenBook(null);
+    setOpenJump(null);
+  };
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["books"] });
+
+  // Отметить книгу прочитанной / вернуть в чтение (прочитанные уезжают
+  // в конец списка и не предлагаются в «Дне»).
+  const handleToggleFinished = async (book) => {
+    setFinishingId(book.id);
+    setError("");
+    try {
+      await setBookFinished(book.id, !book.finished_at);
+      refresh();
+      queryClient.invalidateQueries({ queryKey: ["last-bookmark"] });
+    } catch (err) {
+      setError(err.message || "Не удалось отметить книгу");
+    } finally {
+      setFinishingId(null);
+    }
+  };
 
   const handlePick = async (e) => {
     const file = e.target.files?.[0];
@@ -485,6 +743,26 @@ function Reading() {
   };
 
   const books = booksQuery.data || [];
+
+  // Запрос из «Дня»: открываем последнюю закладку (книгу с ней), а если
+  // закладок нет — любую книгу (свежую — список идёт от новых к старым).
+  useEffect(() => {
+    if (!readingRequest) return;
+    const list = booksQuery.data;
+    if (!list) return;
+    const target = readingRequest.bookId
+      ? list.find((b) => b.id === readingRequest.bookId)
+      : // «любая книга» — первая непрочитанная (прочитанные в конце списка)
+        list.find((b) => !b.finished_at);
+    clearReadingRequest();
+    if (!target) return;
+    setOpenJump(
+      readingRequest.anchor != null
+        ? { anchor: readingRequest.anchor, excerpt: readingRequest.excerpt || "" }
+        : null,
+    );
+    setOpenBook(target);
+  }, [readingRequest, booksQuery.data, clearReadingRequest]);
 
   return (
     <section>
@@ -560,19 +838,56 @@ function Reading() {
         </Card>
       ) : (
         books.map((b) => (
-          <Card key={b.id} className="my-3" size="sm">
+          <Card
+            key={b.id}
+            className={cn(
+              "my-3",
+              // Прочитанные — зелёные и в конце списка (сортирует сервер).
+              b.finished_at && "border-emerald-500/50 bg-emerald-500/10",
+            )}
+            size="sm"
+          >
             <CardHeader>
               <div className="flex w-full items-start justify-between gap-2">
                 <div className="min-w-0">
                   <CardTitle className="wrap-break-word">{b.title}</CardTitle>
                   <CardDescription className="wrap-break-word">
                     {b.author}
+                    {b.finished_at && (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        {b.author ? " · прочитана" : "прочитана"}
+                      </span>
+                    )}
                   </CardDescription>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Button size="sm" onClick={() => setOpenBook(b)}>
                     <BookOpenText />
                     Читать
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleToggleFinished(b)}
+                    disabled={finishingId === b.id}
+                    title={
+                      b.finished_at
+                        ? "Вернуть книгу в чтение"
+                        : "Отметить книгу прочитанной"
+                    }
+                    aria-label={
+                      b.finished_at
+                        ? "Вернуть книгу в чтение"
+                        : "Отметить книгу прочитанной"
+                    }
+                  >
+                    {finishingId === b.id ? (
+                      <Loader2 className="animate-spin" />
+                    ) : b.finished_at ? (
+                      <RotateCcw />
+                    ) : (
+                      <BookCheck />
+                    )}
                   </Button>
                   <Button
                     variant="destructive"
@@ -596,7 +911,7 @@ function Reading() {
       )}
 
       {openBook && (
-        <BookModal book={openBook} onClose={() => setOpenBook(null)} />
+        <BookModal book={openBook} initialJump={openJump} onClose={closeBook} />
       )}
     </section>
   );

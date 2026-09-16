@@ -462,7 +462,7 @@ function App() {
               : "max-w-3xl lg:max-w-5xl")
           }
         >
-          {view === "day" && <Day />}
+          {view === "day" && <Day onNavigate={setView} />}
           {view === "goals" && <Goals />}
           {view === "tasks" && <Tasks />}
           {view === "reports" && <Reports />}

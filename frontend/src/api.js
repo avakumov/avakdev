@@ -669,6 +669,38 @@ export async function deleteBook(id) {
   return data;
 }
 
+// Отметить книгу прочитанной или вернуть в чтение
+// (PUT /api/books/:id/finished). Прочитанные книги уезжают в конец списка
+// и не предлагаются для чтения в «Дне».
+export async function setBookFinished(id, finished) {
+  const res = await fetch(`${BASE}/api/books/${id}/finished`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ finished }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось отметить книгу");
+  return data;
+}
+
+// Последняя закладка пользователя (GET /api/books/last-bookmark) — с неё
+// продолжается чтение. Возвращает объект или null, если закладок нет.
+export function useLastBookmark(enabled = true) {
+  return useQuery({
+    queryKey: ["last-bookmark"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/books/last-bookmark`);
+      if (!res.ok) {
+        throw new Error(`Ошибка запроса /api/books/last-bookmark: ${res.status}`);
+      }
+      return res.json();
+    },
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
 // Закладки книги (GET /api/books/:id/bookmarks).
 export async function fetchBookmarks(id) {
   const res = await fetch(`${BASE}/api/books/${id}/bookmarks`);
@@ -697,6 +729,56 @@ export async function deleteBookmark(id, bookmarkId) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Не удалось удалить закладку");
+  return data;
+}
+
+// Время чтения за день (GET /api/reading/time?date=ГГГГ-ММ-ДД).
+// Ответ: { date, seconds, goal_seconds }.
+export async function fetchReadingTime(date) {
+  const res = await fetch(
+    `${BASE}/api/reading/time?date=${encodeURIComponent(date)}`,
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось загрузить время чтения");
+  return data;
+}
+
+// Добавить секунды чтения к дню (POST /api/reading/time) — суммируется
+// с уже сохранённым за этот день. keepalive позволяет отправить запрос
+// в момент закрытия страницы.
+export async function addReadingTime(date, seconds, keepalive = false) {
+  const res = await fetch(`${BASE}/api/reading/time`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, seconds }),
+    keepalive,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить время чтения");
+  return data;
+}
+
+// Время чтения за день с сервера (react-query) — для карточки «Чтение» в «Дне».
+// Ответ: { date, seconds, goal_seconds }.
+export function useReadingTime(date, enabled = true) {
+  return useQuery({
+    queryKey: ["reading-time", date],
+    queryFn: () => fetchReadingTime(date),
+    staleTime: 0,
+    enabled: enabled && Boolean(date),
+    retry: 1,
+  });
+}
+
+// Цель чтения на день (PUT /api/reading/goal) — меняется для конкретной даты.
+export async function setReadingGoal(date, goalSeconds) {
+  const res = await fetch(`${BASE}/api/reading/goal`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, goal_seconds: goalSeconds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить цель чтения");
   return data;
 }
 

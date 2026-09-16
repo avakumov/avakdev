@@ -50,5 +50,16 @@ export const useAppStore = create((set) => ({
 
   setLastUpdatedAt: (date) => set({ lastUpdatedAt: date }),
   incrementLoaded: () => set((state) => ({ loadedCards: state.loadedCards + 1 })),
+
+  // Запрос на открытие книги в разделе «Чтение» из другого раздела
+  // (например, кнопкой «Читать» в карточке «Чтение» на странице «День»).
+  // bookId: null значит «любая книга»; anchor — позиция закладки.
+  readingRequest: null,
+  openReading: (req) =>
+    set({
+      readingRequest: { bookId: null, anchor: null, excerpt: "", ...req },
+    }),
+  clearReadingRequest: () => set({ readingRequest: null }),
+
   reset: () => set({ lastUpdatedAt: null, loadedCards: 0 }),
 }))
