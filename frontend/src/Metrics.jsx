@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   useUserMetrics,
   createUserMetric,
@@ -192,6 +192,39 @@ function pluralDays(n) {
   if (d10 === 1 && d100 !== 11) return "день";
   if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return "дня";
   return "дней";
+}
+
+// Колонки календарной сетки: неделя с понедельника.
+const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+// Раскладывает даты (по возрастанию) в недели по 7 ячеек (Пн…Вс);
+// null — пустая ячейка до начала/после конца диапазона.
+function buildWeeks(dates) {
+  const weeks = [];
+  let week = null;
+  const weekday = (iso) =>
+    (new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7; // Пн = 0
+  for (const d of dates) {
+    if (!week || week.cells.length === 7) {
+      week = { cells: [] };
+      weeks.push(week);
+      if (weeks.length === 1) {
+        for (let i = 0; i < weekday(d); i += 1) week.cells.push(null);
+      }
+    }
+    week.cells.push(d);
+  }
+  if (week) {
+    while (week.cells.length < 7) week.cells.push(null);
+  }
+  return weeks;
+}
+
+// Название месяца по дате (с годом, если он не текущий).
+function monthNameOf(iso, currentYear) {
+  const name = MONTHS[Number(iso.slice(5, 7)) - 1] || "";
+  const year = Number(iso.slice(0, 4));
+  return year === currentYear ? name : `${name} ${year}`;
 }
 
 // Модалка изменения метрики: название (+ единица для числовых) и удаление.
@@ -616,22 +649,26 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
   );
 }
 
-// Карточка метрики (мобильные): название и сетка квадратных плиток —
-// по одной на день, без дат: внутри только значение (Д/Н или число),
-// плитки заполняют ширину и переносятся на новую строку. Клик открывает
-// модалку значения за этот день.
+// Карточка метрики (мобильные). Два режима отображения значений:
+// • «простое» (по умолчанию для да/нет) — последовательность цветных чисел:
+//   цвет = значение (да/нет/пусто), число = длина серии одинаковых значений;
+// • «подробное» — календарная сетка по дням (7 колонок — дни недели).
+// Клик по элементу открывает модалку значения за этот день.
 function MetricCard({ def, values, columns = [], onChanged, onEdit }) {
   // Свёрнута по умолчанию: видно название, тип и число дней.
   const [open, setOpen] = useState(false);
   // Дата, для которой открыта модалка значения.
   const [editDate, setEditDate] = useState(null);
+  // Простое отображение — по умолчанию для да/нет.
+  const [simple, setSimple] = useState(def.type === "bool");
 
   const daysCount = Object.keys(values).length;
   // Все даты — как в таблице, от первой (старой) к последней (сегодня).
   const dates = [...columns];
 
   // Подсказка с датой: hover/фокус (Radix) или долгое нажатие (тач).
-  const [tipDate, setTipDate] = useState(null);
+  // Ключ подсказки: "d:<дата>" для плитки дня, "r:<дата>" для серии.
+  const [tipKey, setTipKey] = useState(null);
   const pressTimer = useRef(null);
   const hideTimer = useRef(null);
   const longPressed = useRef(false);
@@ -644,14 +681,14 @@ function MetricCard({ def, values, columns = [], onChanged, onEdit }) {
     [],
   );
 
-  const startLongPress = (d) => {
+  const startLongPress = (key) => {
     longPressed.current = false;
     clearTimeout(pressTimer.current);
     clearTimeout(hideTimer.current);
     pressTimer.current = setTimeout(() => {
       longPressed.current = true;
-      setTipDate(d);
-      hideTimer.current = setTimeout(() => setTipDate(null), 2000);
+      setTipKey(key);
+      hideTimer.current = setTimeout(() => setTipKey(null), 2000);
     }, 450);
   };
 
@@ -661,10 +698,140 @@ function MetricCard({ def, values, columns = [], onChanged, onEdit }) {
   const handleTileClick = (d) => {
     if (longPressed.current) {
       longPressed.current = false;
-      setTipDate(null);
+      setTipKey(null);
       return;
     }
     setEditDate(d);
+  };
+
+  // Подробное отображение: каждый месяц — отдельный блок сетки (новая строка),
+  // внутри месяца недели по 7 дней; более поздние недели — выше.
+  const currentYear = new Date().getUTCFullYear();
+  const monthBlocks = [];
+  for (const d of dates) {
+    const key = d.slice(0, 7);
+    let block = monthBlocks[monthBlocks.length - 1];
+    if (!block || block.key !== key) {
+      block = { key, dates: [] };
+      monthBlocks.push(block);
+    }
+    block.dates.push(d);
+  }
+  for (const block of monthBlocks) {
+    block.label = monthNameOf(block.dates[0], currentYear);
+    block.weeks = buildWeeks(block.dates).reverse();
+  }
+  // Месяцы — тоже от поздних к ранним.
+  monthBlocks.reverse();
+
+  // Плитка одного дня (значение + подсказка с датой).
+  const renderTile = (d) => {
+    const v = values[d];
+    const has = v !== undefined && v !== "";
+    const key = `d:${d}`;
+    return (
+      <Tooltip
+        key={key}
+        open={tipKey === key}
+        onOpenChange={(v) =>
+          setTipKey(v ? key : (prev) => (prev === key ? null : prev))
+        }
+      >
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => handleTileClick(d)}
+            onPointerDown={() => startLongPress(key)}
+            onPointerUp={cancelLongPress}
+            onPointerLeave={cancelLongPress}
+            onPointerCancel={cancelLongPress}
+            onContextMenu={(e) => e.preventDefault()}
+            aria-label={`${def.name} за ${formatDateDmy(d)}`}
+            className={cn(
+              "flex size-10 touch-manipulation select-none items-center justify-center border text-xs font-medium tabular-nums transition-colors",
+              !has &&
+                "border-border/60 text-muted-foreground/60 hover:bg-muted/50",
+              has &&
+                def.type === "bool" &&
+                (v === "true"
+                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
+                  : "border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25"),
+              has &&
+                def.type !== "bool" &&
+                "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60",
+            )}
+          >
+            {!has ? "—" : def.type === "bool" ? (v === "true" ? "Д" : "Н") : v}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{formatDateDmy(d)}</TooltipContent>
+      </Tooltip>
+    );
+  };
+
+  // Простое отображение: серии одинаковых значений подряд — от новых к старым.
+  // Цвет — значение (да/нет/пусто), число — длина серии.
+  const runs = [];
+  for (const d of [...dates].reverse()) {
+    const v = values[d];
+    const state = v === "true" ? "yes" : v === "false" ? "no" : "empty";
+    const last = runs[runs.length - 1];
+    if (last && last.state === state) {
+      last.count += 1;
+      if (d < last.min) last.min = d;
+      if (d > last.max) last.max = d;
+    } else {
+      runs.push({ state, count: 1, min: d, max: d });
+    }
+  }
+
+  const renderRun = (r) => {
+    const key = `r:${r.max}`;
+    const range =
+      r.min === r.max
+        ? formatDateDmy(r.min)
+        : `${formatDateDmy(r.min)} — ${formatDateDmy(r.max)}`;
+    // Логарифмический рост: 1 → как сейчас (0.875rem), 1000 и больше → в 5 раз
+    // крупнее. Растёт быстро на малых значениях и медленнее на больших.
+    const t = Math.min(
+      Math.max(Math.log(Math.max(r.count, 1)) / Math.log(1000), 0),
+      1,
+    );
+    const fontSize = `${(0.875 * (1 + 4 * t)).toFixed(3)}rem`;
+    // Насыщенность тоже растёт со значением: 600 → 900.
+    const fontWeight = Math.round(600 + 300 * t);
+    return (
+      <Tooltip
+        key={key}
+        open={tipKey === key}
+        onOpenChange={(v) =>
+          setTipKey(v ? key : (prev) => (prev === key ? null : prev))
+        }
+      >
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => handleTileClick(r.max)}
+            onPointerDown={() => startLongPress(key)}
+            onPointerUp={cancelLongPress}
+            onPointerLeave={cancelLongPress}
+            onPointerCancel={cancelLongPress}
+            onContextMenu={(e) => e.preventDefault()}
+            aria-label={`${range}: ${r.count}`}
+            className={cn(
+              "touch-manipulation select-none px-0.5 tabular-nums transition-opacity hover:opacity-70",
+              r.state === "yes" && "text-emerald-700 dark:text-emerald-400",
+              r.state === "no" && "text-destructive",
+              r.state === "empty" && "text-muted-foreground/60",
+            )}
+            style={{ fontSize, fontWeight, lineHeight: 1.1 }}
+          >
+            {r.count}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{range}</TooltipContent>
+      </Tooltip>
+    );
   };
 
   return (
@@ -714,51 +881,68 @@ function MetricCard({ def, values, columns = [], onChanged, onEdit }) {
                 Пока нет ни одного дня для отображения.
               </p>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] gap-1">
-              {dates.map((d) => {
-                const v = values[d];
-                const has = v !== undefined && v !== "";
-                return (
-                  <Tooltip
-                    key={d}
-                    open={tipDate === d}
-                    onOpenChange={(v) =>
-                      setTipDate(v ? d : (prev) => (prev === d ? null : prev))
-                    }
-                  >
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => handleTileClick(d)}
-                        onPointerDown={() => startLongPress(d)}
-                        onPointerUp={cancelLongPress}
-                        onPointerLeave={cancelLongPress}
-                        onPointerCancel={cancelLongPress}
-                        onContextMenu={(e) => e.preventDefault()}
-                        aria-label={`${def.name} за ${formatDateDmy(d)}`}
-                        className={cn(
-                          "flex aspect-square touch-manipulation select-none items-center justify-center border text-xs font-medium tabular-nums transition-colors",
-                          !has &&
-                            "border-border/60 text-muted-foreground/60 hover:bg-muted/50",
-                          has &&
-                            def.type === "bool" &&
-                            (v === "true"
-                              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
-                              : "border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25"),
-                          has &&
-                            def.type !== "bool" &&
-                            "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60",
-                        )}
-                      >
-                        {!has ? "—" : def.type === "bool" ? (v === "true" ? "Д" : "Н") : v}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{formatDateDmy(d)}</TooltipContent>
-                  </Tooltip>
-                );
-              })}
-            </div>
-          )}
+              <>
+                {/* Переключение «простое» / «подробное» (для да/нет). */}
+                {def.type === "bool" && (
+                  <div className="mb-2 flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-background"
+                      onClick={() => setSimple((s) => !s)}
+                    >
+                      {simple ? "Подробнее…" : "Простое…"}
+                    </Button>
+                  </div>
+                )}
+
+                {def.type === "bool" && simple ? (
+                  <div className="mx-auto flex w-fit flex-wrap items-center justify-center gap-x-2 gap-y-0.5">
+                    {runs.map(renderRun)}
+                  </div>
+                ) : (
+                  <div className="mx-auto w-fit">
+                    {/* Шапка: пустая ячейка под месяц + дни недели */}
+                    <div className="grid grid-cols-[3.25rem_repeat(7,2.5rem)] items-center gap-1">
+                      <span aria-hidden="true" />
+                      {WEEKDAYS.map((w) => (
+                        <span
+                          key={w}
+                          className="text-center text-[10px] text-muted-foreground"
+                        >
+                          {w}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Каждый месяц — отдельным блоком-строкой */}
+                    <div className="mt-1 space-y-1">
+                      {monthBlocks.map((block) => (
+                        <div
+                          key={block.key}
+                          className="grid grid-cols-[3.25rem_repeat(7,2.5rem)] items-center gap-1"
+                        >
+                          {block.weeks.map((wk, wi) => (
+                            <Fragment key={wi}>
+                              <span className="pr-1 text-right text-[10px] leading-tight text-muted-foreground capitalize">
+                                {wi === 0 ? block.label : ""}
+                              </span>
+                              {wk.cells.map((d, ci) =>
+                                d === null ? (
+                                  <span key={`empty-${ci}`} aria-hidden="true" />
+                                ) : (
+                                  renderTile(d)
+                                ),
+                              )}
+                            </Fragment>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         )}
       </Card>
