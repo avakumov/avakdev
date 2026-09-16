@@ -630,6 +630,76 @@ export async function uploadProfilePhoto(file) {
   return data;
 }
 
+// ==== Раздел «Чтение» (книги fb2/epub → HTML) ====
+
+// Список книг с /api/books.
+export function useBooks(enabled = true) {
+  return useQuery({
+    queryKey: ["books"],
+    queryFn: () => request("/api/books"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Книга с текстом (GET /api/books/:id).
+export async function fetchBook(id) {
+  return request(`/api/books/${id}`);
+}
+
+// Загрузка книги (POST /api/books) — файл fb2/epub, конвертация на сервере.
+export async function uploadBook(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/api/books`, {
+    method: "POST",
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось добавить книгу");
+  return data;
+}
+
+// Удалить книгу (DELETE /api/books/:id).
+export async function deleteBook(id) {
+  const res = await fetch(`${BASE}/api/books/${id}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить книгу");
+  return data;
+}
+
+// Закладки книги (GET /api/books/:id/bookmarks).
+export async function fetchBookmarks(id) {
+  const res = await fetch(`${BASE}/api/books/${id}/bookmarks`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось загрузить закладки");
+  return data;
+}
+
+// Добавить закладку (POST /api/books/:id/bookmarks).
+// anchor — позиция выделения в символах от начала текста книги.
+export async function addBookmark(id, anchor, excerpt) {
+  const res = await fetch(`${BASE}/api/books/${id}/bookmarks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ anchor, excerpt }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить закладку");
+  return data;
+}
+
+// Удалить закладку (DELETE /api/books/:id/bookmarks/:bookmarkId).
+export async function deleteBookmark(id, bookmarkId) {
+  const res = await fetch(`${BASE}/api/books/${id}/bookmarks/${bookmarkId}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить закладку");
+  return data;
+}
+
 // Удалить фото из резюме.
 export async function deleteProfilePhoto() {
   const res = await fetch(`${BASE}/api/profile/photo`, {

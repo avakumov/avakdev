@@ -126,6 +126,24 @@
     }
 }
 
+/* Кратковременная подсветка фрагмента, найденного по закладке в книге.
+   Полосы по строкам рисуются поверх текста и гаснут (см. Reading.jsx). */
+@keyframes book-flash {
+    from {
+        opacity: 0.9;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+.book-flash {
+    position: absolute;
+    pointer-events: none;
+    background: color-mix(in oklch, var(--foreground) 25%, transparent);
+    animation: book-flash 1.2s ease-out forwards;
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;

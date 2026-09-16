@@ -150,6 +150,15 @@ func main() {
 		authed.GET("/reports", handleListReports)
 		authed.PUT("/reports/:date", handleUpsertReport)
 
+		// Раздел «Чтение»: книги (fb2/epub → HTML).
+		authed.GET("/books", handleListBooks)
+		authed.POST("/books", handleUploadBook)
+		authed.GET("/books/:id", handleGetBook)
+		authed.DELETE("/books/:id", handleDeleteBook)
+		authed.GET("/books/:id/bookmarks", handleListBookmarks)
+		authed.POST("/books/:id/bookmarks", handleCreateBookmark)
+		authed.DELETE("/books/:id/bookmarks/:bookmarkId", handleDeleteBookmark)
+
 		// Конспекты знаний (создание, генерация, редактирование, удаление).
 		authed.GET("/knowledge", handleListNotes)
 		authed.POST("/knowledge", handleCreateNote)

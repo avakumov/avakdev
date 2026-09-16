@@ -20,6 +20,7 @@ import Goals from "./Goals.jsx";
 import Day from "./Day.jsx";
 import Profile from "./Profile.jsx";
 import Knowledge from "./Knowledge.jsx";
+import Reading from "./Reading.jsx";
 import Important from "./Important.jsx";
 import Metrics from "./Metrics.jsx";
 import Tasks from "./Tasks.jsx";
@@ -75,6 +76,7 @@ const VIEW_PATHS = {
   tasks: "/tasks",
   reports: "/reports",
   knowledge: "/knowledge",
+  reading: "/reading",
   metrics: "/metrics",
   profile: "/profile",
   important: "/important",
@@ -465,6 +467,7 @@ function App() {
           {view === "tasks" && <Tasks />}
           {view === "reports" && <Reports />}
           {view === "knowledge" && <Knowledge />}
+          {view === "reading" && <Reading />}
           {view === "metrics" && <Metrics />}
           {view === "profile" && <Profile />}
           {view === "important" && <Important />}
