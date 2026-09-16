@@ -771,10 +771,13 @@ function MetricCard({ def, values, columns = [], onChanged, onEdit }) {
 
   // Простое отображение: серии одинаковых значений подряд — от новых к старым.
   // Цвет — значение (да/нет/пусто), число — длина серии.
+  // Пустой сегодняшний день в последовательность не берём (день ещё не заполнен).
+  const todayIso = new Date().toISOString().slice(0, 10);
   const runs = [];
   for (const d of [...dates].reverse()) {
     const v = values[d];
     const state = v === "true" ? "yes" : v === "false" ? "no" : "empty";
+    if (state === "empty" && d === todayIso) continue;
     const last = runs[runs.length - 1];
     if (last && last.state === state) {
       last.count += 1;
