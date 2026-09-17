@@ -48,6 +48,14 @@ const FONT_DEFAULT = 16;
 
 // Счётчик чтения: без прокрутки дольше этого времени отсчёт встаёт на паузу.
 const READING_IDLE_MS = 5 * 60 * 1000;
+// Автосохранение времени чтения: раз в 5 минут сбрасываем накопленное на
+// сервер. Если деплой/перезапуск сервера совпадёт с закрытием книги, потеряется
+// максимум этот интервал, а не вся сессия.
+const READING_AUTOSAVE_MS = 5 * 60 * 1000;
+// Повторные попытки отправки, если сервер не ответил (например, перезапускался):
+// сколько раз и с каким шагом (10 с, 20 с, …).
+const READING_SEND_RETRIES = 3;
+const READING_SEND_RETRY_MS = 10 * 1000;
 // Запас цели дня на случай, если сервер её не отдал (по умолчанию — 1 час).
 const READING_GOAL_FALLBACK = 3600;
 
@@ -159,11 +167,22 @@ function BookModal({ book, initialJump = null, onClose }) {
   const [daySeconds, setDaySeconds] = useState(0);
   const [goalSeconds, setGoalSeconds] = useState(READING_GOAL_FALLBACK);
   const [running, setRunning] = useState(false);
+  // Не удалось загрузить/уточнить время за сегодня — показываем это, а не нули.
+  const [dayUnknown, setDayUnknown] = useState(false);
   const accMsRef = useRef(0); // накопленное время сессии, мс
   const runStartRef = useRef(0); // начало текущего отсчёта (0 — пауза)
   const idleTimerRef = useRef(null);
   const sentSecondsRef = useRef(0); // сколько секунд сессии уже отправлено
   const dayRef = useRef(todayStr());
+
+  // Сообщение над текстом («закладка добавлена», «не удалось сохранить…»).
+  const showNotice = (text, isError = false) => {
+    setNotice({ text, error: isError });
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 2500);
+  };
+
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
   // Накопленное время сессии, секунды (включая идущий отсчёт).
   const sessionMs = () =>
@@ -178,22 +197,46 @@ function BookModal({ book, initialJump = null, onClose }) {
     clearTimeout(idleTimerRef.current);
   };
 
-  // Отправляем ещё не сохранённые секунды чтения за сегодня.
-  const flushReadingTime = (keepalive = false) => {
-    stopReading();
-    const total = Math.floor(accMsRef.current / 1000);
+  // Отправляем ещё не сохранённые секунды чтения за сегодня. Отсчёт при этом
+  // НЕ останавливаем: счётчик продолжает расти, а сколько уже отправлено,
+  // помним отдельно (sentSecondsRef).
+  const flushReadingTime = (keepalive = false, attempt = 0) => {
+    const total = Math.floor(sessionMs() / 1000);
     const delta = total - sentSecondsRef.current;
     if (delta <= 0) return;
     sentSecondsRef.current = total;
+    sendReadingDelta(delta, total, keepalive, attempt);
+  };
+
+  // Одна попытка отправки. При сбое возвращаем секунды в несохранённые и
+  // пробуем ещё раз (сервер мог перезапускаться — например, при деплое).
+  const sendReadingDelta = (delta, total, keepalive, attempt) => {
     addReadingTime(dayRef.current, delta, keepalive)
-      .then(() =>
+      .then((d) => {
+        // Сервер отдаёт новую сумму за день — берём её как источник истины:
+        // «сегодня» останется верным, даже если первая загрузка не удалась.
+        if (typeof d?.seconds === "number") {
+          setDaySeconds(Math.max(0, d.seconds - total));
+          if (d.goal_seconds) setGoalSeconds(d.goal_seconds);
+          setDayUnknown(false);
+        }
         // Обновляем сегодняшнюю сумму в кэше — её показывает карточка
         // «Чтение» в «Дне».
-        queryClient.invalidateQueries({ queryKey: ["reading-time", dayRef.current] }),
-      )
+        queryClient.invalidateQueries({ queryKey: ["reading-time", dayRef.current] });
+      })
       .catch(() => {
-        // Не отправилось — вернём секунды в несохранённые.
         sentSecondsRef.current -= delta;
+        // Страница уходит (keepalive) — повторять уже негде и незачем.
+        if (keepalive) return;
+        if (attempt < READING_SEND_RETRIES) {
+          // Повторяем целиком: flush заново посчитает накопленное.
+          setTimeout(
+            () => flushReadingTime(false, attempt + 1),
+            READING_SEND_RETRY_MS * (attempt + 1),
+          );
+          return;
+        }
+        showNotice("Не удалось сохранить время чтения", true);
       });
   };
 
@@ -245,13 +288,21 @@ function BookModal({ book, initialJump = null, onClose }) {
         if (!alive) return;
         setDaySeconds(d.seconds || 0);
         if (d.goal_seconds) setGoalSeconds(d.goal_seconds);
+        setDayUnknown(false);
       })
       .catch(() => {
-        // Время чтения не критично для самой книги.
+        // Время не загрузилось: не показываем нули как «сброшенное» время.
+        if (alive) setDayUnknown(true);
       });
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Автосохранение: раз в 5 минут сбрасываем накопленное на сервер.
+  useEffect(() => {
+    const id = setInterval(() => flushReadingTime(), READING_AUTOSAVE_MS);
+    return () => clearInterval(id);
   }, []);
 
   // Тик раз в секунду — только для отображения (время считается по Date.now).
@@ -319,15 +370,6 @@ function BookModal({ book, initialJump = null, onClose }) {
     };
   }, [onClose, draftOpen]);
 
-  // Сообщение над текстом («закладка добавлена» и т. п.).
-  const showNotice = (text, isError = false) => {
-    setNotice({ text, error: isError });
-    clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(null), 2500);
-  };
-
-  useEffect(() => () => clearTimeout(noticeTimer.current), []);
-
   // Загрузка закладок при открытии книги.
   useEffect(() => {
     let alive = true;
@@ -380,6 +422,8 @@ function BookModal({ book, initialJump = null, onClose }) {
       );
       setSel(null);
       window.getSelection()?.removeAllRanges();
+      // Процент прочтения в карточке книги считается по закладкам.
+      queryClient.invalidateQueries({ queryKey: ["books"] });
       showNotice("Закладка добавлена");
     } catch (err) {
       showNotice(err.message || "Не удалось сохранить закладку", true);
@@ -422,6 +466,7 @@ function BookModal({ book, initialJump = null, onClose }) {
     try {
       await deleteBookmark(book.id, bm.id);
       setBookmarks((list) => list.filter((x) => x.id !== bm.id));
+      queryClient.invalidateQueries({ queryKey: ["books"] });
     } catch (err) {
       showNotice(err.message || "Не удалось удалить закладку", true);
     }
@@ -455,8 +500,10 @@ function BookModal({ book, initialJump = null, onClose }) {
     }
   };
 
-  // Цель дня достигнута (с учётом уже сохранённого за сегодня).
-  const goalReached = daySeconds + sessionSeconds >= goalSeconds;
+  // Цель дня достигнута (с учётом уже сохранённого за сегодня). Пока сумма за
+  // день неизвестна, ничего не подсвечиваем.
+  const goalReached =
+    !dayUnknown && daySeconds + sessionSeconds >= goalSeconds;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[color-mix(in_oklch,var(--background)_90%,var(--foreground))] text-[color-mix(in_oklch,var(--foreground)_85%,var(--background))]">
@@ -481,20 +528,24 @@ function BookModal({ book, initialJump = null, onClose }) {
             на паузе (нет прокрутки больше 5 минут). */}
         <span
           title={
-            `Сегодня: ${formatClock(daySeconds + sessionSeconds)}` +
-            ` · сессия: ${formatClock(sessionSeconds)}` +
-            ` · цель дня: ${formatClock(goalSeconds)}`
+            dayUnknown
+              ? "Время чтения за сегодня не загрузилось"
+              : `Сегодня: ${formatClock(daySeconds + sessionSeconds)}` +
+                ` · сессия: ${formatClock(sessionSeconds)}` +
+                ` · цель дня: ${formatClock(goalSeconds)}`
           }
           className={cn(
             "w-18 shrink-0 text-center text-xs tabular-nums",
-            goalReached
-              ? "text-emerald-600 dark:text-emerald-400"
-              : running
-                ? "text-foreground"
-                : "text-muted-foreground",
+            dayUnknown
+              ? "text-destructive"
+              : goalReached
+                ? "text-emerald-600 dark:text-emerald-400"
+                : running
+                  ? "text-foreground"
+                  : "text-muted-foreground",
           )}
         >
-          {formatClock(daySeconds + sessionSeconds)}
+          {dayUnknown ? "--:--:--" : formatClock(daySeconds + sessionSeconds)}
         </span>
 
         {/* Быстрая смена темы */}
@@ -842,77 +893,98 @@ function Reading() {
           </CardContent>
         </Card>
       ) : (
-        books.map((b) => (
-          <Card
-            key={b.id}
-            className={cn(
-              "my-3",
-              // Прочитанные — зелёные и в конце списка (сортирует сервер).
-              b.finished_at && "border-emerald-500/50 bg-emerald-500/10",
-            )}
-            size="sm"
-          >
-            <CardHeader>
-              <div className="flex w-full items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <CardTitle className="wrap-break-word">{b.title}</CardTitle>
-                  <CardDescription className="wrap-break-word">
-                    {b.author}
-                    {b.finished_at && (
-                      <span className="text-emerald-600 dark:text-emerald-400">
-                        {b.author ? " · прочитана" : "прочитана"}
-                      </span>
-                    )}
-                  </CardDescription>
+        books.map((b) => {
+          // Процент прочтения приходит с сервера (позиция последней закладки
+          // от длины текста; отмеченная прочитанной книга — 100%).
+          const percent = b.read_percent || 0;
+          return (
+            <Card
+              key={b.id}
+              className={cn(
+                "relative my-3 overflow-hidden",
+                // Прочитанные — зелёные и в конце списка (сортирует сервер).
+                b.finished_at && "border-emerald-500/50 bg-emerald-500/10",
+              )}
+              size="sm"
+            >
+              {/* Прогресс чтения: закрашиваем карточку слева направо. */}
+              {!b.finished_at && percent > 0 && (
+                <div
+                  className="pointer-events-none absolute inset-y-0 left-0 bg-emerald-500/15"
+                  style={{ width: `${percent}%` }}
+                  aria-hidden="true"
+                />
+              )}
+              <CardHeader className="relative">
+                <div className="flex w-full items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle className="wrap-break-word">{b.title}</CardTitle>
+                    <CardDescription className="wrap-break-word">
+                      {b.author}
+                      {b.finished_at ? (
+                        <span className="text-emerald-600 dark:text-emerald-400">
+                          {b.author ? " · прочитана" : "прочитана"}
+                        </span>
+                      ) : (
+                        percent > 0 && (
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            {b.author
+                              ? ` · прочитано ${percent}%`
+                              : `прочитано ${percent}%`}
+                          </span>
+                        )
+                      )}
+                    </CardDescription>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button size="sm" onClick={() => setOpenBook(b)}>
+                      <BookOpenText />
+                      Читать
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleToggleFinished(b)}
+                      disabled={finishingId === b.id}
+                      title={
+                        b.finished_at
+                          ? "Вернуть книгу в чтение"
+                          : "Отметить книгу прочитанной"
+                      }
+                      aria-label={
+                        b.finished_at
+                          ? "Вернуть книгу в чтение"
+                          : "Отметить книгу прочитанной"
+                      }
+                    >
+                      {finishingId === b.id ? (
+                        <Loader2 className="animate-spin" />
+                      ) : b.finished_at ? (
+                        <RotateCcw />
+                      ) : (
+                        <BookCheck />
+                      )}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDelete(b)}
+                      disabled={deletingId === b.id}
+                      title="Удалить книгу"
+                      aria-label="Удалить книгу"
+                    >
+                      {deletingId === b.id ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        <Trash2 />
+                      )}
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button size="sm" onClick={() => setOpenBook(b)}>
-                    <BookOpenText />
-                    Читать
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleToggleFinished(b)}
-                    disabled={finishingId === b.id}
-                    title={
-                      b.finished_at
-                        ? "Вернуть книгу в чтение"
-                        : "Отметить книгу прочитанной"
-                    }
-                    aria-label={
-                      b.finished_at
-                        ? "Вернуть книгу в чтение"
-                        : "Отметить книгу прочитанной"
-                    }
-                  >
-                    {finishingId === b.id ? (
-                      <Loader2 className="animate-spin" />
-                    ) : b.finished_at ? (
-                      <RotateCcw />
-                    ) : (
-                      <BookCheck />
-                    )}
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDelete(b)}
-                    disabled={deletingId === b.id}
-                    title="Удалить книгу"
-                    aria-label="Удалить книгу"
-                  >
-                    {deletingId === b.id ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <Trash2 />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-          </Card>
-        ))
+              </CardHeader>
+            </Card>
+          );
+        })
       )}
 
       {openBook && (

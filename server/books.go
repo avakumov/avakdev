@@ -37,6 +37,9 @@ type Book struct {
 	Created string `json:"created"`
 	// FinishedAt — когда книга отмечена прочитанной (пусто — не прочитана).
 	FinishedAt string `json:"finished_at"`
+	// ReadPercent — сколько книги прочитано (0–100) по последней закладке;
+	// считается только в списке книг (omitempty — чтобы не отдавать ложный 0).
+	ReadPercent int `json:"read_percent,omitempty"`
 	// HTML — сконвертированный текст; в списке не отдаётся (omitempty).
 	HTML string `json:"html,omitempty"`
 }
@@ -51,13 +54,19 @@ const bookCreatedExpr = `to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:M
 const bookFinishedExpr = `COALESCE(to_char(finished_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')`
 
 // handleListBooks возвращает книги текущего пользователя (без текста).
-// Непрочитанные идут первыми, прочитанные — в конце списка.
+// Непрочитанные идут первыми, прочитанные — в конце списка. У каждой книги
+// считается процент прочтения: позиция последней закладки от длины текста
+// (дошедшая до конца книги — это максимум по закладкам).
 func handleListBooks(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
-		`SELECT id, title, author, format, `+bookCreatedExpr+`, `+bookFinishedExpr+`
-		 FROM books WHERE username = $1
-		 ORDER BY (finished_at IS NOT NULL), id DESC`,
+		`SELECT b.id, b.title, b.author, b.format, `+bookCreatedExpr+`, `+bookFinishedExpr+`,
+		        b.text_len,
+		        COALESCE((SELECT MAX(bm.anchor) FROM book_bookmarks bm
+		                  WHERE bm.book_id = b.id AND bm.username = b.username), 0)
+		 FROM books b
+		 WHERE b.username = $1
+		 ORDER BY (b.finished_at IS NOT NULL), b.id DESC`,
 		sessData.username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить книги"})
@@ -68,11 +77,32 @@ func handleListBooks(c *gin.Context) {
 	out := make([]Book, 0)
 	for rows.Next() {
 		var b Book
-		if err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.Created, &b.FinishedAt); err == nil {
-			out = append(out, b)
+		var textLen, lastAnchor int
+		err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.Created, &b.FinishedAt,
+			&textLen, &lastAnchor)
+		if err != nil {
+			continue
 		}
+		b.ReadPercent = bookReadPercent(textLen, lastAnchor, b.FinishedAt != "")
+		out = append(out, b)
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// bookReadPercent — процент прочтения книги: позиция последней закладки
+// относительно длины текста. Отмеченная прочитанной книга — 100%.
+func bookReadPercent(textLen, anchor int, finished bool) int {
+	if finished {
+		return 100
+	}
+	if textLen <= 0 || anchor <= 0 {
+		return 0
+	}
+	percent := (anchor*100 + textLen/2) / textLen // с округлением
+	if percent > 100 {
+		return 100
+	}
+	return percent
 }
 
 // handleGetBook возвращает книгу вместе с HTML-текстом.
@@ -135,8 +165,8 @@ func handleUploadBook(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	var b Book
 	err = db.QueryRow(context.Background(),
-		`INSERT INTO books (username, title, author, format, html)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO books (username, title, author, format, html, text_len)
+		 VALUES ($1, $2, $3, $4, $5, length(regexp_replace($5, '<[^>]*>', '', 'g')))
 		 RETURNING id, `+bookCreatedExpr,
 		sessData.username, title, author, format, bookHTML).
 		Scan(&b.ID, &b.Created)

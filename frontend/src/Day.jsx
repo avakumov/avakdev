@@ -898,6 +898,12 @@ function Day({ onNavigate }) {
             <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
               {readingTimeQuery.isLoading ? (
                 "Смотрю время чтения…"
+              ) : readingTimeQuery.isError ? (
+                // Ошибка запроса — это не «сброшенное» время, так и пишем.
+                <span className="flex items-center gap-1.5 text-destructive">
+                  <AlertCircle className="size-3.5" />
+                  не удалось загрузить время чтения
+                </span>
               ) : (
                 <>
                   Сегодня:{" "}
