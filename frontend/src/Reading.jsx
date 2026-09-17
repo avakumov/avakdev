@@ -47,7 +47,7 @@ const FONT_STEP = 1;
 const FONT_DEFAULT = 16;
 
 // Счётчик чтения: без прокрутки дольше этого времени отсчёт встаёт на паузу.
-const READING_IDLE_MS = 2 * 60 * 1000;
+const READING_IDLE_MS = 5 * 60 * 1000;
 // Запас цели дня на случай, если сервер её не отдал (по умолчанию — 1 час).
 const READING_GOAL_FALLBACK = 3600;
 
@@ -131,6 +131,8 @@ const BOOK_END_THRESHOLD = 40;
 function BookModal({ book, initialJump = null, onClose }) {
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
+  // Поверх книги может быть открыт редактор заметки — тогда Esc закрывает его.
+  const draftOpen = useAppStore((s) => Boolean(s.draftEditor));
   const queryClient = useQueryClient();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -302,9 +304,12 @@ function BookModal({ book, initialJump = null, onClose }) {
     [],
   );
 
-  // Esc закрывает книгу.
+  // Esc закрывает книгу (если сверху нет редактора заметки).
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && handleClose();
+    const onKey = (e) => {
+      if (e.key !== "Escape" || draftOpen) return;
+      handleClose();
+    };
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -312,7 +317,7 @@ function BookModal({ book, initialJump = null, onClose }) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [onClose]);
+  }, [onClose, draftOpen]);
 
   // Сообщение над текстом («закладка добавлена» и т. п.).
   const showNotice = (text, isError = false) => {
@@ -473,7 +478,7 @@ function BookModal({ book, initialJump = null, onClose }) {
 
         {/* Время чтения сегодня: чч:мм:сс (сохранённое в базе + текущая
             сессия). Зелёное — цель дня достигнута; приглушённое — отсчёт
-            на паузе (нет прокрутки больше 2 минут). */}
+            на паузе (нет прокрутки больше 5 минут). */}
         <span
           title={
             `Сегодня: ${formatClock(daySeconds + sessionSeconds)}` +

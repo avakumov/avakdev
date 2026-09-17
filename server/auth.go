@@ -65,7 +65,7 @@ func userPayload(u User) gin.H {
 var (
 	authedSections = []string{
 		"day", "goals", "tasks", "reports", "knowledge",
-		"reading", "metrics", "profile", "important", "user",
+		"reading", "metrics", "profile", "important", "notes", "user",
 	}
 	adminSections = []string{"server", "app"}
 )

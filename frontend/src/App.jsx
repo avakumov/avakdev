@@ -23,6 +23,8 @@ import Knowledge from "./Knowledge.jsx";
 import Reading from "./Reading.jsx";
 import Important from "./Important.jsx";
 import Metrics from "./Metrics.jsx";
+import Notes from "./Notes.jsx";
+import NotesDock from "./NotesDock.jsx";
 import Tasks from "./Tasks.jsx";
 import AppTasks from "./AppTasks.jsx";
 import User from "./User.jsx";
@@ -80,6 +82,7 @@ const VIEW_PATHS = {
   metrics: "/metrics",
   profile: "/profile",
   important: "/important",
+  notes: "/notes",
   app: "/app",
   server: "/server",
   user: "/user",
@@ -471,6 +474,7 @@ function App() {
           {view === "metrics" && <Metrics />}
           {view === "profile" && <Profile />}
           {view === "important" && <Important />}
+          {view === "notes" && <Notes />}
           {view === "app" && <AppTasks />}
           {view === "user" && (
             <User user={meQuery.data} onLogout={handleLogout} />
@@ -625,6 +629,10 @@ function App() {
       {isAuthed && bellOpen && (
         <NotificationsModal onClose={() => setBellOpen(false)} />
       )}
+
+      {/* Быстрая заметка: кнопка «з» слева внизу — на всех страницах,
+          в том числе поверх открытой книги. */}
+      {isAuthed && <NotesDock />}
     </div>
   );
 }

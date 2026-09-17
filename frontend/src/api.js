@@ -792,6 +792,51 @@ export async function deleteProfilePhoto() {
   return data;
 }
 
+// ==== Раздел «Заметки» (быстрые записи-черновики) ====
+
+// Список заметок (GET /api/drafts): свежие сверху.
+export function useDrafts(enabled = true) {
+  return useQuery({
+    queryKey: ["drafts"],
+    queryFn: () => request("/api/drafts"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Сохранить новую заметку (POST /api/drafts).
+export async function createDraft(content) {
+  const res = await fetch(`${BASE}/api/drafts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить заметку");
+  return data;
+}
+
+// Заменить текст заметки (PUT /api/drafts/:id).
+export async function updateDraft(id, content) {
+  const res = await fetch(`${BASE}/api/drafts/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить заметку");
+  return data;
+}
+
+// Удалить заметку (DELETE /api/drafts/:id).
+export async function deleteDraft(id) {
+  const res = await fetch(`${BASE}/api/drafts/${id}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить заметку");
+  return data;
+}
+
 // ==== Конспекты знаний ====
 
 // Список конспектов с /api/knowledge

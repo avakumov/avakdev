@@ -13,6 +13,7 @@ import {
   Wrench,
   Server,
   Bell,
+  StickyNote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ export const NAV_ITEMS = [
   { key: "metrics", label: "Метрики", icon: BarChart3 },
   { key: "profile", label: "Резюме", icon: User },
   { key: "important", label: "Важное", icon: Megaphone },
+  { key: "notes", label: "Заметки", icon: StickyNote },
   { key: "server", label: "Сервер", icon: Server },
   { key: "app", label: "Приложение", icon: Wrench },
 ];

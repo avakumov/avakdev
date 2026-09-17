@@ -61,5 +61,13 @@ export const useAppStore = create((set) => ({
     }),
   clearReadingRequest: () => set({ readingRequest: null }),
 
+  // Быстрая заметка (раздел «Заметки»): плавающая кнопка «з» есть на всех
+  // страницах. draftEditor = { id, content } — открытый редактор на весь экран;
+  // id === null значит «новая заметка».
+  draftEditor: null,
+  openDraftEditor: (draft) =>
+    set({ draftEditor: { id: null, content: "", ...draft } }),
+  closeDraftEditor: () => set({ draftEditor: null }),
+
   reset: () => set({ lastUpdatedAt: null, loadedCards: 0 }),
 }))

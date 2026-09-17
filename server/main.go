@@ -185,6 +185,12 @@ func main() {
 		authed.PUT("/important", handleSaveImportant)
 		authed.POST("/important/seen", handleMarkImportantSeen)
 
+		// Раздел «Заметки»: быстрые записи-черновики.
+		authed.GET("/drafts", handleListDrafts)
+		authed.POST("/drafts", handleCreateDraft)
+		authed.PUT("/drafts/:id", handleUpdateDraft)
+		authed.DELETE("/drafts/:id", handleDeleteDraft)
+
 		// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
 		// и значения — одно на (метрика, день).
 		authed.GET("/user-metrics", handleListUserMetrics)
