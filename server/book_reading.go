@@ -34,6 +34,41 @@ type readingTimeBody struct {
 	GoalSeconds int    `json:"goal_seconds"`
 }
 
+// readingDay — время чтения за один день (для истории и отчётов).
+type readingDay struct {
+	Date        string `json:"date"`
+	Seconds     int    `json:"seconds"`
+	GoalSeconds int    `json:"goal_seconds"`
+}
+
+// handleReadingHistory — дни, в которые было чтение (сначала новые).
+// Нужна отчётам: такие дни попадают в список дней наравне с планами.
+// Дни с нулём секунд (например, только изменённая цель) не отдаём.
+func handleReadingHistory(c *gin.Context) {
+	sessData, _ := c.MustGet("session").(session)
+	rows, err := db.Query(context.Background(),
+		`SELECT to_char(br.date,'YYYY-MM-DD'), br.seconds, br.goal_seconds
+		 FROM book_reading br
+		 WHERE br.username = $1 AND br.seconds > 0
+		 ORDER BY br.date DESC
+		 LIMIT 90`,
+		sessData.username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить историю чтения"})
+		return
+	}
+	defer rows.Close()
+
+	out := make([]readingDay, 0)
+	for rows.Next() {
+		var d readingDay
+		if err := rows.Scan(&d.Date, &d.Seconds, &d.GoalSeconds); err == nil {
+			out = append(out, d)
+		}
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 // handleGetReadingTime возвращает, сколько секунд пользователь читал за день
 // и какова цель этого дня (GET /api/reading/time?date=ГГГГ-ММ-ДД; пусто — сегодня).
 func handleGetReadingTime(c *gin.Context) {

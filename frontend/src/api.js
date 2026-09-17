@@ -770,6 +770,18 @@ export function useReadingTime(date, enabled = true) {
   });
 }
 
+// Дни с чтением (GET /api/reading/history) — для отчётов: список всех дней,
+// где накопились секунды, сразу.
+export function useReadingHistory(enabled = true) {
+  return useQuery({
+    queryKey: ["reading-history"],
+    queryFn: () => request("/api/reading/history"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
 // Цель чтения на день (PUT /api/reading/goal) — меняется для конкретной даты.
 export async function setReadingGoal(date, goalSeconds) {
   const res = await fetch(`${BASE}/api/reading/goal`, {

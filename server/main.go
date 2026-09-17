@@ -163,6 +163,7 @@ func main() {
 
 		// Время чтения по дням и цель чтения на день.
 		authed.GET("/reading/time", handleGetReadingTime)
+		authed.GET("/reading/history", handleReadingHistory)
 		authed.POST("/reading/time", handleAddReadingTime)
 		authed.PUT("/reading/goal", handleSetReadingGoal)
 
