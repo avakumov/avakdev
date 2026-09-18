@@ -198,8 +198,8 @@ function NoteReadModal({ note, done, onClose, onRepeat }) {
 
 // Отчёт за текущий день (как в разделе «Отчёты», но без выбора даты):
 // показывается в конце дня; если отчёт на дату уже есть — его можно
-// перезаписать.
-function DayReportCard({ date }) {
+// перезаписать. completed — задачи, закрытые в этот день.
+function DayReportCard({ date, completed = [] }) {
   const queryClient = useQueryClient();
   const reportsQuery = useReports(true);
   const [draft, setDraft] = useState("");
@@ -241,6 +241,35 @@ function DayReportCard({ date }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
+        {completed.length > 0 && (
+          <div className="space-y-1.5 pb-1">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <CheckCircle2 className="size-4 text-muted-foreground" />
+              Выполненные задачи
+              <span className="text-xs font-normal text-muted-foreground">
+                · {completed.length}
+              </span>
+            </p>
+            {completed.map((t) => (
+              <div
+                key={t.id}
+                className="flex w-full items-start gap-2.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-2"
+              >
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <span className="min-w-0 flex-1">
+                  <span className="wrap-break-word block text-sm font-medium text-foreground">
+                    {t.title}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {t.category || "Прочее"}
+                    {t.done_at ? " · выполнена " : ""}
+                    <DateDisplay date={t.done_at} withTime />
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           data-slot="textarea"
           value={draft}
@@ -1030,7 +1059,10 @@ function Day({ onNavigate }) {
       </Card>
 
       {/* Отчёт за сегодня — в конце дня */}
-      <DayReportCard date={date} />
+      <DayReportCard
+        date={date}
+        completed={savedPlan?.completed_tasks || []}
+      />
 
       {/* Модалки из списка кандидатов */}
       {openTask && (

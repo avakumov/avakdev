@@ -47,10 +47,12 @@ type Task struct {
 	ActualHours  float64 `json:"actual_hours"`
 	Deadline     string  `json:"deadline"` // дата YYYY-MM-DD или пусто
 	Status       string  `json:"status"`
-	GoalID       *int    `json:"goal_id"`
-	Position     int     `json:"position"`
-	Created      string  `json:"created"`
-	Updated      string  `json:"updated"`
+	// CompletedAt — когда задача отмечена выполненной (пусто — не выполнена).
+	CompletedAt string `json:"completed_at"`
+	GoalID      *int   `json:"goal_id"`
+	Position    int    `json:"position"`
+	Created     string `json:"created"`
+	Updated     string `json:"updated"`
 }
 
 // taskStore — хранилище задач раздела «Задачи».
@@ -86,6 +88,7 @@ func initTasks() error {
 		        actual_hours,
 		        COALESCE(to_char(deadline,'YYYY-MM-DD'),''),
 		        status,
+		        COALESCE(to_char(completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
 		        goal_id,
 		        position,
 		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
@@ -99,7 +102,7 @@ func initTasks() error {
 		var t Task
 		if err := rows.Scan(&t.ID, &t.Username, &t.Category, &t.Title,
 			&t.Description, &t.PlannedHours, &t.ActualHours, &t.Deadline,
-			&t.Status, &t.GoalID, &t.Position, &t.Created, &t.Updated); err != nil {
+			&t.Status, &t.CompletedAt, &t.GoalID, &t.Position, &t.Created, &t.Updated); err != nil {
 			return err
 		}
 		tasks.data[t.ID] = t
@@ -219,6 +222,12 @@ func (s *taskStore) create(username, category, title, description string, planne
 	if goalID != nil {
 		position = s.maxPositionLocked(*goalID) + 1
 	}
+	// Задачу могут создать сразу выполненной — тогда сразу ставим отметку
+	// времени закрытия (она нужна отчёту дня).
+	completedAt := ""
+	if status == taskDone {
+		completedAt = now
+	}
 	t := Task{
 		Username:     username,
 		Category:     category,
@@ -228,6 +237,7 @@ func (s *taskStore) create(username, category, title, description string, planne
 		ActualHours:  actualHours,
 		Deadline:     deadline,
 		Status:       status,
+		CompletedAt:  completedAt,
 		GoalID:       goalID,
 		Position:     position,
 		Created:      now,
@@ -244,12 +254,13 @@ func (s *taskStore) create(username, category, title, description string, planne
 			gid = *goalID
 		}
 		err := db.QueryRow(context.Background(),
-			`INSERT INTO tasks (username, category, title, description, planned_hours, actual_hours, deadline, status, goal_id, position)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			`INSERT INTO tasks (username, category, title, description, planned_hours, actual_hours, deadline, status, completed_at, goal_id, position)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::timestamptz, $10, $11)
 			 RETURNING id,
 			           to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 			           to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
-			username, category, title, description, plannedHours, actualHours, dl, status, gid, position).
+			username, category, title, description, plannedHours, actualHours, dl, status,
+			nullableDate(completedAt), gid, position).
 			Scan(&t.ID, &t.Created, &t.Updated)
 		if err != nil {
 			return Task{}, err
@@ -312,6 +323,14 @@ func (s *taskStore) update(username string, id int, category, title, description
 	t.PlannedHours = plannedHours
 	t.ActualHours = actualHours
 	t.Deadline = deadline
+	// Отметка времени закрытия: ставим при переходе в «выполнена», снимаем
+	// при возврате из неё — по ней отчёт дня показывает закрытые задачи.
+	switch {
+	case status != taskDone:
+		t.CompletedAt = ""
+	case t.Status != taskDone || t.CompletedAt == "":
+		t.CompletedAt = time.Now().UTC().Format(time.RFC3339)
+	}
 	t.Status = status
 	t.GoalID = goalID
 	t.Updated = time.Now().UTC().Format(time.RFC3339)
@@ -329,10 +348,10 @@ func (s *taskStore) update(username string, id int, category, title, description
 			`UPDATE tasks
 			 SET category = $2, title = $3, description = $4,
 			     planned_hours = $5, actual_hours = $6, deadline = $7,
-			     status = $8, goal_id = $9, position = $10, updated = now()
+			     status = $8, completed_at = $9::text::timestamptz, goal_id = $10, position = $11, updated = now()
 			 WHERE id = $1`,
 			id, t.Category, t.Title, t.Description, t.PlannedHours,
-			t.ActualHours, dl, t.Status, gid, t.Position); err != nil {
+			t.ActualHours, dl, t.Status, nullableDate(t.CompletedAt), gid, t.Position); err != nil {
 			return Task{}, err
 		}
 	}

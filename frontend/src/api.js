@@ -950,14 +950,22 @@ export async function getNoteAudio(id) {
 
 // ==== День (ежедневный план) ====
 
+// Смещение клиента от UTC в минутах (МСК → 180). Отправляем вместе с датой,
+// чтобы «день» на сервере считался по местному времени пользователя.
+function tzOffsetMinutes() {
+  return -new Date().getTimezoneOffset();
+}
+
 // План на дату (GET /api/day?date=ГГГГ-ММ-ДД).
+// В ответе также completed_tasks — задачи, закрытые в этот день.
 export async function fetchDayPlan(date) {
-  return request(`/api/day?date=${date}`);
+  return request(`/api/day?date=${date}&tz=${tzOffsetMinutes()}`);
 }
 
 // История сформированных дней (GET /api/day/history).
+// Включает дни, в которые были закрыты задачи, даже без сохранённого плана.
 export async function fetchDayHistory() {
-  return request("/api/day/history");
+  return request(`/api/day/history?tz=${tzOffsetMinutes()}`);
 }
 
 // Предложения состава дня (POST /api/day/suggest).
@@ -972,9 +980,10 @@ export async function suggestDay(payload) {
   return data;
 }
 
-// Сохранить план дня (PUT /api/day).
+// Сохранить план дня (PUT /api/day). tz — смещение клиента от UTC в минутах:
+// в ответе completed_tasks считаются по местному дню.
 export async function saveDay(payload) {
-  const res = await fetch(`${BASE}/api/day`, {
+  const res = await fetch(`${BASE}/api/day?tz=${tzOffsetMinutes()}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

@@ -62,19 +62,28 @@ function MetricValue({ def, value }) {
 // редактирования: план (задачи/повторения), чтение, метрики и текст отчёта.
 function DayCard({ date, day, report, reading, open, onOpenChange }) {
   const [items, setItems] = useState(null); // null — ещё не загружено
+  const [completed, setCompleted] = useState([]);
   const metricsQuery = useUserMetrics(true);
 
-  // Состав дня подгружаем только при раскрытии карточки.
+  // Состав дня и задачи, закрытые в этот день, подгружаем при раскрытии
+  // карточки. День мог попасть в отчёты только из-за закрытых задач — плана
+  // тогда нет, но completed_tasks нужно показать.
   useEffect(() => {
-    if (!open || items !== null) return;
-    if (!day) {
-      setItems([]);
-      return;
-    }
+    if (!open) return;
+    let alive = true;
     fetchDayPlan(date)
-      .then((p) => setItems(p.items || []))
-      .catch(() => setItems([]));
-  }, [open, date, day, items]);
+      .then((p) => {
+        if (!alive) return;
+        setItems(p.items || []);
+        setCompleted(p.completed_tasks || []);
+      })
+      .catch(() => {
+        if (alive) setItems([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, date]);
 
   const toggle = () => onOpenChange(!open);
   const hasContent = Boolean(report?.content);
@@ -189,6 +198,37 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
               ))
             )}
           </div>
+
+          {/* Задачи, закрытые в этот день (в том числе вне плана) */}
+          {completed.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <CheckCircle2 className="size-4 text-muted-foreground" />
+                Выполненные задачи
+                <span className="text-xs font-normal text-muted-foreground">
+                  · {completed.length}
+                </span>
+              </p>
+              {completed.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex w-full items-start gap-2.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-2"
+                >
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span className="min-w-0 flex-1">
+                    <span className="wrap-break-word block text-sm font-medium text-foreground">
+                      {t.title}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {t.category || "Прочее"}
+                      {t.done_at ? " · выполнена " : ""}
+                      <DateDisplay date={t.done_at} withTime />
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Чтение за день — как карточка «Чтение» в «Дне», только для чтения */}
           {hasReading && (
@@ -322,7 +362,7 @@ function Reports() {
     if (ex) Object.assign(ex, patch);
     else days.push({ date, day: null, report: null, ...patch });
   };
-  for (const d of history || []) addDay(d.date, { day: d });
+  for (const d of history || []) addDay(d.date, { day: d.has_plan ? d : null });
   for (const r of reportsQuery.data || []) addDay(r.date, { report: r });
   for (const r of readingQuery.data || []) addDay(r.date, {});
   days.sort((a, b) => (a.date < b.date ? 1 : -1));

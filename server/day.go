@@ -41,11 +41,33 @@ type DayCandidate struct {
 }
 
 // dayBody — единый ответ для дня.
+// completedTask — задача, закрытая в этот день (для отчёта дня).
+type completedTask struct {
+	ID       int    `json:"id"`
+	Title    string `json:"title"`
+	Category string `json:"category"`
+	DoneAt   string `json:"done_at"` // RFC3339, UTC
+}
+
 type dayBody struct {
 	Date          string    `json:"date"`
 	BudgetMinutes int       `json:"budget_minutes"`
 	TotalMinutes  int       `json:"total_minutes"`
 	Items         []DayItem `json:"items"`
+	// CompletedTasks — все задачи, отмеченные выполненными в этот день, даже
+	// если их не было в плане. Показываются в отчёте за день.
+	CompletedTasks []completedTask `json:"completed_tasks"`
+}
+
+// tzMinutes — смещение клиента от UTC в минутах (МСК → +180). Отправляется вместе
+// с датой, чтобы «день» считался по местному времени пользователя, а не по UTC.
+// Непонятное значение считаем нулём.
+func tzMinutes(raw string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < -840 || n > 840 {
+		return 0
+	}
+	return n
 }
 
 // envReadingSpeed — символов в минуту из переменной окружения
@@ -363,27 +385,32 @@ func resolveItemMinutes(username, kind string, refID int) (int, bool) {
 }
 
 // loadDayItems собирает план из БД по дате.
-func loadDayItems(username, day string) (dayBody, bool) {
+func loadDayItems(username, day string, tz int) (dayBody, bool) {
 	if db == nil {
 		return dayBody{}, false
 	}
 	ctx := context.Background()
 	var body dayBody
+	body.Date = day
+	body.Items = make([]DayItem, 0)
+	// Задачи, закрытые в этот день: не зависят от того, был ли план.
+	body.CompletedTasks = dayCompletedTasks(ctx, username, day, tz)
+
 	var planID int
 	err := db.QueryRow(ctx,
 		`SELECT id, budget_minutes FROM day_plans
 		 WHERE username = $1 AND day = $2`, username, day).
 		Scan(&planID, &body.BudgetMinutes)
 	if err != nil {
-		return dayBody{}, false
+		return body, false
 	}
-	body.Date = day
 
+	items := make([]DayItem, 0)
 	rows, err := db.Query(ctx,
 		`SELECT kind, ref_id, minutes, done, position
 		 FROM day_items WHERE plan_id = $1 ORDER BY position`, planID)
 	if err != nil {
-		return dayBody{}, false
+		return body, false
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -397,13 +424,40 @@ func loadDayItems(username, day string) (dayBody, bool) {
 			continue // задача/заметка удалены — позицию пропускаем
 		}
 		it.Title, it.Meta = title, meta
-		body.Items = append(body.Items, it)
+		items = append(items, it)
 		body.TotalMinutes += it.Minutes
 	}
+	body.Items = items
 	return body, true
 }
 
+// dayCompletedTasks возвращает задачи пользователя, закрытые в указанный день.
+// Дату считаем в местном времени клиента: смещение приходит в tz (минуты от UTC).
+func dayCompletedTasks(ctx context.Context, username, day string, tz int) []completedTask {
+	out := make([]completedTask, 0)
+	rows, err := db.Query(ctx,
+		`SELECT id, title, category,
+		        to_char(completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM tasks
+		 WHERE username = $1 AND status = 'done' AND completed_at IS NOT NULL
+		   AND ((completed_at AT TIME ZONE 'UTC') + make_interval(mins => $3::int))::date = $2::date
+		 ORDER BY completed_at`,
+		username, day, tz)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t completedTask
+		if err := rows.Scan(&t.ID, &t.Title, &t.Category, &t.DoneAt); err == nil {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // handleGetDay — план на дату (или пустой, если день ещё не сформирован).
+// Параметр tz — смещение клиента от UTC в минутах (для списка закрытых задач).
 func handleGetDay(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	day, err := parseDay(c.Query("date"))
@@ -411,9 +465,11 @@ func handleGetDay(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	body, found := loadDayItems(sessData.username, day)
+	tz := tzMinutes(c.Query("tz"))
+	body, found := loadDayItems(sessData.username, day, tz)
 	if !found {
-		body = dayBody{Date: day}
+		// Плана может не быть, но закрытые в этот день задачи уже собраны.
+		body.Date = day
 	}
 	c.JSON(http.StatusOK, body)
 }
@@ -503,7 +559,7 @@ func handleSaveDay(c *gin.Context) {
 		return
 	}
 
-	body, _ := loadDayItems(username, day)
+	body, _ := loadDayItems(username, day, tzMinutes(c.Query("tz")))
 	c.JSON(http.StatusOK, body)
 }
 
@@ -549,27 +605,49 @@ type DaySummary struct {
 	TotalMinutes  int    `json:"total_minutes"`
 	Tasks         int    `json:"tasks"`
 	Notes         int    `json:"notes"`
+	// HasPlan — был ли сохранён план на этот день. День может попасть в
+	// историю только из-за закрытых задач (тогда плана нет).
+	HasPlan bool `json:"has_plan"`
 }
 
-// handleDayHistory — список сформированных дней (сначала новые).
+// handleDayHistory — список дней (сначала новые): сохранённые планы и дни,
+// в которые были закрыты задачи. Параметр tz — смещение клиента от UTC
+// в минутах, чтобы день закрытия задачи считался по местному времени.
 func handleDayHistory(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	if db == nil {
 		c.JSON(http.StatusOK, gin.H{"days": []DaySummary{}})
 		return
 	}
+	tz := tzMinutes(c.Query("tz"))
 	rows, err := db.Query(context.Background(),
-		`SELECT to_char(p.day, 'YYYY-MM-DD'),
-		        p.budget_minutes,
-		        COALESCE(SUM(i.minutes), 0),
-		        COUNT(*) FILTER (WHERE i.kind = 'task'),
-		        COUNT(*) FILTER (WHERE i.kind = 'note')
-		 FROM day_plans p
-		 LEFT JOIN day_items i ON i.plan_id = p.id
-		 WHERE p.username = $1
-		 GROUP BY p.id, p.day, p.budget_minutes
-		 ORDER BY p.day DESC
-		 LIMIT 90`, sessData.username)
+		`WITH plan_days AS (
+		     SELECT p.day AS day,
+		            p.budget_minutes,
+		            COALESCE(SUM(i.minutes), 0) AS total_minutes,
+		            COUNT(*) FILTER (WHERE i.kind = 'task') AS tasks,
+		            COUNT(*) FILTER (WHERE i.kind = 'note') AS notes
+		     FROM day_plans p
+		     LEFT JOIN day_items i ON i.plan_id = p.id
+		     WHERE p.username = $1
+		     GROUP BY p.id, p.day, p.budget_minutes
+		 ),
+		 done_days AS (
+		     SELECT ((completed_at AT TIME ZONE 'UTC') + make_interval(mins => $2::int))::date AS day
+		     FROM tasks
+		     WHERE username = $1 AND status = 'done' AND completed_at IS NOT NULL
+		     GROUP BY 1
+		 )
+		 SELECT to_char(d.day, 'YYYY-MM-DD'),
+		        COALESCE(pd.budget_minutes, 0),
+		        COALESCE(pd.total_minutes, 0),
+		        COALESCE(pd.tasks, 0),
+		        COALESCE(pd.notes, 0),
+		        (pd.day IS NOT NULL)
+		 FROM (SELECT day FROM plan_days UNION SELECT day FROM done_days) d
+		 LEFT JOIN plan_days pd ON pd.day = d.day
+		 ORDER BY d.day DESC
+		 LIMIT 90`, sessData.username, tz)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить историю"})
 		return
@@ -578,7 +656,7 @@ func handleDayHistory(c *gin.Context) {
 	days := make([]DaySummary, 0)
 	for rows.Next() {
 		var d DaySummary
-		if err := rows.Scan(&d.Date, &d.BudgetMinutes, &d.TotalMinutes, &d.Tasks, &d.Notes); err == nil {
+		if err := rows.Scan(&d.Date, &d.BudgetMinutes, &d.TotalMinutes, &d.Tasks, &d.Notes, &d.HasPlan); err == nil {
 			days = append(days, d)
 		}
 	}
