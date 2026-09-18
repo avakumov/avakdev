@@ -148,14 +148,16 @@ export function useMessage(enabled = true) {
   });
 }
 
-// Системные метрики сервера с /api/metrics
+// Системные метрики сервера с /api/metrics.
+// Опрашиваем только когда запрошено (enabled) — сейчас это раздел «Сервер»:
+// на других страницах постоянный опрос не нужен.
 export function useMetrics(refetchInterval = 5000, enabled = true) {
   return useQuery({
     queryKey: ["metrics"],
     queryFn: () => request("/api/metrics"),
     // Метрики обновляем периодически, чтобы показания были актуальными.
     staleTime: 2000,
-    refetchInterval,
+    refetchInterval: enabled ? refetchInterval : false,
     enabled,
     retry: 1,
   });

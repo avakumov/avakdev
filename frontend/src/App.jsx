@@ -268,9 +268,6 @@ function App() {
   const isAuthed = Boolean(meQuery.data);
 
   // TanStack Query — данные с сервера (запрашиваем только после входа).
-  const healthQuery = useHealth(isAuthed);
-  const messageQuery = useMessage(isAuthed);
-  const metricsQuery = useMetrics(5000, isAuthed);
   const importantQuery = useImportant(isAuthed);
   const notificationsQuery = useNotificationInbox(isAuthed);
 
@@ -298,6 +295,15 @@ function App() {
   // Недоступный раздел (например, «Сервер» для обычного пользователя) мягко
   // сводим к главной — сами данные всё равно защищены на сервере.
   const view = allowedSections.has(viewState) ? viewState : "day";
+
+  // Данные серверной панели (health/message/metrics) запрашиваем только когда
+  // открыт раздел «Сервер»: иначе /api/metrics опрашивался бы каждые 5 секунд
+  // на любой странице (а у обычных пользователей это ещё и 403 — эти маршруты
+  // только для админов).
+  const serverOpen = isAuthed && view === "server";
+  const healthQuery = useHealth(serverOpen);
+  const messageQuery = useMessage(serverOpen);
+  const metricsQuery = useMetrics(5000, serverOpen);
 
   // Если раздел в URL оказался недоступен — приводим URL обратно к главной.
   useEffect(() => {

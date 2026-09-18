@@ -89,6 +89,7 @@ function GoalFormModal({ initial, onClose, onSaved }) {
   const [targetDate, setTargetDate] = useState(initial?.target_date || "");
   const [status, setStatus] = useState(initial?.status || "active");
   const [drafts, setDrafts] = useState([]); // черновики задач (ещё не в БД)
+  const [truncated, setTruncated] = useState(false); // ответ модели обрезан
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -105,6 +106,7 @@ function GoalFormModal({ initial, onClose, onSaved }) {
       return;
     setGenerating(true);
     setError("");
+    setTruncated(false);
     try {
       const data = await generateGoalTasks({ title, description });
       setDrafts(
@@ -115,6 +117,8 @@ function GoalFormModal({ initial, onClose, onSaved }) {
           planned_hours: Number(t.planned_hours) || 0,
         })),
       );
+      // Сервер сообщает, если ответ модели обрезан по лимиту длины.
+      setTruncated(Boolean(data.truncated));
     } catch (err) {
       setError(err.message || "Не удалось сгенерировать задачи");
     } finally {
@@ -199,9 +203,9 @@ function GoalFormModal({ initial, onClose, onSaved }) {
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Задачи цели</p>
                   <p className="text-xs text-muted-foreground">
-                    Черновики сохранятся вместе с целью (если оставить поле пустым —
-                    цель создастся без задач). ИИ делает 5–8 задач; укажите
-                    количество в описании цели, если нужно иначе.
+                    Черновики сохранятся вместе с целью (если оставить поле
+                    пустым — цель создастся без задач). ИИ делает 5–8 задач, а
+                    число в описании цели («разбей на 28 задач») будет учтено.
                   </p>
                 </div>
                 <Button
@@ -219,6 +223,15 @@ function GoalFormModal({ initial, onClose, onSaved }) {
                   {generating ? "Генерирую…" : "Создать задачи с ИИ"}
                 </Button>
               </div>
+
+              {/* Предупреждение, если ответ модели обрезан по лимиту длины */}
+              {truncated && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="size-3.5" />
+                  Ответ модели обрезан — задач может быть меньше, чем нужно.
+                  Нажмите «Создать задачи с ИИ» ещё раз.
+                </p>
+              )}
 
               {drafts.length === 0 ? (
                 <p className="text-xs text-muted-foreground">

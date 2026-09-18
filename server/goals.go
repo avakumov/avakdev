@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +29,10 @@ const (
 	goalCancelled = "cancelled"
 )
 
+// errGoalNotFound — цели нет или она принадлежит другому пользователю.
+// Отдельная ошибка, чтобы обработчики отличали её от ошибок валидации.
+var errGoalNotFound = errors.New("цель не найдена")
+
 var validGoalStatuses = map[string]bool{
 	goalActive:    true,
 	goalPaused:    true,
@@ -40,6 +47,21 @@ type goalTaskDraft struct {
 	Description  string  `json:"description"`
 	Category     string  `json:"category"`
 	PlannedHours float64 `json:"planned_hours"`
+}
+
+// normalizeGoalTaskDraft приводит черновик к допустимому виду: подрезает пробелы,
+// категорию берёт только из предопределённых, часы не допускает отрицательными.
+func normalizeGoalTaskDraft(d goalTaskDraft) goalTaskDraft {
+	d.Title = strings.TrimSpace(d.Title)
+	d.Description = strings.TrimSpace(d.Description)
+	d.Category = strings.TrimSpace(d.Category)
+	if !slices.Contains(TaskCategories, d.Category) {
+		d.Category = "Прочее"
+	}
+	if d.PlannedHours < 0 {
+		d.PlannedHours = 0
+	}
+	return d
 }
 
 // Goal — цель раздела «Цели»: результат с дедлайном и статусом.
@@ -132,14 +154,24 @@ func (s *goalStore) getOwned(username string, id int) (Goal, bool) {
 	return g, true
 }
 
-// create добавляет новую цель.
-func (s *goalStore) create(username, title, description, targetDate, status string) (Goal, error) {
+// validateGoalInput проверяет название и статус цели, возвращает подрезанное
+// название (используется и при создании, и при обновлении).
+func validateGoalInput(title, status string) (string, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return Goal{}, errors.New("укажите название цели")
+		return "", errors.New("укажите название цели")
 	}
 	if !validGoalStatuses[status] {
-		return Goal{}, errors.New("некорректный статус цели")
+		return "", errors.New("некорректный статус цели")
+	}
+	return title, nil
+}
+
+// create добавляет новую цель.
+func (s *goalStore) create(username, title, description, targetDate, status string) (Goal, error) {
+	title, err := validateGoalInput(title, status)
+	if err != nil {
+		return Goal{}, err
 	}
 
 	s.mu.Lock()
@@ -157,17 +189,13 @@ func (s *goalStore) create(username, title, description, targetDate, status stri
 	}
 
 	if s.hasDB {
-		var dl interface{}
-		if targetDate != "" {
-			dl = targetDate
-		}
 		err := db.QueryRow(context.Background(),
 			`INSERT INTO goals (username, title, description, target_date, status)
 			 VALUES ($1, $2, $3, $4, $5)
 			 RETURNING id,
 			           to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 			           to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
-			username, title, description, dl, status).
+			username, title, description, nullableDate(targetDate), status).
 			Scan(&g.ID, &g.Created, &g.Updated)
 		if err != nil {
 			return Goal{}, err
@@ -186,12 +214,9 @@ func (s *goalStore) create(username, title, description, targetDate, status stri
 
 // update обновляет цель.
 func (s *goalStore) update(username string, id int, title, description, targetDate, status string) (Goal, error) {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return Goal{}, errors.New("укажите название цели")
-	}
-	if !validGoalStatuses[status] {
-		return Goal{}, errors.New("некорректный статус цели")
+	title, err := validateGoalInput(title, status)
+	if err != nil {
+		return Goal{}, err
 	}
 
 	s.mu.Lock()
@@ -199,7 +224,7 @@ func (s *goalStore) update(username string, id int, title, description, targetDa
 
 	g, ok := s.data[id]
 	if !ok || g.Username != username {
-		return Goal{}, errors.New("цель не найдена")
+		return Goal{}, errGoalNotFound
 	}
 
 	g.Title = title
@@ -209,16 +234,12 @@ func (s *goalStore) update(username string, id int, title, description, targetDa
 	g.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	if s.hasDB {
-		var dl interface{}
-		if targetDate != "" {
-			dl = targetDate
-		}
 		if _, err := db.Exec(context.Background(),
 			`UPDATE goals
 			 SET title = $2, description = $3, target_date = $4,
 			     status = $5, updated = now()
 			 WHERE id = $1`,
-			id, g.Title, g.Description, dl, g.Status); err != nil {
+			id, g.Title, g.Description, nullableDate(targetDate), g.Status); err != nil {
 			return Goal{}, err
 		}
 	}
@@ -291,6 +312,14 @@ func (s *taskStore) removeByGoal(username string, goalID int) (int, error) {
 	return len(ids), nil
 }
 
+// nullableDate — дедлайн для SQL: пустая строка значит «без даты» (NULL).
+func nullableDate(targetDate string) any {
+	if targetDate == "" {
+		return nil
+	}
+	return targetDate
+}
+
 // delete удаляет цель пользователя. При deleteTasks=true привязанные задачи
 // удаляются вместе с целью; иначе задачи остаются, но ссылка на цель
 // сбрасывается (в БД — внешним ключом ON DELETE SET NULL, в памяти — вручную).
@@ -299,7 +328,7 @@ func (s *goalStore) delete(username string, id int, deleteTasks bool) error {
 	g, ok := s.data[id]
 	if !ok || g.Username != username {
 		s.mu.Unlock()
-		return errors.New("цель не найдена")
+		return errGoalNotFound
 	}
 	// Не держим блокировку целей во время обращения к задачам: задачи сначала
 	// удаляются (пока ссылка ещё стоит), затем цель.
@@ -318,7 +347,7 @@ func (s *goalStore) delete(username string, id int, deleteTasks bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.data[id]; !ok || s.data[id].Username != username {
-		return errors.New("цель не найдена")
+		return errGoalNotFound
 	}
 	if s.hasDB {
 		if _, err := db.Exec(context.Background(),
@@ -399,23 +428,12 @@ func handleCreateGoal(c *gin.Context) {
 		return
 	}
 
-	for _, d := range req.Tasks {
-		title := strings.TrimSpace(d.Title)
-		if title == "" {
-			continue
-		}
-		category := strings.TrimSpace(d.Category)
-		if category == "" {
-			category = "Прочее"
-		}
-		hours := d.PlannedHours
-		if hours < 0 {
-			hours = 0
-		}
-		if _, err := tasks.create(sessData.username, category, title, d.Description,
-			hours, 0, "", taskTodo, &g.ID); err != nil {
+	for _, draft := range req.Tasks {
+		d := normalizeGoalTaskDraft(draft)
+		if _, err := tasks.create(sessData.username, d.Category, d.Title, d.Description,
+			d.PlannedHours, 0, "", taskTodo, &g.ID); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Не удалось создать задачу «" + title + "»: " + err.Error(),
+				"error": "Не удалось создать задачу «" + d.Title + "»: " + err.Error(),
 			})
 			return
 		}
@@ -451,27 +469,53 @@ func handleGenerateGoalTasks(c *gin.Context) {
 		return
 	}
 
-	drafts, err := aiGenerateGoalTasks(req.Title, req.Description, apiKey)
+	drafts, truncated, err := aiGenerateGoalTasks(req.Title, req.Description, apiKey)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"tasks": drafts})
+	c.JSON(http.StatusOK, gin.H{"tasks": drafts, "truncated": truncated})
+}
+
+// taskCountRe — «28 задач», «на 12 шагов», «7 этапов» и т. п.
+var taskCountRe = regexp.MustCompile(`(?i)(\d{1,3})\s*(задач|шаг|пункт|этап|част)`)
+
+// requestedTaskCount ищет в тексте цели явно указанное число задач.
+// 0 — количество не указано (тогда работает диапазон по умолчанию).
+func requestedTaskCount(title, description string) int {
+	for _, text := range []string{title, description} {
+		m := taskCountRe.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		if n, err := strconv.Atoi(m[1]); err == nil && n >= 1 && n <= 999 {
+			return n
+		}
+	}
+	return 0
 }
 
 // aiGenerateGoalTasks разбивает цель пользователя на конкретные задачи.
-// Возвращает черновики задач; на БД они не сохраняются.
-func aiGenerateGoalTasks(title, description, apiKey string) ([]goalTaskDraft, error) {
+// Возвращает черновики задач; на БД они не сохраняются. Признак truncated —
+// ответ модели обрезан по лимиту вывода, то есть задач может не хватать.
+func aiGenerateGoalTasks(title, description, apiKey string) (drafts []goalTaskDraft, truncated bool, err error) {
 	allowed := strings.Join(TaskCategories, ", ")
 	goalText := "Цель: " + title
 	if trimmed := strings.TrimSpace(description); trimmed != "" {
 		goalText += "\nОписание: " + trimmed
 	}
 
+	// Если пользователь назвал число задач, просим его прямо в сообщении:
+	// условные правила в длинном системном промпте модель выполняет хуже.
+	want := requestedTaskCount(title, description)
+	countRule := "По умолчанию разбей цель на 5–8 понятных последовательных задач (шагов). "
+	if want > 0 {
+		countRule = fmt.Sprintf("Пользователь просит ровно %d задач — верни ровно %d, ни больше ни меньше. ", want, want)
+		goalText += fmt.Sprintf("\n\nНужно ровно %d задач.", want)
+	}
+
 	systemPrompt := "Ты — планировщик, который разбивает долгосрочные цели на конкретные задачи. " +
-		"По умолчанию разбей цель на 5–8 понятных последовательных задач (шагов). " +
-		"Если в названии или описании цели пользователь явно указал количество задач — " +
-		"сделай ровно столько, сколько он просит. " +
+		countRule +
 		"Верни СТРОГО валидный JSON без текста вне него, вида: " +
 		"{\"tasks\": [{\"title\": string, \"description\": string, \"category\": string, \"planned_hours\": число}]}. " +
 		"Правила: title — короткий заголовок-действие (до 60 символов, с глаголом); " +
@@ -486,36 +530,39 @@ func aiGenerateGoalTasks(title, description, apiKey string) ([]goalTaskDraft, er
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": goalText},
 		},
-		"stream":          false,
+		"stream": false,
+		// Явный лимит вывода: не полагаемся на значение по умолчанию, чтобы
+		// большое число задач не обрезалось на середине.
+		"max_tokens":      8192,
 		"temperature":     0.7,
 		"response_format": map[string]string{"type": "json_object"},
 	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	hreq, err := http.NewRequest(http.MethodPost, "https://api.deepseek.com/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("Authorization", "Bearer "+apiKey)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 180 * time.Second}
 	resp, err := client.Do(hreq)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка вызова DeepSeek: %w", err)
+		return nil, false, fmt.Errorf("ошибка вызова DeepSeek: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("DeepSeek вернул статус %d: %s", resp.StatusCode, string(respBody))
+		return nil, false, fmt.Errorf("DeepSeek вернул статус %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var parsed struct {
@@ -523,24 +570,43 @@ func aiGenerateGoalTasks(title, description, apiKey string) ([]goalTaskDraft, er
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
+		Usage struct {
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if len(parsed.Choices) == 0 {
-		return nil, fmt.Errorf("DeepSeek не вернул ответ")
+		return nil, false, fmt.Errorf("DeepSeek не вернул ответ")
 	}
 
-	return parseGoalTaskDrafts(parsed.Choices[0].Message.Content)
+	choice := parsed.Choices[0]
+	truncated = choice.FinishReason == "length"
+	drafts, err = parseGoalTaskDrafts(choice.Message.Content)
+	// Пишем в лог, сколько задач просили и сколько вернула модель: по этому логу
+	// видно, если ответ обрезан или модель проигнорировала количество.
+	log.Printf("GOALS: задач запрошено: %d, получено: %d, finish_reason=%s, tokens=%d",
+		want, len(drafts), choice.FinishReason, parsed.Usage.CompletionTokens)
+	if err != nil {
+		if truncated {
+			return nil, true, fmt.Errorf("ответ модели обрезан по лимиту длины — попробуйте ещё раз или уменьшите число задач")
+		}
+		return nil, false, err
+	}
+	return drafts, truncated, nil
 }
 
-// parseGoalTaskDrafts разбирает JSON-ответ модели в черновики задач и
-// нормализует поля (категория из разрешённого списка, часы >= 0).
+// parseGoalTaskDrafts разбирает JSON-ответ модели в черновики задач
+// (нормализацию делает normalizeGoalTaskDraft).
+// Количество задач не ограничиваем: сколько просили и сколько вернула модель —
+// столько и отдаём (раньше здесь молча отбрасывалось всё после 12-й задачи).
 func parseGoalTaskDrafts(content string) ([]goalTaskDraft, error) {
 	// Модель может обернуть JSON в ```json ... ``` — вырезаем содержимое.
 	s := strings.TrimSpace(content)
-	if start := strings.Index(s, "{"); start > 0 {
+	if start := strings.Index(s, "{"); start >= 0 {
 		if end := strings.LastIndex(s, "}"); end > start {
 			s = s[start : end+1]
 		}
@@ -558,34 +624,18 @@ func parseGoalTaskDrafts(content string) ([]goalTaskDraft, error) {
 		return nil, fmt.Errorf("не удалось разобрать ответ модели: %w", err)
 	}
 
-	validCategory := make(map[string]bool, len(TaskCategories))
-	for _, c := range TaskCategories {
-		validCategory[c] = true
-	}
-
 	out := make([]goalTaskDraft, 0, len(parsed.Tasks))
 	for _, t := range parsed.Tasks {
-		title := strings.TrimSpace(t.Title)
-		if title == "" {
+		d := normalizeGoalTaskDraft(goalTaskDraft{
+			Title:        t.Title,
+			Description:  t.Description,
+			Category:     t.Category,
+			PlannedHours: t.PlannedHours,
+		})
+		if d.Title == "" {
 			continue
 		}
-		category := strings.TrimSpace(t.Category)
-		if !validCategory[category] {
-			category = "Прочее"
-		}
-		hours := t.PlannedHours
-		if hours < 0 {
-			hours = 0
-		}
-		out = append(out, goalTaskDraft{
-			Title:        title,
-			Description:  strings.TrimSpace(t.Description),
-			Category:     category,
-			PlannedHours: hours,
-		})
-		if len(out) >= 12 {
-			break
-		}
+		out = append(out, d)
 	}
 	return out, nil
 }
@@ -611,7 +661,7 @@ func handleUpdateGoal(c *gin.Context) {
 	g, err := goals.update(sessData.username, id, req.Title, req.Description, req.TargetDate, req.Status)
 	if err != nil {
 		status := http.StatusBadRequest
-		if err.Error() == "цель не найдена" {
+		if errors.Is(err, errGoalNotFound) {
 			status = http.StatusNotFound
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
@@ -643,7 +693,7 @@ func handleReorderGoalTasks(c *gin.Context) {
 
 	sessData, _ := c.MustGet("session").(session)
 	if _, ok := goals.getOwned(sessData.username, id); !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "цель не найдена"})
+		c.JSON(http.StatusNotFound, gin.H{"error": errGoalNotFound.Error()})
 		return
 	}
 	if err := tasks.setGoalOrder(sessData.username, id, req.TaskIDs); err != nil {
