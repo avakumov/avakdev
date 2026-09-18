@@ -200,7 +200,8 @@ function GoalFormModal({ initial, onClose, onSaved }) {
                   <p className="text-sm font-medium">Задачи цели</p>
                   <p className="text-xs text-muted-foreground">
                     Черновики сохранятся вместе с целью (если оставить поле пустым —
-                    цель создастся без задач)
+                    цель создастся без задач). ИИ делает 5–8 задач; укажите
+                    количество в описании цели, если нужно иначе.
                   </p>
                 </div>
                 <Button
