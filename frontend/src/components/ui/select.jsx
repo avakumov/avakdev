@@ -6,6 +6,12 @@ import { cn } from "@/lib/utils"
 
 // Select — компонент выбора из списка (shadcn/ui v4, стиль radix-nova).
 // Триггер повторяет оформление Input, чтобы не выбиваться из формы.
+// size: "default" — обычное поле формы, "sm" — компактный (таблицы, фильтры).
+const triggerSizes = {
+  default: "h-8 px-2.5 py-1 text-base md:text-sm",
+  sm: "h-7 px-2 text-xs",
+};
+
 function Select({ ...props }) {
   return <SelectPrimitive.Root data-slot="select" {...props} />
 }
@@ -14,16 +20,26 @@ function SelectGroup({ ...props }) {
   return <SelectPrimitive.Group data-slot="select-group" {...props} />
 }
 
-function SelectValue({ ...props }) {
-  return <SelectPrimitive.Value data-slot="select-value" {...props} />
+function SelectValue({ className, ...props }) {
+  // Длинные подписи (например, «Приостановлена») не переносим, а обрезаем:
+  // высота триггера фиксированная, иначе текст вылезал бы за стрелку.
+  return (
+    <SelectPrimitive.Value
+      data-slot="select-value"
+      className={cn("min-w-0 truncate", className)}
+      {...props}
+    />
+  );
 }
 
-function SelectTrigger({ className, children, ...props }) {
+function SelectTrigger({ className, size = "default", children, ...props }) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
+      data-size={size}
       className={cn(
-        "flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 md:text-sm",
+        "flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-transparent whitespace-nowrap outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        triggerSizes[size] || triggerSizes.default,
         className
       )}
       {...props}
@@ -81,7 +97,7 @@ function SelectItem({ className, children, ...props }) {
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default select-none items-center gap-2 rounded-md py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex w-full cursor-default select-none items-center gap-2 rounded-md py-1.5 pl-2 pr-8 text-sm whitespace-nowrap outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

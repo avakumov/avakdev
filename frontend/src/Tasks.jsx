@@ -362,8 +362,8 @@ function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
           onValueChange={handleStatus}
           disabled={changing}
         >
-          <SelectTrigger className="h-7 w-full min-w-0 px-2 text-xs">
-            <SelectValue className="min-w-0 truncate" />
+          <SelectTrigger size="sm" className="w-full">
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {STATUSES.map((s) => (

@@ -143,7 +143,7 @@ function NotesDock() {
           оптическая поправка: строчная буква без выносных элементов в любом
           serif-шрифте сидит на пару пикселей ниже центра строки. Margin’ом
           такую поправку делать нельзя — во flex он сдвигает бокс вниз. */}
-      <span className="translate-y-[-2px] font-serif text-2xl leading-none font-medium text-neutral-900 italic">
+      <span className="-translate-y-0.5 font-serif text-2xl leading-none font-medium text-neutral-900 italic">
         з
       </span>
     </button>
