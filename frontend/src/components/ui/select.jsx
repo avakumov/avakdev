@@ -21,14 +21,17 @@ function SelectGroup({ ...props }) {
 }
 
 function SelectValue({ className, ...props }) {
-  // Длинные подписи (например, «Приостановлена») не переносим, а обрезаем:
-  // высота триггера фиксированная, иначе текст вылезал бы за стрелку.
+  // Обёртка нужна потому, что Radix у Select.Value выбрасывает className
+  // (деструктурирует и не передаёт в DOM). Без неё ни min-w-0, ни truncate на
+  // значении не работали: длинный текст не сжимался, вылезал за рамку и
+  // обрезался без многоточия.
   return (
-    <SelectPrimitive.Value
-      data-slot="select-value"
+    <span
+      data-slot="select-value-wrap"
       className={cn("min-w-0 truncate", className)}
-      {...props}
-    />
+    >
+      <SelectPrimitive.Value data-slot="select-value" {...props} />
+    </span>
   );
 }
 
@@ -38,7 +41,9 @@ function SelectTrigger({ className, size = "default", children, ...props }) {
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-transparent whitespace-nowrap outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        // overflow-hidden — гарантия, что ни значение, ни стрелка не вылезут
+        // за рамку, даже если содержимое почему-то не сжалось.
+        "flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg border border-input bg-transparent whitespace-nowrap outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         triggerSizes[size] || triggerSizes.default,
         className
       )}
@@ -97,7 +102,7 @@ function SelectItem({ className, children, ...props }) {
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default select-none items-center gap-2 rounded-md py-1.5 pl-2 pr-8 text-sm whitespace-nowrap outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex w-full cursor-default select-none items-center gap-2 rounded-md py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
