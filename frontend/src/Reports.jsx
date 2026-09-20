@@ -94,6 +94,12 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
     values.find((v) => v.metric_id === id && v.date === date)?.value;
 
   const doneCount = (items || []).filter((i) => i.done).length;
+  // Задачи, закрытые в этот день вне плана. Задачи из плана уже видны выше
+  // (зелёными), поэтому исключаем их — иначе задача дублировалась бы.
+  const planTaskIds = new Set(
+    (items || []).filter((i) => i.kind === "task").map((i) => i.ref_id),
+  );
+  const extraCompleted = completed.filter((t) => !planTaskIds.has(t.id));
   const readingSeconds = reading?.seconds || 0;
   const readingGoalSeconds = reading?.goal_seconds || 0;
   // Время чтения за день было — показываем отдельным блоком.
@@ -199,17 +205,17 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
             )}
           </div>
 
-          {/* Задачи, закрытые в этот день (в том числе вне плана) */}
-          {completed.length > 0 && (
+          {/* Задачи, закрытые в этот день вне плана */}
+          {extraCompleted.length > 0 && (
             <div className="space-y-1.5">
               <p className="flex items-center gap-1.5 text-sm font-medium">
                 <CheckCircle2 className="size-4 text-muted-foreground" />
-                Выполненные задачи
+                Выполнено вне плана
                 <span className="text-xs font-normal text-muted-foreground">
-                  · {completed.length}
+                  · {extraCompleted.length}
                 </span>
               </p>
-              {completed.map((t) => (
+              {extraCompleted.map((t) => (
                 <div
                   key={t.id}
                   className="flex w-full items-start gap-2.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-2"

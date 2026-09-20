@@ -3,6 +3,7 @@ import { useTasks, createTask, updateTask, deleteTask } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
+import { cn } from "@/lib/utils";
 
 import {
   Card,
@@ -72,7 +73,7 @@ export function taskPayload(t, extra = {}) {
 }
 
 // Часы: 2 -> "2", 2.5 -> "2.5", пусто/0 -> "0".
-const fmtHours = (h) => {
+export const fmtHours = (h) => {
   const n = Number(h || 0);
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
 };
@@ -96,6 +97,7 @@ function Textarea({ className, ...props }) {
 // Модальное окно с формой задачи (создание или редактирование).
 // goals — цели пользователя (из /api/tasks); presetGoalId — цель,
 // с которой создаётся задача сразу (кнопка «Задача» в карточке цели).
+// Удаление задачи живёт здесь же: отдельной кнопки в списке нет.
 export function TaskFormModal({
   initial,
   categories,
@@ -103,6 +105,7 @@ export function TaskFormModal({
   presetGoalId,
   onClose,
   onSaved,
+  onDeleted,
 }) {
   const [category, setCategory] = useState(initial?.category || "");
   const [title, setTitle] = useState(initial?.title || "");
@@ -128,6 +131,7 @@ export function TaskFormModal({
     return "none";
   });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const num = (v) => {
@@ -157,6 +161,21 @@ export function TaskFormModal({
     } catch (err) {
       setError(err.message || "Не удалось сохранить задачу");
       setSaving(false);
+    }
+  };
+
+  // Удаление доступно только в режиме редактирования (нечего удалять в новой).
+  const handleDelete = async () => {
+    if (!window.confirm(`Удалить задачу «${initial.title}»?`)) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteTask(initial.id);
+      (onDeleted || onSaved)?.();
+      onClose();
+    } catch (err) {
+      setError(err.message || "Не удалось удалить задачу");
+      setDeleting(false);
     }
   };
 
@@ -290,29 +309,45 @@ export function TaskFormModal({
           )}
         </CardContent>
 
-        <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            <X />
-            Отмена
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving || !title.trim()}
-          >
-            {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            {saving ? "Сохраняю…" : "Сохранить"}
-          </Button>
+        <div className="flex items-center justify-between gap-2 border-t p-4">
+          {initial ? (
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={saving || deleting}
+            >
+              {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              {deleting ? "Удаляю…" : "Удалить задачу"}
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={saving || deleting}>
+              <X />
+              Отмена
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving || deleting || !title.trim()}
+            >
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {saving ? "Сохраняю…" : "Сохранить"}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>
   );
 }
 
-// Строка таблицы задачи (desktop). Открывается по клику; элементы управления
-// (кнопка удаления, селект статуса) клик не «проглатывают».
-function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
+// Строка таблицы задачи (desktop). Открывается по клику на любую ячейку;
+// селект статуса клик не «проглатывает».
+function TaskRow({ task, goals = [], onEdit, onStatusChange }) {
   const [changing, setChanging] = useState(false);
   const goal = task.goal_id != null ? goals.find((g) => g.id === task.goal_id) : null;
+  // Выполненные задачи — в конце списка и серые, как неактивные.
+  const done = task.status === "done";
 
   const handleRowClick = (e) => {
     if (e.target.closest("button, a, input, [role='combobox']")) return;
@@ -332,10 +367,20 @@ function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
     <tr
       onClick={handleRowClick}
       title="Открыть задачу"
-      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30"
+      className={cn(
+        "cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30",
+        done && "text-muted-foreground opacity-70",
+      )}
     >
       <td className="min-w-0 px-3 py-2 align-top">
-        <p className="wrap-break-word font-medium text-foreground">{task.title}</p>
+        <p
+          className={cn(
+            "wrap-break-word font-medium",
+            done ? "text-muted-foreground" : "text-foreground",
+          )}
+        >
+          {task.title}
+        </p>
         {task.description && (
           <p className="wrap-break-word text-xs text-muted-foreground">
             {task.description}
@@ -374,24 +419,17 @@ function TaskRow({ task, goals = [], onEdit, onDelete, onStatusChange }) {
           </SelectContent>
         </Select>
       </td>
-      <td className="px-2 py-2 align-top text-right">
-        <Button
-          variant="destructive"
-          size="icon-sm"
-          onClick={() => onDelete(task)}
-        >
-          <Trash2 />
-        </Button>
-      </td>
     </tr>
   );
 }
 
 // Карточка задачи (mobile). Открывается по клику на содержимое;
-// кнопка удаления и селект статуса работают сами по себе.
-function TaskCard({ task, goals = [], onEdit, onDelete, onStatusChange }) {
+// селект статуса работает сам по себе.
+function TaskCard({ task, goals = [], onEdit, onStatusChange }) {
   const [changing, setChanging] = useState(false);
   const goal = task.goal_id != null ? goals.find((g) => g.id === task.goal_id) : null;
+  // Выполненные задачи — в конце списка и серые, как неактивные.
+  const done = task.status === "done";
 
   const handleCardClick = (e) => {
     if (e.target.closest("button, a, input, [role='combobox']")) return;
@@ -409,36 +447,35 @@ function TaskCard({ task, goals = [], onEdit, onDelete, onStatusChange }) {
 
   return (
     <Card
-      className="my-3 cursor-pointer"
+      className={cn(
+        "my-3 cursor-pointer",
+        done && "text-muted-foreground opacity-70",
+      )}
       size="sm"
       onClick={handleCardClick}
       title="Открыть задачу"
     >
       <CardContent className="space-y-3 pt-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="font-medium text-foreground">{task.title}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline">{task.category || "Прочее"}</Badge>
-              <Badge variant={statusVariant(task.status)}>
-                {statusLabel(task.status)}
+        <div className="min-w-0">
+          <p
+            className={cn(
+              "font-medium",
+              done ? "text-muted-foreground" : "text-foreground",
+            )}
+          >
+            {task.title}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline">{task.category || "Прочее"}</Badge>
+            <Badge variant={statusVariant(task.status)}>
+              {statusLabel(task.status)}
+            </Badge>
+            {goal && (
+              <Badge variant="outline">
+                <Target className="mr-1 size-3" />
+                {goal.title}
               </Badge>
-              {goal && (
-                <Badge variant="outline">
-                  <Target className="mr-1 size-3" />
-                  {goal.title}
-                </Badge>
-              )}
-            </div>
-          </div>
-          <div className="flex shrink-0 gap-1">
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => onDelete(task)}
-            >
-              <Trash2 />
-            </Button>
+            )}
           </div>
         </div>
 
@@ -517,30 +554,26 @@ function Tasks() {
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
 
-  // Фильтрация по категории и статусу.
+  // Фильтрация по категории и статусу. Выполненные — в конце списка
+  // (сортировка стабильная, внутри групп порядок сохраняется).
   const filtered = useMemo(
     () =>
-      tasks.filter(
-        (t) =>
-          (catFilter === "all" || t.category === catFilter) &&
-          (statusFilter === "all" || t.status === statusFilter),
-      ),
+      tasks
+        .filter(
+          (t) =>
+            (catFilter === "all" || t.category === catFilter) &&
+            (statusFilter === "all" || t.status === statusFilter),
+        )
+        .sort(
+          (a, b) =>
+            (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0),
+        ),
     [tasks, catFilter, statusFilter],
   );
 
   const handleStatusChange = async (task, status) => {
     await updateTask(task.id, taskPayload(task, { status }));
     refresh();
-  };
-
-  const handleDelete = async (task) => {
-    if (!window.confirm(`Удалить задачу «${task.title}»?`)) return;
-    try {
-      await deleteTask(task.id);
-      refresh();
-    } catch (err) {
-      window.alert(err.message || "Не удалось удалить задачу");
-    }
   };
 
   if (tasksQuery.isLoading) {
@@ -636,13 +669,12 @@ function Tasks() {
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
             <table className="w-full table-fixed text-sm">
               <colgroup>
-                <col className="w-[40%]" />
-                <col className="w-[10%]" />
-                <col className="w-[7%]" />
-                <col className="w-[7%]" />
-                <col className="w-[11%]" />
-                <col className="w-[14%]" />
-                <col className="w-[11%]" />
+                <col className="w-[45%]" />
+                <col className="w-[12%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[12%]" />
+                <col className="w-[15%]" />
               </colgroup>
               <thead>
                 <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -652,9 +684,6 @@ function Tasks() {
                   <th className="px-1.5 py-2 align-middle font-bold">Факт, ч</th>
                   <th className="px-1.5 py-2 align-middle font-bold">Дедлайн</th>
                   <th className="px-1.5 py-2 align-middle font-bold">Статус</th>
-                  <th className="px-2 py-2 text-right align-middle font-bold">
-                    Удалить
-                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -664,7 +693,6 @@ function Tasks() {
                     task={t}
                     goals={goals}
                     onEdit={(task) => setModal({ task })}
-                    onDelete={handleDelete}
                     onStatusChange={(status) => handleStatusChange(t, status)}
                   />
                 ))}
@@ -680,7 +708,6 @@ function Tasks() {
                 task={t}
                 goals={goals}
                 onEdit={(task) => setModal({ task })}
-                onDelete={handleDelete}
                 onStatusChange={(status) => handleStatusChange(t, status)}
               />
             ))}
@@ -695,6 +722,7 @@ function Tasks() {
           goals={goals}
           onClose={() => setModal(null)}
           onSaved={refresh}
+          onDeleted={refresh}
         />
       )}
     </section>

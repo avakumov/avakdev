@@ -9,7 +9,7 @@ import {
   generateGoalTasks,
   reorderGoalTasks,
 } from "./api.js";
-import { TaskFormModal, taskPayload, statusLabel, statusVariant } from "./Tasks.jsx";
+import { TaskFormModal, taskPayload, statusLabel, statusVariant, fmtHours } from "./Tasks.jsx";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
@@ -49,6 +49,8 @@ import {
   Check,
   Sparkles,
   GripVertical,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 // Статусы целей.
@@ -82,7 +84,8 @@ function Textarea({ className, ...props }) {
 // Модалка создания/редактирования цели.
 // При создании можно сгенерировать черновики задач (ИИ): они показываются
 // в форме, редактируются списком и сохраняются вместе с целью по «Сохранить».
-function GoalFormModal({ initial, onClose, onSaved }) {
+// Удаление цели (с опцией «удалить привязанные задачи») тоже живёт здесь.
+function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
   const isCreate = !initial;
   const [title, setTitle] = useState(initial?.title || "");
   const [description, setDescription] = useState(initial?.description || "");
@@ -92,6 +95,8 @@ function GoalFormModal({ initial, onClose, onSaved }) {
   const [truncated, setTruncated] = useState(false); // ответ модели обрезан
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteTasks, setDeleteTasks] = useState(false); // удалить задачи вместе с целью
   const [error, setError] = useState("");
 
   const removeDraft = (index) =>
@@ -156,6 +161,21 @@ function GoalFormModal({ initial, onClose, onSaved }) {
     } catch (err) {
       setError(err.message || "Не удалось сохранить цель");
       setSaving(false);
+    }
+  };
+
+  // Удаление доступно только в режиме редактирования.
+  const handleDelete = async () => {
+    if (!window.confirm(`Удалить цель «${initial.title}»?`)) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteGoal(initial.id, deleteTasks);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.message || "Не удалось удалить цель");
+      setDeleting(false);
     }
   };
 
@@ -299,6 +319,48 @@ function GoalFormModal({ initial, onClose, onSaved }) {
             </div>
           </div>
 
+          {!isCreate && (
+            <div className="space-y-2 rounded-lg border border-destructive/40 p-3">
+              <p className="flex items-center gap-1.5 text-sm font-medium text-destructive">
+                <Trash2 className="size-3.5" />
+                Удаление цели
+              </p>
+              {taskCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setDeleteTasks((v) => !v)}
+                  className="flex w-full items-start gap-2 rounded-lg border border-border/60 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+                      deleteTasks
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input bg-transparent",
+                    )}
+                  >
+                    {deleteTasks && <Check className="size-3" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-foreground">
+                      Удалить привязанные задачи
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Будет удалено {taskCount} задач
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  К цели не привязано задач.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Цель удаляется кнопкой внизу — действие необратимо.
+              </p>
+            </div>
+          )}
+
           {error && (
             <p
               className="flex items-center gap-1.5 text-sm text-destructive"
@@ -310,18 +372,32 @@ function GoalFormModal({ initial, onClose, onSaved }) {
           )}
         </CardContent>
 
-        <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            <X />
-            Отмена
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving || !title.trim()}
-          >
-            {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            {saving ? "Сохраняю…" : "Сохранить"}
-          </Button>
+        <div className="flex items-center justify-between gap-2 border-t p-4">
+          {isCreate ? (
+            <span />
+          ) : (
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={saving || deleting}
+            >
+              {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              {deleting ? "Удаляю…" : "Удалить цель"}
+            </Button>
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={saving || deleting}>
+              <X />
+              Отмена
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving || deleting || !title.trim()}
+            >
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {saving ? "Сохраняю…" : "Сохранить"}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>
@@ -467,7 +543,6 @@ function GoalCard({
   goal,
   goalTasks = [],
   onEdit,
-  onDelete,
   onStatusChange,
   onAddTask,
   onAttach,
@@ -476,9 +551,23 @@ function GoalCard({
   onMoveTask,
 }) {
   const meta = statusMeta(goal.status);
-  // Прогресс цели считается на сервере по задачам; здесь — подпись для бара.
-  const activeTasks = goalTasks.filter((t) => t.status !== "cancelled");
+  // Сворачивание карточки: в шапке всегда видны название, прогресс и часы.
+  const [open, setOpen] = useState(true);
+
+  // Прогресс цели считается на сервере по задачам; здесь — подписи для бара.
+  const orderedTasks = [...goalTasks].sort(byGoalOrder);
+  const activeTasks = orderedTasks.filter((t) => t.status !== "cancelled");
   const doneTasks = activeTasks.filter((t) => t.status === "done");
+  const sumHours = (list) =>
+    list.reduce((s, t) => s + (Number(t.planned_hours) || 0), 0);
+  const totalHours = sumHours(activeTasks);
+  const doneHours = sumHours(doneTasks);
+  // Выполненные задачи — в конце списка (как в разделе «Задачи»), остальные
+  // (включая отменённые) сохраняют заданную последовательность выполнения.
+  const displayTasks = [
+    ...orderedTasks.filter((t) => t.status !== "done"),
+    ...doneTasks,
+  ];
 
   // Перетаскивание строк для смены последовательности выполнения.
   const listRef = useRef(null);
@@ -538,7 +627,8 @@ function GoalCard({
     setOverIndex(null);
     if (from == null || over == null || over === from) return;
     // Новый порядок: вынимаем перетаскиваемую и вставляем на позицию over.
-    const items = [...goalTasks];
+    // Считаем по отображаемому списку — он же уходит на сервер.
+    const items = [...displayTasks];
     const [moved] = items.splice(from, 1);
     items.splice(over > from ? over - 1 : over, 0, moved);
     onMoveTask(goal, items.map((x) => x.id));
@@ -546,41 +636,42 @@ function GoalCard({
 
   return (
     <Card className="my-3" size="sm">
-      <CardContent className="space-y-3 pt-4">
+      {/* Шапка цели: название, статус, прогресс и часы. Клик сворачивает/разворачивает. */}
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={() => setOpen((v) => !v)}
+      >
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="wrap-break-word font-medium text-foreground">
-              {goal.title}
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <Badge variant={meta.variant}>{meta.label}</Badge>
-              {goal.target_date && (
-                <Badge variant="outline">
-                  <CalendarDays className="mr-1 size-3" />
-                  Дедлайн: <DateDisplay date={goal.target_date} />
-                </Badge>
-              )}
+          <div className="flex min-w-0 items-start gap-1.5">
+            {open ? (
+              <ChevronDown className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            )}
+            <div className="min-w-0">
+              <p className="wrap-break-word font-medium text-foreground">
+                {goal.title}
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <Badge variant={meta.variant}>{meta.label}</Badge>
+                {goal.target_date && (
+                  <Badge variant="outline">
+                    <CalendarDays className="mr-1 size-3" />
+                    Дедлайн: <DateDisplay date={goal.target_date} />
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
-          <div className="flex shrink-0 gap-1">
+          <div
+            className="flex shrink-0 gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
             <Button variant="outline" size="icon-sm" onClick={() => onEdit(goal)}>
               <Edit />
             </Button>
-            <Button
-              variant="destructive"
-              size="icon-sm"
-              onClick={() => onDelete(goal)}
-            >
-              <Trash2 />
-            </Button>
           </div>
         </div>
-
-        {goal.description && (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-            {goal.description}
-          </p>
-        )}
 
         <div className="space-y-1">
           <div className="flex items-center gap-3">
@@ -591,7 +682,8 @@ function GoalCard({
           </div>
           {activeTasks.length > 0 ? (
             <p className="text-xs text-muted-foreground">
-              Выполнено {doneTasks.length} из {activeTasks.length} задач
+              Часы: {fmtHours(doneHours)} / {fmtHours(totalHours)} · выполнено{" "}
+              {doneTasks.length} из {activeTasks.length} задач
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
@@ -607,227 +699,149 @@ function GoalCard({
               </p>
             )}
         </div>
+      </CardHeader>
 
-        <div className="border-t pt-3">
-          <Select value={goal.status} onValueChange={(s) => onStatusChange(goal, s)}>
-            <SelectTrigger className="h-8 w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUSES.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      {open && (
+        <CardContent className="space-y-3">
+          {goal.description && (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+              {goal.description}
+            </p>
+          )}
 
-        {/* Задачи цели: список привязанных, создание новой и привязка существующей */}
-        <div className="border-t pt-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-              <ListTodo className="size-3.5" />
-              Задачи цели ({goalTasks.length})
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              <Button variant="outline" size="sm" onClick={() => onAddTask(goal)}>
-                <Plus />
-                Задача
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => onAttach(goal)}>
-                <Link2 />
-                Привязать
-              </Button>
-            </div>
+          <div className="border-t pt-3">
+            <Select
+              value={goal.status}
+              onValueChange={(s) => onStatusChange(goal, s)}
+            >
+              <SelectTrigger className="h-8 w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUSES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          {goalTasks.length > 1 && (
-            <p className="mb-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-              <GripVertical className="size-3" />
-              Перетащите задачу за ручку, чтобы изменить порядок выполнения
-            </p>
-          )}
+          {/* Задачи цели: список привязанных, создание новой и привязка существующей */}
+          <div className="border-t pt-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                <ListTodo className="size-3.5" />
+                Задачи цели ({goalTasks.length})
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <Button variant="outline" size="sm" onClick={() => onAddTask(goal)}>
+                  <Plus />
+                  Задача
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => onAttach(goal)}>
+                  <Link2 />
+                  Привязать
+                </Button>
+              </div>
+            </div>
 
-          {goalTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Задач пока нет — добавьте новую или привяжите существующую.
-            </p>
-          ) : (
-            <ul ref={listRef} className="space-y-1.5">
-              {goalTasks.map((t, i) => {
-                const dragging = dragIndex === i;
-                const dropOver =
-                  overIndex === i && dragIndex !== null && dragIndex !== i;
-                return (
-                  <li
-                    key={t.id}
-                    data-goal-task="true"
-                    className={cn(
-                      "flex items-start justify-between gap-1.5 rounded-lg border border-border/60 px-2 py-1.5 transition-colors",
-                      dragging
-                        ? "opacity-50"
-                        : "hover:bg-muted/40",
-                      dropOver && "border-primary/70 ring-1 ring-primary/40",
-                    )}
-                  >
-                    {/* Номер по порядку выполнения */}
-                    <span
-                      className="w-5 shrink-0 pt-1.5 text-center text-xs font-medium tabular-nums text-muted-foreground"
-                      aria-hidden="true"
+            {displayTasks.length > 1 && (
+              <p className="mb-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+                <GripVertical className="size-3" />
+                Перетащите задачу за ручку, чтобы изменить порядок выполнения
+              </p>
+            )}
+
+            {displayTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Задач пока нет — добавьте новую или привяжите существующую.
+              </p>
+            ) : (
+              <ul ref={listRef} className="space-y-1.5">
+                {displayTasks.map((t, i) => {
+                  const dragging = dragIndex === i;
+                  const dropOver =
+                    overIndex === i && dragIndex !== null && dragIndex !== i;
+                  const done = t.status === "done";
+                  return (
+                    <li
+                      key={t.id}
+                      data-goal-task="true"
+                      className={cn(
+                        "flex items-start justify-between gap-1.5 rounded-lg border border-border/60 px-2 py-1.5 transition-colors",
+                        dragging ? "opacity-50" : "hover:bg-muted/40",
+                        // Выполненные задачи — серые, как неактивные.
+                        done && "text-muted-foreground opacity-60",
+                        dropOver && "border-primary/70 ring-1 ring-primary/40",
+                      )}
                     >
-                      {i + 1}
-                    </span>
-                    {/* Ручка перетаскивания (меняет последовательность) */}
-                    <button
-                      type="button"
-                      onPointerDown={(e) => startDrag(e, i)}
-                      onPointerMove={moveDrag}
-                      onPointerUp={endDrag}
-                      onPointerCancel={endDrag}
-                      onLostPointerCapture={endDrag}
-                      style={{ touchAction: "none" }}
-                      title="Перетащите, чтобы изменить порядок выполнения"
-                      aria-label={`Переместить задачу «${t.title}»`}
-                      className="mt-0.5 shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground transition-colors select-none hover:bg-muted hover:text-foreground active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      <GripVertical className="size-3.5" />
-                    </button>
-                    {/* Клик по задаче открывает её (редактирование) */}
-                    <button
-                      type="button"
-                      onClick={() => onOpenTask(t)}
-                      title="Открыть задачу"
-                      className="min-w-0 flex-1 cursor-pointer rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      <span className="wrap-break-word block text-sm font-medium text-foreground">
-                        {t.title}
+                      {/* Номер по порядку выполнения */}
+                      <span
+                        className="w-5 shrink-0 pt-1.5 text-center text-xs font-medium tabular-nums text-muted-foreground"
+                        aria-hidden="true"
+                      >
+                        {i + 1}
                       </span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                        <Badge variant={statusVariant(t.status)}>
-                          {statusLabel(t.status)}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {t.category || "Прочее"}
-                          {Number(t.planned_hours) > 0 &&
-                            ` · План: ${t.planned_hours} ч`}
+                      {/* Ручка перетаскивания (меняет последовательность) */}
+                      <button
+                        type="button"
+                        onPointerDown={(e) => startDrag(e, i)}
+                        onPointerMove={moveDrag}
+                        onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
+                        onLostPointerCapture={endDrag}
+                        style={{ touchAction: "none" }}
+                        title="Перетащите, чтобы изменить порядок выполнения"
+                        aria-label={`Переместить задачу «${t.title}»`}
+                        className="mt-0.5 shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground transition-colors select-none hover:bg-muted hover:text-foreground active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <GripVertical className="size-3.5" />
+                      </button>
+                      {/* Клик по задаче открывает её (редактирование) */}
+                      <button
+                        type="button"
+                        onClick={() => onOpenTask(t)}
+                        title="Открыть задачу"
+                        className="min-w-0 flex-1 cursor-pointer rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <span
+                          className={cn(
+                            "wrap-break-word block text-sm font-medium",
+                            done ? "text-muted-foreground" : "text-foreground",
+                          )}
+                        >
+                          {t.title}
                         </span>
-                      </span>
-                    </button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="-mt-1 -mr-1 shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => onUnlink(t)}
-                      aria-label="Отвязать задачу от цели"
-                    >
-                      <Link2Off className="size-4" />
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Модалка удаления цели с опцией «удалить привязанные задачи».
-function DeleteGoalModal({ goal, taskCount, onClose, onDeleted }) {
-  const [deleteTasks, setDeleteTasks] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    setError("");
-    try {
-      await deleteGoal(goal.id, deleteTasks);
-      onDeleted();
-      onClose();
-    } catch (err) {
-      setError(err.message || "Не удалось удалить цель");
-      setDeleting(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
-            <Trash2 className="size-4" />
-            Удалить цель
-          </CardTitle>
-          <CardDescription>
-            «{goal.title}» будет удалена. Действие необратимо.
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent className="space-y-3">
-          {taskCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setDeleteTasks((v) => !v)}
-              className="flex w-full items-start gap-2 rounded-lg border border-border/60 px-3 py-2 text-left transition-colors hover:bg-muted/40"
-            >
-              <span
-                className={cn(
-                  "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
-                  deleteTasks
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-input bg-transparent",
-                )}
-              >
-                {deleteTasks && <Check className="size-3" />}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-foreground">
-                  Удалить привязанные задачи
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  Будут удалены {taskCount} привязанных задач
-                </span>
-              </span>
-            </button>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              К цели не привязано задач.
-            </p>
-          )}
-
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
+                        <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                          <Badge variant={statusVariant(t.status)}>
+                            {statusLabel(t.status)}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {t.category || "Прочее"}
+                            {Number(t.planned_hours) > 0 &&
+                              ` · План: ${t.planned_hours} ч`}
+                          </span>
+                        </span>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="-mt-1 -mr-1 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => onUnlink(t)}
+                        aria-label="Отвязать задачу от цели"
+                      >
+                        <Link2Off className="size-4" />
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </CardContent>
-
-        <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={deleting}>
-            <X />
-            Отмена
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={deleting}
-          >
-            {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
-            {deleting ? "Удаляю…" : "Удалить"}
-          </Button>
-        </div>
-      </Card>
-    </div>
+      )}
+    </Card>
   );
 }
 
@@ -841,7 +855,6 @@ function Goals() {
   const [taskModalGoal, setTaskModalGoal] = useState(null); // новая задача для цели
   const [attachGoal, setAttachGoal] = useState(null); // привязка задач к цели
   const [editTask, setEditTask] = useState(null); // открытая задача цели (редактирование)
-  const [deleteGoalCandidate, setDeleteGoalCandidate] = useState(null); // удаляемая цель
 
   const refreshGoals = () =>
     queryClient.invalidateQueries({ queryKey: ["goals"] });
@@ -947,7 +960,6 @@ function Goals() {
               .filter((t) => t.goal_id === g.id)
               .sort(byGoalOrder)}
             onEdit={(goal) => setModal({ goal })}
-            onDelete={(goal) => setDeleteGoalCandidate(goal)}
             onStatusChange={handleStatusChange}
             onAddTask={(goal) => setTaskModalGoal(goal)}
             onAttach={(goal) => setAttachGoal(goal)}
@@ -961,6 +973,12 @@ function Goals() {
       {modal && (
         <GoalFormModal
           initial={modal.goal}
+          // Сколько задач привязано — нужно для опции «удалить вместе с целью».
+          taskCount={
+            modal.goal
+              ? allTasks.filter((t) => t.goal_id === modal.goal.id).length
+              : 0
+          }
           onClose={() => setModal(null)}
           // При создании цели с черновиками задач сохраняются и задачи —
           // обновляем оба кэша, иначе задачи не появятся до перезагрузки.
@@ -997,16 +1015,6 @@ function Goals() {
           goals={goals}
           onClose={() => setEditTask(null)}
           onSaved={refreshAll}
-        />
-      )}
-
-      {deleteGoalCandidate && (
-        <DeleteGoalModal
-          goal={deleteGoalCandidate}
-          taskCount={
-            allTasks.filter((t) => t.goal_id === deleteGoalCandidate.id).length
-          }
-          onClose={() => setDeleteGoalCandidate(null)}
           onDeleted={refreshAll}
         />
       )}

@@ -198,8 +198,8 @@ function NoteReadModal({ note, done, onClose, onRepeat }) {
 
 // Отчёт за текущий день (как в разделе «Отчёты», но без выбора даты):
 // показывается в конце дня; если отчёт на дату уже есть — его можно
-// перезаписать. completed — задачи, закрытые в этот день.
-function DayReportCard({ date, completed = [] }) {
+// перезаписать. Здесь только текст: выполненные задачи видны в «Плане дня».
+function DayReportCard({ date }) {
   const queryClient = useQueryClient();
   const reportsQuery = useReports(true);
   const [draft, setDraft] = useState("");
@@ -241,35 +241,6 @@ function DayReportCard({ date, completed = [] }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        {completed.length > 0 && (
-          <div className="space-y-1.5 pb-1">
-            <p className="flex items-center gap-1.5 text-sm font-medium">
-              <CheckCircle2 className="size-4 text-muted-foreground" />
-              Выполненные задачи
-              <span className="text-xs font-normal text-muted-foreground">
-                · {completed.length}
-              </span>
-            </p>
-            {completed.map((t) => (
-              <div
-                key={t.id}
-                className="flex w-full items-start gap-2.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-2"
-              >
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <span className="min-w-0 flex-1">
-                  <span className="wrap-break-word block text-sm font-medium text-foreground">
-                    {t.title}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {t.category || "Прочее"}
-                    {t.done_at ? " · выполнена " : ""}
-                    <DateDisplay date={t.done_at} withTime />
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
         <textarea
           data-slot="textarea"
           value={draft}
@@ -630,6 +601,13 @@ function Day({ onNavigate }) {
     await reloadPlan();
   };
 
+  // После удаления задачи из модалки: обновляем список задач и план дня
+  // (удалённая задача могла быть в плане).
+  const handleTaskDeleted = () => {
+    queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    reloadPlan();
+  };
+
   // После «Я повторил» в модалке конспекта: помечаем выполненной и
   // убираем из плана (повторение уже состоялось).
   const handleNoteRepeated = async (note) => {
@@ -725,6 +703,18 @@ function Day({ onNavigate }) {
       .filter((c) => c.selected)
       .reduce((s, c) => s + c.minutes, 0);
   }, [suggest]);
+
+  // Задачи, закрытые сегодня, но не попавшие в план дня: показываем их в
+  // «Плане дня» зелёными. Задача из плана не дублируется — она уже в списке
+  // позиций (там же отмечена выполненной).
+  const planTaskIds = new Set(
+    (savedPlan?.items || [])
+      .filter((it) => it.kind === "task")
+      .map((it) => it.ref_id),
+  );
+  const extraDoneTasks = (savedPlan?.completed_tasks || []).filter(
+    (t) => !planTaskIds.has(t.id),
+  );
 
   return (
     <section>
@@ -850,8 +840,9 @@ function Day({ onNavigate }) {
           </div>
         </>
       ) : (
-        /* Уже сформированный день (если есть) */
-        savedPlan?.items?.length > 0 && (
+        /* Уже сформированный день + задачи, закрытые вне плана */
+        savedPlan &&
+        ((savedPlan.items || []).length > 0 || extraDoneTasks.length > 0) && (
           <Card className="my-3" size="sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
@@ -863,7 +854,7 @@ function Day({ onNavigate }) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-1.5">
-              {savedPlan.items.map((it, i) => {
+              {(savedPlan.items || []).map((it, i) => {
                 const done = Boolean(
                   it.done || doneKeys[`${it.kind}:${it.ref_id}`],
                 );
@@ -895,9 +886,31 @@ function Day({ onNavigate }) {
                   </button>
                 );
               })}
-              <p className="pt-1 text-xs text-muted-foreground">
-                Чтобы изменить план — задайте время выше и нажмите «Сформировать».
-              </p>
+              {/* Задачи, закрытые сегодня, но не сформированные в план дня */}
+              {extraDoneTasks.map((t) => (
+                <button
+                  key={`done-${t.id}`}
+                  type="button"
+                  onClick={() => openByKind("task", t.id)}
+                  className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-left transition-colors hover:bg-muted/40"
+                  title="Открыть"
+                >
+                  <span className="flex min-w-0 items-center gap-1.5 text-sm">
+                    <span className="shrink-0">☑</span>
+                    <span className="min-w-0 truncate">{t.title}</span>
+                    <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    <DateDisplay date={t.done_at} withTime />
+                  </span>
+                </button>
+              ))}
+              {(savedPlan.items || []).length > 0 && (
+                <p className="pt-1 text-xs text-muted-foreground">
+                  Чтобы изменить план — задайте время выше и нажмите
+                  «Сформировать».
+                </p>
+              )}
             </CardContent>
           </Card>
         )
@@ -1059,10 +1072,7 @@ function Day({ onNavigate }) {
       </Card>
 
       {/* Отчёт за сегодня — в конце дня */}
-      <DayReportCard
-        date={date}
-        completed={savedPlan?.completed_tasks || []}
-      />
+      <DayReportCard date={date} />
 
       {/* Модалки из списка кандидатов */}
       {openTask && (
@@ -1072,6 +1082,7 @@ function Day({ onNavigate }) {
           goals={tasksQuery.data?.goals || []}
           onClose={() => setOpenTask(null)}
           onSaved={handleTaskSaved}
+          onDeleted={handleTaskDeleted}
         />
       )}
       {openNote && (
