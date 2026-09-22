@@ -3,6 +3,7 @@ import { useFeedItems, markFeedItemShown, reactToFeedItem } from "./api.js";
 import { useSwipeNav } from "./lib/useSwipeNav.js";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import MarkdownView from "./MarkdownView.jsx";
 import { Loader2, AlertCircle, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,12 @@ import { cn } from "@/lib/utils";
 const MIN_FONT = 11;
 const MAX_FONT = 32;
 const FONT_MARGIN = 48 + 12 + 8;
+
+// Оформление Markdown внутри карточки: без собственной подложки и отступов
+// (MarkdownView bare), кегль и цвет наследуются от карточки, переносы строк из
+// исходного текста сохраняем. Вопрос, ответ и объяснение — Markdown,
+// потому что в них бывают примеры кода.
+const MD_FEED = "leading-snug whitespace-pre-wrap";
 
 // Один элемент ленты: сначала вопрос, ответ — после касания.
 //
@@ -37,6 +44,21 @@ function FeedItem({ item }) {
     know: item.know_count || 0,
     unknown: item.unknown_count || 0,
   });
+
+  // Объяснение и примеры: необязательное поле, показывается по кнопке
+  // «подробнее…» под ответом.
+  const [showDetails, setShowDetails] = useState(false);
+  const hasDetails = Boolean(item.details && item.details.trim());
+  const detailsOpen = showDetails && open;
+  // Мельче подобранного кегля: объяснение — второстепенный текст.
+  const detailsFont = Math.max(10, Math.round(font * 0.7));
+
+  // Тап по карточке раскрывает ответ. Клики по кнопкам (реакции, «подробнее»)
+  // не считаем — они делают своё дело.
+  const onCardClick = (e) => {
+    if (e.target.closest("button")) return;
+    setOpen((v) => !v);
+  };
 
   useEffect(() => {
     if (counted.current) return;
@@ -98,110 +120,145 @@ function FeedItem({ item }) {
   };
 
   return (
-    <div className="relative flex min-h-dvh w-full flex-col bg-card p-6">
+    <div
+      className="relative flex min-h-dvh w-full cursor-pointer flex-col bg-card p-6 text-center"
+      onClick={onCardClick}
+      title={open ? "Скрыть ответ" : "Показать ответ"}
+    >
       {/* Невидимый дубль для замера: повторяет раскрытое состояние (раздел,
           вопрос, ответ) — поэтому кегль считается точно. */}
-      <span
+      <div
         ref={measureRef}
         aria-hidden="true"
         className="invisible pointer-events-none absolute inset-x-6 top-6 flex flex-col gap-[0.6em] leading-snug"
       >
         {item.topic && (
-          <span style={{ fontSize: "0.75em" }}>{item.topic}</span>
+          <div style={{ fontSize: "0.75em" }}>{item.topic}</div>
         )}
-        <span className="font-medium wrap-break-word">{item.question}</span>
-        <span className="whitespace-pre-wrap wrap-break-word">
+        <MarkdownView bare className={MD_FEED}>
+          {item.question}
+        </MarkdownView>
+        <MarkdownView bare className={MD_FEED}>
           {item.answer}
-        </span>
-      </span>
+        </MarkdownView>
+        {/* Кнопка «подробнее…» и схлопнутое объяснение тоже дают высоту в
+            раскрытом состоянии — учитываем её, иначе текст не влезет в экран. */}
+        {hasDetails && <div className="h-9" />}
+        {hasDetails && <div className="h-0" />}
+      </div>
 
-      {/* Область чтения: тап раскрывает/скрывает ответ. Цвет не меняем. */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title={open ? "Скрыть ответ" : "Показать ответ"}
-        className="flex flex-1 cursor-pointer flex-col overflow-hidden text-center"
-      >
-        <span
-          className="m-auto flex w-full flex-col gap-[0.6em] leading-snug"
-          style={{ fontSize: `${font}px` }}
-        >
-          {/* Раздел (область) — чтобы по короткому вопросу было понятно,
-              откуда он. Мелким кеглем и приглушённо. */}
-          {item.topic && (
-            <span
-              className="text-muted-foreground"
-              style={{ fontSize: "0.75em" }}
-            >
-              {item.topic}
-            </span>
-          )}
-
-          <span className="font-medium wrap-break-word text-foreground">
-            {item.question}
-          </span>
-
-          {/* Подсказка не нужна: пока ответ скрыт, под вопросом ничего нет,
-              ответ растёт по высоте при касании (0fr → 1fr). */}
-          <span
-            className="grid transition-[grid-template-rows] duration-500 ease-out"
-            style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
-            aria-hidden={!open}
-          >
-            <span className="min-h-0 overflow-hidden whitespace-pre-wrap wrap-break-word text-muted-foreground">
-              {item.answer}
-            </span>
-          </span>
-        </span>
-      </button>
-
-      {/* Реакции: одна за показ, счётчики — в индикаторе на кнопке. */}
+      {/* Содержимое: раздел, вопрос, ответ. Ответ растёт по высоте при касании. */}
       <div
-        ref={rowRef}
-        className="mt-3 flex flex-wrap items-center justify-center gap-20"
+        className="m-auto flex w-full flex-col gap-[0.6em] leading-snug"
+        style={{ fontSize: `${font}px` }}
       >
-        <Button
-          variant="outline"
-          size="icon-lg"
-          className={cn(
-            "relative size-14 rounded-full",
-            // Выбранная — с цветной заливкой и без общего «погашения»
-            // неактивной кнопки (иначе выбор не видно).
-            voted === "know" &&
-              "border-emerald-500/60 bg-emerald-500/15 disabled:opacity-100 dark:border-emerald-500/60 dark:bg-emerald-500/20",
-          )}
-          onClick={() => react("know")}
-          disabled={Boolean(voted)}
-          title="Знаю"
-          aria-label={`Знаю (${counts.know})`}
-          aria-pressed={voted === "know"}
+        {/* Раздел (область) — чтобы по короткому вопросу было понятно,
+            откуда он. Мелким кеглем и приглушённо. */}
+        {item.topic && (
+          <div
+            className="text-muted-foreground"
+            style={{ fontSize: "0.75em" }}
+          >
+            {item.topic}
+          </div>
+        )}
+
+        <MarkdownView bare className={cn(MD_FEED, "font-medium text-foreground")}>
+          {item.question}
+        </MarkdownView>
+
+        <div
+          className="grid transition-[grid-template-rows] duration-500 ease-out"
+          style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+          aria-hidden={!open}
         >
-          {/* Галочка — «знаю»: не «нравится», а «знаю ответ». */}
-          <Check className="size-7 text-emerald-600 dark:text-emerald-400" />
-          <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold tabular-nums text-background">
-            {counts.know}
-          </span>
-        </Button>
-        <Button
-          variant="outline"
-          size="icon-lg"
-          className={cn(
-            "relative size-14 rounded-full",
-            voted === "unknown" &&
-              "border-destructive/60 bg-destructive/15 disabled:opacity-100 dark:border-destructive/60 dark:bg-destructive/20",
-          )}
-          onClick={() => react("unknown")}
-          disabled={Boolean(voted)}
-          title="Не знаю"
-          aria-label={`Не знаю (${counts.unknown})`}
-          aria-pressed={voted === "unknown"}
-        >
-          {/* Крестик — «не знаю». */}
-          <X className="size-7 text-destructive" />
-          <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold tabular-nums text-background">
-            {counts.unknown}
-          </span>
-        </Button>
+          <div className="min-h-0 overflow-hidden">
+            <MarkdownView bare className={cn(MD_FEED, "text-muted-foreground")}>
+              {item.answer}
+            </MarkdownView>
+          </div>
+        </div>
+
+        {hasDetails && (
+          <>
+            {/* Кнопка — сразу под ответом. Пока ответ скрыт, не показываем,
+                но место держим: геометрия не меняется при раскрытии. */}
+            <Button
+              variant="outline"
+              size="lg"
+              className={cn("self-center", !open && "invisible")}
+              onClick={() => setShowDetails((v) => !v)}
+            >
+              {detailsOpen ? "свернуть" : "подробнее…"}
+            </Button>
+
+            {/* Объяснение и примеры — тем же раскрытием по высоте. */}
+            <div
+              className="grid transition-[grid-template-rows] duration-500 ease-out"
+              style={{ gridTemplateRows: detailsOpen ? "1fr" : "0fr" }}
+              aria-hidden={!detailsOpen}
+              // Тап внутри объяснения не должен схлопывать карточку.
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="min-h-0 overflow-hidden text-left"
+                style={{ fontSize: `${detailsFont}px` }}
+              >
+                <MarkdownView bare className={MD_FEED}>
+                  {item.details}
+                </MarkdownView>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Низ карточки: реакции. */}
+      <div ref={rowRef} className="mt-3 flex flex-col items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-20">
+          <Button
+            variant="outline"
+            size="icon-lg"
+            className={cn(
+              "relative size-14 rounded-full",
+              // Выбранная — с цветной заливкой и без общего «погашения»
+              // неактивной кнопки (иначе выбор не видно).
+              voted === "know" &&
+                "border-emerald-500/60 bg-emerald-500/15 disabled:opacity-100 dark:border-emerald-500/60 dark:bg-emerald-500/20",
+            )}
+            onClick={() => react("know")}
+            disabled={Boolean(voted)}
+            title="Знаю"
+            aria-label={`Знаю (${counts.know})`}
+            aria-pressed={voted === "know"}
+          >
+            {/* Галочка — «знаю»: не «нравится», а «знаю ответ». */}
+            <Check className="size-7 text-emerald-600 dark:text-emerald-400" />
+            <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold tabular-nums text-background">
+              {counts.know}
+            </span>
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-lg"
+            className={cn(
+              "relative size-14 rounded-full",
+              voted === "unknown" &&
+                "border-destructive/60 bg-destructive/15 disabled:opacity-100 dark:border-destructive/60 dark:bg-destructive/20",
+            )}
+            onClick={() => react("unknown")}
+            disabled={Boolean(voted)}
+            title="Не знаю"
+            aria-label={`Не знаю (${counts.unknown})`}
+            aria-pressed={voted === "unknown"}
+          >
+            {/* Крестик — «не знаю». */}
+            <X className="size-7 text-destructive" />
+            <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold tabular-nums text-background">
+              {counts.unknown}
+            </span>
+          </Button>
+        </div>
       </div>
     </div>
   );

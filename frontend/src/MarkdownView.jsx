@@ -1,9 +1,13 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { cn } from "@/lib/utils";
 
 // Отрисовка Markdown-контента в HTML. Используется вместо сырого <pre>,
 // чтобы заголовки, списки, жирный текст и т.п. отображались корректно.
-function MarkdownView({ children, className }) {
+// bare — без собственной оболочки (подложка, отступы, text-sm): нужно там,
+// где кегль и цвета задаёт родитель (например, карточка ленты с адаптивным
+// кеглем). className всегда дополняет/переопределяет оформление.
+function MarkdownView({ children, className, bare = false }) {
   // Стилизация каждого элемента Markdown отдельно (без tailwind-плагина typography).
   const components = {
     h1: (props) => <h1 className="text-base font-semibold" {...props} />,
@@ -54,10 +58,12 @@ function MarkdownView({ children, className }) {
 
   return (
     <div
-      className={
-        "space-y-0 rounded-md bg-muted/40 p-3 text-sm leading-relaxed text-foreground " +
-        (className || "")
-      }
+      className={cn(
+        // bare — обёртку оформляет родитель (кегль и цвета задаёт карточка).
+        !bare &&
+          "space-y-0 rounded-md bg-muted/40 p-3 text-sm leading-relaxed text-foreground",
+        className,
+      )}
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {children}
