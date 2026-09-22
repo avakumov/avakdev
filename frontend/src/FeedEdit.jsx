@@ -37,8 +37,7 @@ import {
   Trash2,
   Eye,
   Sparkles,
-  ThumbsUp,
-  ThumbsDown,
+  Check,
 } from "lucide-react";
 
 // Типы контента ленты. Пока один — «вопрос-ответ» (размеры полей проверяет
@@ -66,18 +65,21 @@ function Textarea({ className, ...props }) {
 function FeedItemModal({ initial, onClose, onSaved }) {
   const isCreate = !initial;
   const [kind, setKind] = useState(initial?.kind || "qa");
+  const [topic, setTopic] = useState(initial?.topic || "");
   const [question, setQuestion] = useState(initial?.question || "");
   const [answer, setAnswer] = useState(initial?.answer || "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
-  const ready = question.trim() !== "" && answer.trim() !== "";
+  // Раздел, вопрос и ответ обязательны.
+  const ready =
+    topic.trim() !== "" && question.trim() !== "" && answer.trim() !== "";
 
   const handleSave = async () => {
     setSaving(true);
     setError("");
-    const payload = { kind, question, answer };
+    const payload = { kind, topic, question, answer };
     try {
       if (initial) await updateFeedItem(initial.id, payload);
       else await createFeedItem(payload);
@@ -144,6 +146,15 @@ function FeedItemModal({ initial, onClose, onSaved }) {
           </div>
 
           <div className="space-y-1.5">
+            <Label>Раздел</Label>
+            <Input
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="golang, linux, ооп…"
+            />
+          </div>
+
+          <div className="space-y-1.5">
             <Label>Вопрос</Label>
             <Textarea
               value={question}
@@ -172,14 +183,14 @@ function FeedItemModal({ initial, onClose, onSaved }) {
               </p>
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="flex items-center gap-1.5">
-                  <ThumbsUp className="size-4" />
+                  <Check className="size-4" />
                   знаю:{" "}
                   <span className="tabular-nums text-foreground">
                     {initial.know_count ?? 0}
                   </span>
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <ThumbsDown className="size-4" />
+                  <X className="size-4" />
                   не знаю:{" "}
                   <span className="tabular-nums text-foreground">
                     {initial.unknown_count ?? 0}
@@ -269,6 +280,7 @@ function FeedGenerateModal({ onClose, onSaved }) {
       });
       setDrafts(
         (data.items || []).map((it) => ({
+          topic: it.topic || "",
           question: it.question || "",
           answer: it.answer || "",
         })),
@@ -289,10 +301,11 @@ function FeedGenerateModal({ onClose, onSaved }) {
       await createFeedItemsBulk(
         drafts
           .map((d) => ({
+            topic: String(d.topic || "").trim(),
             question: String(d.question || "").trim(),
             answer: String(d.answer || "").trim(),
           }))
-          .filter((d) => d.question && d.answer),
+          .filter((d) => d.topic && d.question && d.answer),
       );
       onSaved();
       onClose();
@@ -318,7 +331,7 @@ function FeedGenerateModal({ onClose, onSaved }) {
           </CardTitle>
           <CardDescription>
             Укажите тему, описание и количество — созданные элементы можно
-            удалить перед сохранением.
+            удалить перед сохранением. Раздел каждого элемента ИИ подберёт сам.
           </CardDescription>
         </CardHeader>
 
@@ -389,6 +402,11 @@ function FeedGenerateModal({ onClose, onSaved }) {
                     className="flex items-start justify-between gap-2 border border-border/60 px-2 py-1.5"
                   >
                     <div className="min-w-0">
+                      {d.topic && (
+                        <Badge variant="secondary" className="mb-1">
+                          {d.topic}
+                        </Badge>
+                      )}
                       <p className="wrap-break-word text-sm font-medium text-foreground">
                         {d.question}
                       </p>
@@ -504,19 +522,22 @@ function FeedEdit() {
             <CardContent className="flex items-start gap-2">
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant="secondary">{kindLabel(item.kind)}</Badge>
+                  {item.topic && (
+                    <Badge variant="secondary">{item.topic}</Badge>
+                  )}
+                  <Badge variant="outline">{kindLabel(item.kind)}</Badge>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Eye className="size-3" />
                     показов:{" "}
                     <span className="tabular-nums">{item.views ?? 0}</span>
                   </span>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <ThumbsUp className="size-3" />
+                    <Check className="size-3" />
                     знаю:{" "}
                     <span className="tabular-nums">{item.know_count ?? 0}</span>
                   </span>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <ThumbsDown className="size-3" />
+                    <X className="size-3" />
                     не знаю:{" "}
                     <span className="tabular-nums">
                       {item.unknown_count ?? 0}

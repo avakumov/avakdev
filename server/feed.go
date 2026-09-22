@@ -23,8 +23,10 @@ import (
 
 // FeedItem — элемент ленты.
 type FeedItem struct {
-	ID       int    `json:"id"`
-	Kind     string `json:"kind"`
+	ID   int    `json:"id"`
+	Kind string `json:"kind"`
+	// Topic — раздел (область) элемента: короткое слово вроде «golang».
+	Topic    string `json:"topic"`
 	Question string `json:"question"`
 	Answer   string `json:"answer"`
 	Views    int    `json:"views"`
@@ -46,12 +48,14 @@ const (
 
 // feedDraft — черновик элемента ленты, который предлагает ИИ (ещё не в БД).
 type feedDraft struct {
+	Topic    string `json:"topic"`
 	Question string `json:"question"`
 	Answer   string `json:"answer"`
 }
 
 // Предельные размеры полей элемента (символов).
 const (
+	maxFeedTopicRunes    = 40
 	maxFeedQuestionRunes = 2000
 	maxFeedAnswerRunes   = 20000
 )
@@ -60,41 +64,49 @@ const (
 const (
 	feedCreatedExpr = `to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 	feedUpdatedExpr = `to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
-	feedSelectCols  = `id, kind, question, answer, views, know_count, unknown_count, ` +
+	feedSelectCols  = `id, kind, topic, question, answer, views, know_count, unknown_count, ` +
 		feedCreatedExpr + `, ` + feedUpdatedExpr
 )
 
 // feedPayload проверяет и нормализует поля элемента ленты.
-func feedPayload(kind, question, answer string) (string, string, string, error) {
+// Раздел (topic), вопрос и ответ обязательны.
+func feedPayload(kind, topic, question, answer string) (string, string, string, string, error) {
 	kind = strings.TrimSpace(kind)
 	if kind == "" {
 		kind = feedKindQA
 	}
 	if kind != feedKindQA {
-		return "", "", "", errors.New("неизвестный тип контента")
+		return "", "", "", "", errors.New("неизвестный тип контента")
+	}
+	t := strings.TrimSpace(topic)
+	if t == "" {
+		return "", "", "", "", errors.New("укажите раздел")
+	}
+	if len([]rune(t)) > maxFeedTopicRunes {
+		return "", "", "", "", errors.New("раздел слишком длинный")
 	}
 	q := strings.TrimSpace(question)
 	a := strings.TrimSpace(answer)
 	if q == "" {
-		return "", "", "", errors.New("укажите вопрос")
+		return "", "", "", "", errors.New("укажите вопрос")
 	}
 	if len([]rune(q)) > maxFeedQuestionRunes {
-		return "", "", "", errors.New("вопрос слишком длинный")
+		return "", "", "", "", errors.New("вопрос слишком длинный")
 	}
 	if a == "" {
-		return "", "", "", errors.New("укажите ответ")
+		return "", "", "", "", errors.New("укажите ответ")
 	}
 	if len([]rune(a)) > maxFeedAnswerRunes {
-		return "", "", "", errors.New("ответ слишком длинный")
+		return "", "", "", "", errors.New("ответ слишком длинный")
 	}
-	return kind, q, a, nil
+	return kind, t, q, a, nil
 }
 
 // feedScan собирает FeedItem из строки результата.
 // Порядок полей — как в feedSelectCols.
 func feedScan(row interface{ Scan(...any) error }) (FeedItem, error) {
 	var it FeedItem
-	err := row.Scan(&it.ID, &it.Kind, &it.Question, &it.Answer, &it.Views,
+	err := row.Scan(&it.ID, &it.Kind, &it.Topic, &it.Question, &it.Answer, &it.Views,
 		&it.KnowCount, &it.UnknownCount, &it.Created, &it.Updated)
 	return it, err
 }
@@ -122,10 +134,11 @@ func handleListFeed(c *gin.Context) {
 }
 
 // handleCreateFeedItem добавляет элемент ленты.
-// Тело: {"kind": "qa", "question": "...", "answer": "..."}
+// Тело: {"kind": "qa", "topic": "golang", "question": "...", "answer": "..."}
 func handleCreateFeedItem(c *gin.Context) {
 	var req struct {
 		Kind     string `json:"kind"`
+		Topic    string `json:"topic"`
 		Question string `json:"question"`
 		Answer   string `json:"answer"`
 	}
@@ -133,7 +146,7 @@ func handleCreateFeedItem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
 		return
 	}
-	kind, question, answer, err := feedPayload(req.Kind, req.Question, req.Answer)
+	kind, topic, question, answer, err := feedPayload(req.Kind, req.Topic, req.Question, req.Answer)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -141,10 +154,10 @@ func handleCreateFeedItem(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
 	it, err := feedScan(db.QueryRow(context.Background(),
-		`INSERT INTO feed_items (username, kind, question, answer)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO feed_items (username, kind, topic, question, answer)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING `+feedSelectCols,
-		sessData.username, kind, question, answer))
+		sessData.username, kind, topic, question, answer))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить элемент ленты"})
 		return
@@ -152,7 +165,7 @@ func handleCreateFeedItem(c *gin.Context) {
 	c.JSON(http.StatusOK, it)
 }
 
-// handleUpdateFeedItem меняет вопрос и ответ элемента (показы не трогаем).
+// handleUpdateFeedItem меняет раздел, вопрос и ответ элемента (показы не трогаем).
 func handleUpdateFeedItem(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -161,6 +174,7 @@ func handleUpdateFeedItem(c *gin.Context) {
 	}
 	var req struct {
 		Kind     string `json:"kind"`
+		Topic    string `json:"topic"`
 		Question string `json:"question"`
 		Answer   string `json:"answer"`
 	}
@@ -168,7 +182,7 @@ func handleUpdateFeedItem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
 		return
 	}
-	kind, question, answer, err := feedPayload(req.Kind, req.Question, req.Answer)
+	kind, topic, question, answer, err := feedPayload(req.Kind, req.Topic, req.Question, req.Answer)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -176,10 +190,11 @@ func handleUpdateFeedItem(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
 	it, err := feedScan(db.QueryRow(context.Background(),
-		`UPDATE feed_items SET kind = $3, question = $4, answer = $5, updated = now()
+		`UPDATE feed_items
+		 SET kind = $3, topic = $4, question = $5, answer = $6, updated = now()
 		 WHERE id = $1 AND username = $2
 		 RETURNING `+feedSelectCols,
-		id, sessData.username, kind, question, answer))
+		id, sessData.username, kind, topic, question, answer))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Элемент ленты не найден"})
 		return
@@ -206,11 +221,12 @@ func handleDeleteFeedItem(c *gin.Context) {
 
 // handleBulkCreateFeedItems сохраняет сразу несколько элементов ленты одним
 // запросом (кнопка «Сохранить» после ИИ-генерации).
-// Тело: {"items": [{"question": "...", "answer": "..."}]}
+// Тело: {"items": [{"topic": "golang", "question": "...", "answer": "..."}]}
 func handleBulkCreateFeedItems(c *gin.Context) {
 	var req struct {
 		Items []struct {
 			Kind     string `json:"kind"`
+			Topic    string `json:"topic"`
 			Question string `json:"question"`
 			Answer   string `json:"answer"`
 		} `json:"items"`
@@ -229,25 +245,27 @@ func handleBulkCreateFeedItems(c *gin.Context) {
 	}
 
 	// Проверяем всё до записи: либо сохраняем всю пачку, либо ничего.
+	topics := make([]string, 0, len(req.Items))
 	questions := make([]string, 0, len(req.Items))
 	answers := make([]string, 0, len(req.Items))
 	for _, it := range req.Items {
-		_, question, answer, err := feedPayload(it.Kind, it.Question, it.Answer)
+		_, topic, question, answer, err := feedPayload(it.Kind, it.Topic, it.Question, it.Answer)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		topics = append(topics, topic)
 		questions = append(questions, question)
 		answers = append(answers, answer)
 	}
 
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
-		`INSERT INTO feed_items (username, kind, question, answer)
-		 SELECT $1, $2, q, a
-		 FROM unnest($3::text[], $4::text[]) AS t(q, a)
+		`INSERT INTO feed_items (username, kind, topic, question, answer)
+		 SELECT $1, $2, t, q, a
+		 FROM unnest($3::text[], $4::text[], $5::text[]) AS x(t, q, a)
 		 RETURNING `+feedSelectCols,
-		sessData.username, feedKindQA, questions, answers)
+		sessData.username, feedKindQA, topics, questions, answers)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить элементы ленты"})
 		return
@@ -320,8 +338,10 @@ func aiGenerateFeedItems(topic, description string, count int, apiKey string) (d
 	systemPrompt := "Ты — составитель карточек для ленты «вопрос-ответ» (как карточки для запоминания). " +
 		fmt.Sprintf("Создай ровно %d элементов — ни больше ни меньше. ", count) +
 		"Верни СТРОГО валидный JSON без текста вне него, вида: " +
-		"{\"items\": [{\"question\": string, \"answer\": string}]}. " +
-		"Правила: question — конкретный вопрос по теме (до 140 символов); " +
+		"{\"items\": [{\"topic\": string, \"question\": string, \"answer\": string}]}. " +
+		"Правила: topic — раздел (область) этого элемента, ОДНО короткое слово в нижнем регистре " +
+		"(например: golang, linux, ооп, sql, git); " +
+		"question — конкретный вопрос по теме (до 140 символов); " +
 		"answer — точный, самодостаточный ответ на 1–3 предложения (до 400 символов); " +
 		"каждый элемент раскрывает свой аспект темы, повторов и общих фраз не должно быть. " +
 		"Язык — тот же, что у темы и описания."
@@ -414,6 +434,7 @@ func parseFeedDrafts(content string) ([]feedDraft, error) {
 
 	var parsed struct {
 		Items []struct {
+			Topic    string `json:"topic"`
 			Question string `json:"question"`
 			Answer   string `json:"answer"`
 		} `json:"items"`
@@ -424,8 +445,17 @@ func parseFeedDrafts(content string) ([]feedDraft, error) {
 
 	out := make([]feedDraft, 0, len(parsed.Items))
 	for _, it := range parsed.Items {
+		topic := strings.TrimSpace(it.Topic)
 		question := strings.TrimSpace(it.Question)
 		answer := strings.TrimSpace(it.Answer)
+		// Раздел обязателен: если модель его не дала, берём общий — «Прочее»,
+		// чтобы элемент всё равно можно было сохранить.
+		if topic == "" {
+			topic = "Прочее"
+		}
+		if len([]rune(topic)) > maxFeedTopicRunes {
+			topic = string([]rune(topic)[:maxFeedTopicRunes])
+		}
 		if question == "" || answer == "" {
 			continue
 		}
@@ -435,7 +465,7 @@ func parseFeedDrafts(content string) ([]feedDraft, error) {
 		if len([]rune(answer)) > maxFeedAnswerRunes {
 			answer = string([]rune(answer)[:maxFeedAnswerRunes])
 		}
-		out = append(out, feedDraft{Question: question, Answer: answer})
+		out = append(out, feedDraft{Topic: topic, Question: question, Answer: answer})
 	}
 	return out, nil
 }

@@ -27,6 +27,10 @@ const IGNORE_SELECTOR =
 // должно превышать движение по второй, чтобы жест считался одноосным.
 const MIN_SWIPE = 60;
 const RATIO = 2;
+// С какого смещения начинаем отдавать вертикальный жест наружу (карточка
+// едет за пальцем). Чуть больше браузерного допуска для тапа (~10 px): тогда
+// любой жест, сдвинувший карточку, уже не считается кликом по ней.
+const DRAG_MIN = 12;
 // Если страница прокручивается, вертикальный жест может быть обычной
 // прокруткой: на него реагируем только быстрым «фликом».
 const FLICK_MS = 250;
@@ -53,74 +57,96 @@ function startsInOverlay(target) {
 
 // Свайп по горизонтали и вертикали:
 //   вправо — onPrev, влево — onNext;
-//   вверх — onUp (следующее), вниз — onDown (предыдущее).
+//   вертикаль отдаётся наружу как поток: onDrag({dy}) на каждом движении
+//   (если страница не прокручивается — карточка едет за пальцем) и
+//   onDragEnd({dy, flick}) на отпускании. Если страница прокручивается,
+//   карточка за пальцем не едет: срабатывает только быстрый флик.
 // Обработчики вешаются на document: раскладка страницы может появляться позже
 // (загрузка сессии, гейт «важного» сообщения), а слушатели должны пережить это.
-export function useSwipeNav({ enabled = true, onPrev, onNext, onUp, onDown } = {}) {
+export function useSwipeNav({ enabled = true, onPrev, onNext, onDrag, onDragEnd } = {}) {
   // Колбэки держим в ref, чтобы не переподписываться на каждый рендер.
-  const cbs = useRef({ onPrev, onNext, onUp, onDown });
-  cbs.current = { onPrev, onNext, onUp, onDown };
+  const cbs = useRef({ onPrev, onNext, onDrag, onDragEnd });
+  cbs.current = { onPrev, onNext, onDrag, onDragEnd };
 
   useEffect(() => {
     if (!enabled) return;
 
-    let start = null; // { x, y, t, ignore } текущего жеста
-    let done = false; // жест уже сработал — ждём конца касания
+    // Текущий жест: { x, y, t, ignore, scrollable, dy, dragging, done }
+    let g = null;
 
     const reset = () => {
-      start = null;
-      done = false;
+      g = null;
     };
 
     const onTouchStart = (e) => {
       if (e.touches.length !== 1) return reset();
       const t = e.touches[0];
-      start = {
+      g = {
         x: t.clientX,
         y: t.clientY,
         t: Date.now(),
         ignore: startsInOverlay(e.target),
+        // Прокручиваемость фиксируем на начало жеста — по ней решаем, отдавать
+        // ли карточку за пальцем или не мешать прокрутке.
+        scrollable: pageScrollable(),
+        dy: 0,
+        dragging: false,
+        done: false,
       };
-      done = false;
     };
 
     const onTouchMove = (e) => {
-      if (!start || done || e.touches.length !== 1) return;
+      if (!g || g.done || e.touches.length !== 1) return;
       const t = e.touches[0];
-      const dx = t.clientX - start.x;
-      const dy = t.clientY - start.y;
+      const dx = t.clientX - g.x;
+      const dy = t.clientY - g.y;
       const adx = Math.abs(dx);
       const ady = Math.abs(dy);
+      g.dy = dy;
 
       // Горизонтальный жест.
       if (adx >= MIN_SWIPE && adx >= ady * RATIO) {
-        done = true;
-        if (start.ignore) return;
+        g.done = true;
+        if (g.ignore) return;
         if (dx > 0) cbs.current.onPrev?.();
         else cbs.current.onNext?.();
         return;
       }
 
-      // Вертикальный жест: вверх — следующее, вниз — предыдущее.
-      if (ady < MIN_SWIPE || ady < adx * RATIO) return;
-      // Страница прокручивается — значит жест, скорее всего, прокрутка:
-      // сработаем только на быстрый флик.
-      if (pageScrollable() && Date.now() - start.t > FLICK_MS) return;
-      done = true;
-      if (start.ignore) return;
-      if (dy < 0) cbs.current.onUp?.();
-      else cbs.current.onDown?.();
+      // Вертикальный жест: только когда он явно вертикальнее горизонтали.
+      if (ady < DRAG_MIN || ady < adx) return;
+      if (g.ignore) return;
+
+      if (g.scrollable) {
+        // Страница прокручивается — жест, скорее всего, прокрутка: сработаем
+        // только на быстрый флик.
+        if (ady < MIN_SWIPE || ady < adx * RATIO) return;
+        if (Date.now() - g.t > FLICK_MS) return;
+        g.done = true;
+        cbs.current.onDragEnd?.({ dy, flick: true });
+        return;
+      }
+
+      g.dragging = true;
+      cbs.current.onDrag?.({ dy });
+    };
+
+    const onTouchEnd = () => {
+      const gesture = g;
+      g = null;
+      if (!gesture || gesture.done || !gesture.dragging) return;
+      cbs.current.onDragEnd?.({ dy: gesture.dy, flick: false });
     };
 
     document.addEventListener("touchstart", onTouchStart, { passive: true });
     document.addEventListener("touchmove", onTouchMove, { passive: true });
-    document.addEventListener("touchend", reset, { passive: true });
-    document.addEventListener("touchcancel", reset, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    document.addEventListener("touchcancel", onTouchEnd, { passive: true });
     return () => {
       document.removeEventListener("touchstart", onTouchStart);
       document.removeEventListener("touchmove", onTouchMove);
-      document.removeEventListener("touchend", reset);
-      document.removeEventListener("touchcancel", reset);
+      document.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [enabled]);
 }

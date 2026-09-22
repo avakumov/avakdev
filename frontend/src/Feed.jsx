@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFeedItems, markFeedItemShown, reactToFeedItem } from "./api.js";
 import { useSwipeNav } from "./lib/useSwipeNav.js";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertCircle, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Loader2, AlertCircle, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Пределы адаптивного кегля (px) и запас (px), который вычитаем из высоты
@@ -99,13 +99,16 @@ function FeedItem({ item }) {
 
   return (
     <div className="relative flex min-h-dvh w-full flex-col bg-card p-6">
-      {/* Невидимый дубль для замера: всегда содержит вопрос и ответ целиком
-          (по нему считается кегль; на экран не влияет). */}
+      {/* Невидимый дубль для замера: повторяет раскрытое состояние (раздел,
+          вопрос, ответ) — поэтому кегль считается точно. */}
       <span
         ref={measureRef}
         aria-hidden="true"
         className="invisible pointer-events-none absolute inset-x-6 top-6 flex flex-col gap-[0.6em] leading-snug"
       >
+        {item.topic && (
+          <span style={{ fontSize: "0.75em" }}>{item.topic}</span>
+        )}
         <span className="font-medium wrap-break-word">{item.question}</span>
         <span className="whitespace-pre-wrap wrap-break-word">
           {item.answer}
@@ -123,30 +126,23 @@ function FeedItem({ item }) {
           className="m-auto flex w-full flex-col gap-[0.6em] leading-snug"
           style={{ fontSize: `${font}px` }}
         >
+          {/* Раздел (область) — чтобы по короткому вопросу было понятно,
+              откуда он. Мелким кеглем и приглушённо. */}
+          {item.topic && (
+            <span
+              className="text-muted-foreground"
+              style={{ fontSize: "0.75em" }}
+            >
+              {item.topic}
+            </span>
+          )}
+
           <span className="font-medium wrap-break-word text-foreground">
             {item.question}
           </span>
 
-          {/* Подсказка и ответ живут в двух grid-контейнерах, которые едут
-              навстречу: подсказка схлопывается (1fr → 0fr), ответ растёт
-              (0fr → 1fr). Переход по grid-template-rows анимирует именно
-              высоту, поэтому текст растёт плавно и без скачка — а заодно
-              за счёт этого не «прыгает» и центрирование блока. */}
-          <span
-            className="grid transition-[grid-template-rows] duration-500 ease-out"
-            style={{ gridTemplateRows: open ? "0fr" : "1fr" }}
-            aria-hidden={open}
-          >
-            <span className="min-h-0 overflow-hidden">
-              <span
-                className="block text-muted-foreground"
-                style={{ fontSize: "0.75em" }}
-              >
-                Нажмите, чтобы увидеть ответ
-              </span>
-            </span>
-          </span>
-
+          {/* Подсказка не нужна: пока ответ скрыт, под вопросом ничего нет,
+              ответ растёт по высоте при касании (0fr → 1fr). */}
           <span
             className="grid transition-[grid-template-rows] duration-500 ease-out"
             style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
@@ -180,7 +176,8 @@ function FeedItem({ item }) {
           aria-label={`Знаю (${counts.know})`}
           aria-pressed={voted === "know"}
         >
-          <ThumbsUp className="size-7 text-emerald-600 dark:text-emerald-400" />
+          {/* Галочка — «знаю»: не «нравится», а «знаю ответ». */}
+          <Check className="size-7 text-emerald-600 dark:text-emerald-400" />
           <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold tabular-nums text-background">
             {counts.know}
           </span>
@@ -199,7 +196,8 @@ function FeedItem({ item }) {
           aria-label={`Не знаю (${counts.unknown})`}
           aria-pressed={voted === "unknown"}
         >
-          <ThumbsDown className="size-7 text-destructive" />
+          {/* Крестик — «не знаю». */}
+          <X className="size-7 text-destructive" />
           <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-semibold tabular-nums text-background">
             {counts.unknown}
           </span>
@@ -209,25 +207,136 @@ function FeedItem({ item }) {
   );
 }
 
+// Случайный порядок (Фишер–Йетс). Копию перемешиваем — исходные данные
+// react-query не трогаем: в редакторе ленты тот же список нужен по порядку.
+function shuffled(list) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 // Раздел «Лента» (просмотр) — мобильный экран, который открывается свайпом
 // влево (обратно — свайпом вправо). В боковом меню его нет: раздел не привязан
 // к разделам с сервера (sections) и живёт только на клиенте. Наполняется он
 // в разделе меню «Лента» (FeedEdit.jsx).
-// Показываем ровно один элемент: свайп вверх — следующий, вниз — предыдущий.
+// Показываем ровно один элемент в случайном порядке: свайп вверх — следующий,
+// вниз — предыдущий. Карточка едет за пальцем, при отпускании — либо возврат,
+// либо переход: текущая уезжает в сторону свайпа, следующая приезжает с другой.
+
+// Сдвиг карточки идёт медленнее пальца (как в пейджере), переход — 200 мс.
+const DRAG_DAMP = 0.55;
+const DRAG_DAMP_EDGE = 0.15; // на краях списка — почти не двигаем
+const SWIPE_COMMIT = 60; // порог сдвига карточки для перехода, px
+const SLIDE_MS = 200;
+
 function Feed() {
   const feedQuery = useFeedItems(true);
-  const items = feedQuery.data || [];
+
+  // Порядок перемешивается один раз на заход в ленту (и при обновлении
+  // данных) и дальше стабилен, чтобы свайпы ходили по одному и тому же списку.
+  const items = useMemo(
+    () => (feedQuery.data ? shuffled(feedQuery.data) : []),
+    [feedQuery.data],
+  );
   const count = items.length;
 
   const [index, setIndex] = useState(0);
   // Индекс держим в границах: лента могла измениться (элемент удалили).
   const current = count > 0 ? Math.min(index, count - 1) : 0;
 
+  // Фаза жеста: idle → drag → out → in → idle.
+  const phase = useRef("idle");
+  const [dragY, setDragY] = useState(0); // текущий сдвиг карточки, px
+  const [animated, setAnimated] = useState(false); // включать ли transition
+
+  const move = (step) =>
+    setIndex(Math.max(0, Math.min(current + step, count - 1)));
+
+  // Карточка едет за пальцем (с демпфированием).
+  const handleDrag = ({ dy }) => {
+    if (phase.current === "out" || phase.current === "in") return;
+    phase.current = "drag";
+    const forward = dy < 0; // вверх — следующий
+    const canMove = forward ? current < count - 1 : current > 0;
+    setAnimated(false);
+    setDragY(dy * (canMove ? DRAG_DAMP : DRAG_DAMP_EDGE));
+  };
+
+  // Отпустили: либо возвращаем на место, либо уводим карточку в сторону свайпа.
+  const handleDragEnd = ({ dy, flick }) => {
+    if (phase.current !== "drag") {
+      // Быстрый флик на прокручиваемой странице — переходим сразу (§ без анимации входа).
+      if (flick && Math.abs(dy) >= SWIPE_COMMIT) {
+        move(dy < 0 ? 1 : -1);
+        setAnimated(false);
+        setDragY(0);
+      }
+      return;
+    }
+    const forward = dy < 0;
+    const canMove = forward ? current < count - 1 : current > 0;
+    // Порог считаем от хода пальца, а не от dragY: не зависим от того,
+    // успел ли React перерисоваться к моменту отпускания.
+    const moved = Math.abs(dy) * (canMove ? DRAG_DAMP : DRAG_DAMP_EDGE);
+    if (!canMove || moved < SWIPE_COMMIT) {
+      // Не дотянули — возвращаем на место.
+      phase.current = "idle";
+      setAnimated(true);
+      setDragY(0);
+      return;
+    }
+    // Уводим текущую карточку за край в сторону свайпа.
+    phase.current = "out";
+    setAnimated(true);
+    setDragY(forward ? -window.innerHeight : window.innerHeight);
+  };
+
+  // Уехавшая карточка доехала до края: меняем элемент и вводим новую
+  // с противоположной стороны. Реагируем только на свой transition —
+  // события детей (анимация ответа, кнопки) сюда тоже всплывают.
+  const handleSlideOut = (e) => {
+    if (e && e.target !== e.currentTarget) return;
+    if (phase.current !== "out") return;
+    const forward = dragY < 0;
+    phase.current = "in";
+    setAnimated(false);
+    move(forward ? 1 : -1);
+    setDragY((forward ? 1 : -1) * window.innerHeight * 0.35);
+    // Два кадра на отрисовку стартовой позиции — потом плавно на место.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        phase.current = "idle";
+        setAnimated(true);
+        setDragY(0);
+      });
+    });
+  };
+
   useSwipeNav({
     enabled: count > 1,
-    onUp: () => setIndex(Math.min(current + 1, count - 1)),
-    onDown: () => setIndex(Math.max(current - 1, 0)),
+    onDrag: handleDrag,
+    onDragEnd: handleDragEnd,
   });
+
+  // Пока открыта лента, глушим штатное «потянуть вниз для обновления»
+  // (pull-to-refresh в Chrome на Android). Иначе жест вниз, который у нас
+  // листает к предыдущему элементу, вместо этого перезагружает страницу.
+  // Ставим на корневой скролл — именно он отвечает за этот жест.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overscrollBehaviorY;
+    const prevBody = body.style.overscrollBehaviorY;
+    html.style.overscrollBehaviorY = "contain";
+    body.style.overscrollBehaviorY = "contain";
+    return () => {
+      html.style.overscrollBehaviorY = prevHtml;
+      body.style.overscrollBehaviorY = prevBody;
+    };
+  }, []);
 
   if (feedQuery.isLoading) {
     return (
@@ -265,7 +374,18 @@ function Feed() {
     );
   }
 
-  return <FeedItem key={items[current].id} item={items[current]} />;
+  return (
+    <div
+      className="min-h-dvh w-full"
+      style={{
+        transform: `translateY(${dragY}px)`,
+        transition: animated ? `transform ${SLIDE_MS}ms ease-out` : "none",
+      }}
+      onTransitionEnd={handleSlideOut}
+    >
+      <FeedItem key={items[current].id} item={items[current]} />
+    </div>
+  );
 }
 
 export default Feed;
