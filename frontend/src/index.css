@@ -144,6 +144,47 @@
     animation: book-flash 1.2s ease-out forwards;
 }
 
+/* Смена раздела: новая страница «подъезжает» с той стороны, куда идёт
+   переход (вперёд — справа, назад — слева). Направление задаёт класс
+   в App.jsx. Трансформация есть только во время анимации (без fill-mode),
+   поэтому она не ломает position: fixed у модалок после завершения. */
+@keyframes page-in-forward {
+    from {
+        opacity: 0;
+        transform: translateX(2.5rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes page-in-back {
+    from {
+        opacity: 0;
+        transform: translateX(-2.5rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.page-enter-forward {
+    animation: page-in-forward 220ms ease-out;
+}
+
+.page-enter-back {
+    animation: page-in-back 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .page-enter-forward,
+    .page-enter-back {
+        animation: none;
+    }
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;

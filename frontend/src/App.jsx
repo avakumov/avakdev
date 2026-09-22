@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useHealth,
   useMessage,
@@ -11,8 +11,10 @@ import {
   setOnUnauthorized,
 } from "./api.js";
 import { useAppStore } from "./store.js";
+import { useSwipeNav, useMediaQuery } from "./lib/useSwipeNav.js";
+import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import Sidebar from "./Sidebar.jsx";
+import Sidebar, { NAV_ITEMS } from "./Sidebar.jsx";
 import Login from "./Login.jsx";
 import UserBadge from "./UserBadge.jsx";
 import Reports from "./Reports.jsx";
@@ -24,6 +26,8 @@ import Reading from "./Reading.jsx";
 import Important from "./Important.jsx";
 import Metrics from "./Metrics.jsx";
 import Notes from "./Notes.jsx";
+import Feed from "./Feed.jsx";
+import FeedEdit from "./FeedEdit.jsx";
 import NotesDock from "./NotesDock.jsx";
 import Tasks from "./Tasks.jsx";
 import AppTasks from "./AppTasks.jsx";
@@ -72,8 +76,12 @@ import {
 
 // Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
 // работают кнопки назад/вперёд. Главная «/» — раздел «Цели».
+// feed — не пункт меню: экран для мобильных, открывается свайпом влево.
+// feed-edit — раздел меню «Лента» (редактирование ленты).
 const VIEW_PATHS = {
   day: "/",
+  feed: "/feed",
+  "feed-edit": "/feed-edit",
   goals: "/goals",
   tasks: "/tasks",
   reports: "/reports",
@@ -91,6 +99,22 @@ const VIEW_PATHS = {
 const PATH_VIEWS = Object.fromEntries(
   Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]),
 );
+
+// Порядок разделов как в меню — по нему определяем направление перехода
+// (нужно для слайда страницы при смене раздела).
+const NAV_KEYS = NAV_ITEMS.map(({ key }) => key);
+
+// Переход вперёд («следующий» пункт меню) или назад («предыдущий»).
+// «Лента» стоит справа от страниц: вход в неё — вперёд (въезжает справа),
+// выход — назад (страница возвращается слева). Раздел вне меню считаем
+// переходом вперёд.
+function navDirection(from, to) {
+  if (to === "feed") return "forward";
+  if (from === "feed") return "back";
+  const a = NAV_KEYS.indexOf(from);
+  const b = NAV_KEYS.indexOf(to);
+  return a >= 0 && b >= 0 && b < a ? "back" : "forward";
+}
 
 // pathToView сопоставляет путь с разделом; неизвестные пути ведут в «День».
 function pathToView(path) {
@@ -289,12 +313,25 @@ function App() {
   const [viewState, setViewState] = useState(() =>
     pathToView(window.location.pathname),
   );
+  // Направление последнего перехода: "forward" | "back" | null (первая
+  // отрисовка — без слайда). Задаёт класс анимации страницы.
+  const [slideDir, setSlideDir] = useState(null);
+  // Текущий раздел для обработчика popstate (событие приходит вне рендера).
+  const viewRef = useRef("day");
 
   // Разделы, доступные пользователю, приходят с сервера в /api/me (sections).
   const allowedSections = new Set(meQuery.data?.sections || []);
-  // Недоступный раздел (например, «Сервер» для обычного пользователя) мягко
-  // сводим к главной — сами данные всё равно защищены на сервере.
-  const view = allowedSections.has(viewState) ? viewState : "day";
+  // «Лента» — клиентский экран (в sections его нет), остальные недоступные
+  // разделы (например, «Сервер» для обычного пользователя) мягко сводим
+  // к главной — сами данные всё равно защищены на сервере.
+  const view =
+    viewState === "feed" || allowedSections.has(viewState)
+      ? viewState
+      : "day";
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   // Данные серверной панели (health/message/metrics) запрашиваем только когда
   // открыт раздел «Сервер»: иначе /api/metrics опрашивался бы каждые 5 секунд
@@ -313,6 +350,7 @@ function App() {
   }, [view, viewState]);
 
   const setView = (v) => {
+    setSlideDir(navDirection(view, v));
     setViewState(v);
     const path = VIEW_PATHS[v] || "/";
     if (window.location.pathname !== path) {
@@ -322,10 +360,44 @@ function App() {
 
   // Реакция на кнопки назад/вперёд браузера.
   useEffect(() => {
-    const onPop = () => setViewState(pathToView(window.location.pathname));
+    const onPop = () => {
+      const next = pathToView(window.location.pathname);
+      setSlideDir(navDirection(viewRef.current, next));
+      setViewState(next);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  // Свайп по горизонтали на мобильных: влево — открыть «Ленту», вправо —
+  // вернуться из неё. Разделы между собой переключаются меню (бургер).
+  const isMobileLayout = useMediaQuery("(max-width: 1023px)");
+  // Раздел, из которого открыли ленту, — туда и возвращаемся свайпом вправо.
+  const [feedReturn, setFeedReturn] = useState(null);
+
+  const openFeed = () => {
+    if (view === "feed") return;
+    setFeedReturn(view);
+    setView("feed");
+  };
+
+  const closeFeed = () => {
+    setView(feedReturn || "day");
+  };
+
+  useSwipeNav({
+    enabled: isMobileLayout && isAuthed,
+    onPrev: () => {
+      // Свайп вправо: возвращаемся из ленты (вне ленты — ничего).
+      if (view !== "feed") return;
+      closeFeed();
+    },
+    onNext: () => {
+      // Свайп влево: открываем ленту (в самой ленте — ничего).
+      if (view === "feed") return;
+      openFeed();
+    },
+  });
 
   // Открыто ли боковое меню на мобильных (бургер).
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -411,9 +483,19 @@ function App() {
   const m = metricsQuery.data;
 
   return (
-    <div className="min-h-screen">
-      {/* Мобильная шапка с бургером (на десктопе скрыта — меню в сайдбаре) */}
-      <header className="sticky top-0 z-40 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
+    // min-h-dvh, а не min-h-screen: в мобильных браузерах 100vh — это «большой»
+    // вьюпорт (со скрытой адресной строкой), и страница стала бы прокручиваемой
+    // на высоту панели браузера. Важно для «Ленты»: она занимает ровно dvh, и от
+    // «страница прокручивается» зависит распознавание вертикального свайпа.
+    <div className="min-h-dvh">
+      {/* Мобильная шапка с бургером (на десктопе скрыта — меню в сайдбаре).
+          В «Ленте» её нет: элемент ленты занимает всё окно. */}
+      <header
+        className={cn(
+          "sticky top-0 z-40 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur lg:hidden",
+          view === "feed" && "hidden",
+        )}
+      >
         <Button
           variant="outline"
           size="icon"
@@ -459,17 +541,24 @@ function App() {
         onOpenBell={() => setBellOpen(true)}
       />
 
-      <main className="lg:pl-64">
+      {/* overflow-x-clip: слайд страницы не создаёт горизонтальную прокрутку.
+          Именно clip (а не hidden) — он не превращает main в скролл-контейнер
+          и не мешает липкой колонке таблицы метрик. */}
+      <main className="overflow-x-clip lg:pl-64">
+        {/* key по разделу: контейнер пересоздаётся, и анимация входа
+            проигрывается заново на каждом переходе. Ограничение ширины
+            текстовой колонки — прежнее (у метрик его нет, у ленты — 
+            ни отступов, ни ограничения: элемент занимает всё окно). */}
         <div
-          className={
-            "mx-auto px-4 py-8 " +
-            (view === "metrics"
-              ? // Таблицу метрик не ограничиваем шириной текстовой колонки:
-                // колонки дат остаются минимальными, а если не влезают —
-                // появляется горизонтальная прокрутка.
-                "max-w-none"
-              : "max-w-3xl lg:max-w-5xl")
-          }
+          key={view}
+          className={cn(
+            view === "feed" ? "" : "mx-auto px-4 py-8",
+            view === "metrics"
+              ? "max-w-none"
+              : view !== "feed" && "max-w-3xl lg:max-w-5xl",
+            slideDir === "forward" && "page-enter-forward",
+            slideDir === "back" && "page-enter-back",
+          )}
         >
           {view === "day" && <Day onNavigate={setView} />}
           {view === "goals" && <Goals />}
@@ -481,6 +570,8 @@ function App() {
           {view === "profile" && <Profile />}
           {view === "important" && <Important />}
           {view === "notes" && <Notes />}
+          {view === "feed" && <Feed />}
+          {view === "feed-edit" && <FeedEdit />}
           {view === "app" && <AppTasks />}
           {view === "user" && (
             <User user={meQuery.data} onLogout={handleLogout} />
@@ -626,9 +717,12 @@ function App() {
             </>
           )}
 
-          <footer className="mt-10 text-center text-xs text-muted-foreground">
-            Собрано с shadcn/ui · Tailwind CSS v4 · Zustand · TanStack Query
-          </footer>
+          {/* В ленте — только сам элемент: никакого «подвала» и прочего. */}
+          {view !== "feed" && (
+            <footer className="mt-10 text-center text-xs text-muted-foreground">
+              Собрано с shadcn/ui · Tailwind CSS v4 · Zustand · TanStack Query
+            </footer>
+          )}
         </div>
       </main>
 

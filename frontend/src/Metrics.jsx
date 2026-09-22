@@ -1039,9 +1039,11 @@ function Metrics() {
         </Card>
       ) : (
         <>
-          {/* Таблица — desktop (md и шире): редактирование прямо в ячейках. */}
+          {/* Таблица — desktop (md и шире): редактирование прямо в ячейках.
+              data-swipe-ignore — у таблицы своя горизонтальная прокрутка,
+              жест по ней не должен переключать раздел. */}
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
-            <div className="overflow-x-auto" ref={scrollRef}>
+            <div className="overflow-x-auto" ref={scrollRef} data-swipe-ignore>
               <table
                 className="table-fixed text-sm"
                 style={{ width: tableMinWidth }}

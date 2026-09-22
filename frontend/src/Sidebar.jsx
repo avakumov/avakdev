@@ -14,6 +14,7 @@ import {
   Server,
   Bell,
   StickyNote,
+  Rss,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,8 @@ import Brand from "./Brand.jsx";
 // Пункты бокового меню. «Цели» — первым пунктом (главная страница).
 // Доступные разделы приходят с сервера (/api/me → sections): список ниже
 // фильтруется по ним, чтобы видимость меню не дублировалась на клиенте.
+// feed-edit — редактирование ленты; сама лента для просмотра открывается
+// свайпом и в меню не входит.
 export const NAV_ITEMS = [
   { key: "day", label: "День", icon: CalendarDays },
   { key: "goals", label: "Цели", icon: Target },
@@ -34,6 +37,7 @@ export const NAV_ITEMS = [
   { key: "profile", label: "Резюме", icon: User },
   { key: "important", label: "Важное", icon: Megaphone },
   { key: "notes", label: "Заметки", icon: StickyNote },
+  { key: "feed-edit", label: "Лента", icon: Rss },
   { key: "server", label: "Сервер", icon: Server },
   { key: "app", label: "Приложение", icon: Wrench },
 ];

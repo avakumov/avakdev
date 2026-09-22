@@ -851,6 +851,102 @@ export async function deleteDraft(id) {
   return data;
 }
 
+// ==== Раздел «Лента» ====
+// Элемент ленты: пока один тип контента — "qa" (вопрос-ответ) +
+// счётчик показов (растёт, когда элемент показан в ленте).
+
+// Элементы ленты (GET /api/feed): свежие сверху.
+export function useFeedItems(enabled = true) {
+  return useQuery({
+    queryKey: ["feed"],
+    queryFn: () => request("/api/feed"),
+    staleTime: 0,
+    enabled,
+    retry: 1,
+  });
+}
+
+// Добавить элемент ленты (POST /api/feed).
+// payload: { kind: "qa", question, answer }
+export async function createFeedItem(payload) {
+  const res = await fetch(`${BASE}/api/feed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить элемент ленты");
+  return data;
+}
+
+// Изменить вопрос/ответ элемента (PUT /api/feed/:id).
+export async function updateFeedItem(id, payload) {
+  const res = await fetch(`${BASE}/api/feed/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить элемент ленты");
+  return data;
+}
+
+// Удалить элемент ленты (DELETE /api/feed/:id).
+export async function deleteFeedItem(id) {
+  const res = await fetch(`${BASE}/api/feed/${id}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить элемент ленты");
+  return data;
+}
+
+// Отметить показ элемента в ленте (POST /api/feed/:id/view): показов +1.
+export async function markFeedItemShown(id) {
+  const res = await fetch(`${BASE}/api/feed/${id}/view`, { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось отметить показ");
+  return data;
+}
+
+// Отметить реакцию на элемент (POST /api/feed/:id/reaction):
+// value — "know" («знаю») или "unknown" («не знаю»); соответствующий счётчик +1.
+export async function reactToFeedItem(id, value) {
+  const res = await fetch(`${BASE}/api/feed/${id}/reaction`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить реакцию");
+  return data;
+}
+
+// Черновики элементов от ИИ (POST /api/feed/generate).
+// payload: { topic, description, count }. В БД не сохраняется: возвращает
+// { items: [{question, answer}], truncated } — пользователь чистит и сохраняет.
+export async function generateFeedItems(payload) {
+  const res = await fetch(`${BASE}/api/feed/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сгенерировать элементы");
+  return data;
+}
+
+// Сохранить сразу несколько элементов (POST /api/feed/bulk).
+// items: [{question, answer}]
+export async function createFeedItemsBulk(items) {
+  const res = await fetch(`${BASE}/api/feed/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить элементы ленты");
+  return data;
+}
+
 // ==== Конспекты знаний ====
 
 // Список конспектов с /api/knowledge
