@@ -124,6 +124,13 @@
     .rounded {
         border-radius: 0;
     }
+    /* Скрыть нативную полосу прокрутки (у таблицы метрик своя, под датами). */
+    .no-scrollbar {
+        scrollbar-width: none;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 /* Кратковременная подсветка фрагмента, найденного по закладке в книге.

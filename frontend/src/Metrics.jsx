@@ -65,6 +65,10 @@ const TYPE_OPTIONS = [
   { value: "bool", label: "Да / Нет" },
 ];
 
+// Ширина колонки с названиями метрик (w-44 = 11rem = 176px). От неё же
+// начинается горизонтальная полоса прокрутки таблицы — под названиями её нет.
+const NAME_COL_W = 176;
+
 // Отображение значения в зависимости от типа.
 function displayValue(type, value) {
   if (type === "bool") return value === "true" ? "Да" : "Нет";
@@ -1202,15 +1206,109 @@ function Metrics() {
   );
   // Минимальная ширина: название (176px) + колонки дат (~30px каждая —
   // после уменьшения в 1,5 раза ещё на 20%). Действия убраны из таблицы.
-  const tableMinWidth = 176 + columns.length * 30;
+  const tableMinWidth = NAME_COL_W + columns.length * 30;
 
-  // Прокрутка таблицы всегда в конец (к последним датам): при открытии
-  // и при появлении новых колонок-дат.
+  // Таблица прокручивается по горизонтали: при открытии — сразу к последним
+  // датам, и при появлении новых колонок-дат. Нативную полосу скрываем
+  // (no-scrollbar), а свою рисуем под датами — от второй колонки, чтобы под
+  // названиями метрик её не было. Позицию ползунка держим в состоянии.
   const scrollRef = useRef(null);
+  const [scrollInfo, setScrollInfo] = useState({
+    canScroll: false,
+    thumbW: 0,
+    thumbL: 0,
+  });
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollLeft = el.scrollWidth;
+    if (!el) return;
+
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      const canScroll = max > 0;
+      const trackW = Math.max(0, el.clientWidth - NAME_COL_W);
+      const thumbW = canScroll
+        ? Math.min(
+            trackW,
+            Math.max(24, (el.clientWidth / el.scrollWidth) * trackW),
+          )
+        : 0;
+      const thumbL = canScroll
+        ? (el.scrollLeft / max) * Math.max(0, trackW - thumbW)
+        : 0;
+      setScrollInfo({ canScroll, thumbW, thumbL });
+    };
+
+    // Колесо мыши над таблицей прокручивает её по горизонтали. На краях
+    // не мешаем обычной вертикальной прокрутке страницы.
+    const onWheel = (e) => {
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0) return;
+      const delta =
+        Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (delta === 0) return;
+      if (
+        (delta < 0 && el.scrollLeft <= 0) ||
+        (delta > 0 && el.scrollLeft >= max)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      el.scrollLeft = Math.max(0, Math.min(max, el.scrollLeft + delta));
+    };
+
+    el.scrollLeft = el.scrollWidth;
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: false });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      el.removeEventListener("wheel", onWheel);
+      ro.disconnect();
+    };
   }, [columns.length]);
+
+  // Прокрутить таблицу до позиции left (для ползунка и клика по дорожке).
+  const scrollTableTo = (left) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    el.scrollLeft = Math.max(0, Math.min(max, left));
+  };
+
+  // Перетаскивание ползунка.
+  const onThumbPointerDown = (e) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const max = el.scrollWidth - el.clientWidth;
+    const trackW = Math.max(1, el.clientWidth - NAME_COL_W);
+    const ratio = max / Math.max(1, trackW - scrollInfo.thumbW);
+    const startX = e.clientX;
+    const startScroll = el.scrollLeft;
+    const move = (ev) =>
+      scrollTableTo(startScroll + (ev.clientX - startX) * ratio);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // Клик по дорожке (не по ползунку) — перейти к этому месту.
+  const onTrackPointerDown = (e) => {
+    if (e.target !== e.currentTarget) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const max = el.scrollWidth - el.clientWidth;
+    const ratio =
+      (e.clientX - rect.left - scrollInfo.thumbW / 2) /
+      Math.max(1, rect.width - scrollInfo.thumbW);
+    scrollTableTo(ratio * max);
+  };
 
   if (metricsQuery.isLoading) {
     return (
@@ -1247,7 +1345,12 @@ function Metrics() {
               data-swipe-ignore — у таблицы своя горизонтальная прокрутка,
               жест по ней не должен переключать раздел. */}
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
-            <div className="overflow-x-auto" ref={scrollRef} data-swipe-ignore>
+            <div className="relative">
+              <div
+                className="no-scrollbar overflow-x-auto"
+                ref={scrollRef}
+                data-swipe-ignore
+              >
               <table
                 className="table-fixed text-sm"
                 style={{ width: tableMinWidth }}
@@ -1311,6 +1414,27 @@ function Metrics() {
                   )}
                 </tbody>
                 </table>
+              </div>
+              {/* Своя полоса прокрутки — под датами, от второй колонки
+                  (под названиями метрик её нет). Клик по дорожке — перейти,
+                  перетаскивание ползунка — прокрутка. */}
+              {scrollInfo.canScroll && (
+                <div
+                  aria-hidden="true"
+                  onPointerDown={onTrackPointerDown}
+                  className="mt-1 h-2.5 cursor-pointer touch-none bg-muted/60 select-none"
+                  style={{ marginLeft: NAME_COL_W }}
+                >
+                  <div
+                    onPointerDown={onThumbPointerDown}
+                    className="h-full cursor-pointer bg-muted-foreground/40 hover:bg-muted-foreground/60"
+                    style={{
+                      width: scrollInfo.thumbW,
+                      marginLeft: scrollInfo.thumbL,
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </Card>
 
