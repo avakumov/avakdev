@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
   useUserMetrics,
+  useReadingHistory,
   createUserMetric,
   updateUserMetric,
   deleteUserMetric,
@@ -15,7 +16,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { formatDateDmy } from "@/lib/formatDate.js";
+import { formatDateDmy, formatClock } from "@/lib/formatDate.js";
 
 import {
   Card,
@@ -48,6 +49,7 @@ import {
   ChevronDown,
   ChevronRight,
   Minus,
+  BookOpen,
 } from "lucide-react";
 
 // Типы метрик: целое число, дробное число, да/нет.
@@ -74,6 +76,14 @@ function displayValue(type, value) {
 function typeBadgeLabel(def) {
   if (def.type === "bool") return "Да / Нет";
   return def.unit || TYPE_LABELS[def.type];
+}
+
+// Минуты чтения — целое число (единица «мин» показывается отдельно, как у
+// остальных метрик). null — за день чтения не было.
+function readingMinutes(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  if (s === 0) return null;
+  return Math.round(s / 60);
 }
 
 // Переключатель «Да / Нет» для boolean-метрик.
@@ -530,6 +540,62 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
   );
 }
 
+// Строка таблицы (десктоп): время чтения по дням. Только для просмотра —
+// данные приходят из читалки (книг), редактировать их нельзя. Значение —
+// целое число минут, единица «мин» — в подписи. Зелёным помечается день,
+// в котором достигнута цель чтения.
+function ReadingRow({ reading, columns, borders }) {
+  return (
+    <tr className="group border-t-2 border-border/70 last:border-0 hover:bg-muted/30">
+      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card px-3 py-1.5 align-top transition-colors group-hover:bg-[color-mix(in_oklch,var(--muted)_30%,var(--card))]">
+        <span className="flex items-start gap-1.5">
+          <BookOpen className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0">
+            <span className="wrap-break-word font-medium text-foreground">
+              Чтение
+            </span>
+            <span className="block text-[10px] leading-tight text-muted-foreground">
+              мин
+            </span>
+          </span>
+        </span>
+      </td>
+      {columns.map((d) => {
+        const sec = reading[d]?.seconds || 0;
+        const goal = reading[d]?.goal_seconds || 0;
+        const minutes = readingMinutes(sec);
+        const done = minutes !== null && goal > 0 && sec >= goal;
+        return (
+          <td
+            key={d}
+            className={cn(
+              "px-0.5 py-1 text-center align-middle",
+              borders?.has(d) && "border-r border-border/70",
+            )}
+          >
+            <span
+              title={
+                minutes !== null
+                  ? `${formatDateDmy(d)} · ${formatClock(sec)}`
+                  : formatDateDmy(d)
+              }
+              className={cn(
+                "inline-flex h-7 w-full items-center justify-center rounded-md text-sm whitespace-nowrap tabular-nums",
+                minutes === null && "text-muted-foreground/50",
+                minutes !== null && !done && "bg-muted/40 text-foreground",
+                done &&
+                  "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+              )}
+            >
+              {minutes === null ? "—" : minutes}
+            </span>
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
 // Модалка значения метрики за конкретную дату: изменить или удалить.
 function MetricValueModal({ def, date, value, onSaved, onClose }) {
   const [draft, setDraft] = useState(value ?? "");
@@ -963,12 +1029,143 @@ function MetricCard({ def, values, columns = [], onChanged, onEdit }) {
   );
 }
 
+// Карточка «Чтение» (мобильные): время чтения по дням, только для просмотра.
+// В плитке — целое число минут (единица «мин» — в бейдже), зелёным — если
+// цель чтения за день выполнена. Плитки по месяцам (7 колонок — дни недели).
+function ReadingCard({ reading, columns }) {
+  const [open, setOpen] = useState(false);
+
+  const total = columns.reduce((acc, d) => acc + (reading[d]?.seconds || 0), 0);
+  const totalMinutes = Math.round(total / 60);
+  const daysCount = columns.filter((d) => (reading[d]?.seconds || 0) > 0).length;
+
+  // Каждый месяц — отдельный блок сетки; более поздние недели и месяцы выше.
+  const currentYear = new Date().getUTCFullYear();
+  const monthBlocks = [];
+  for (const d of columns) {
+    const key = d.slice(0, 7);
+    let block = monthBlocks[monthBlocks.length - 1];
+    if (!block || block.key !== key) {
+      block = { key, dates: [] };
+      monthBlocks.push(block);
+    }
+    block.dates.push(d);
+  }
+  for (const block of monthBlocks) {
+    block.label = monthNameOf(block.dates[0], currentYear);
+    block.weeks = buildWeeks(block.dates).reverse();
+  }
+  monthBlocks.reverse();
+
+  const renderTile = (d) => {
+    const sec = reading[d]?.seconds || 0;
+    const goal = reading[d]?.goal_seconds || 0;
+    const minutes = readingMinutes(sec);
+    const done = minutes !== null && goal > 0 && sec >= goal;
+    return (
+      <span
+        key={d}
+        title={`${formatDateDmy(d)} · ${formatClock(sec)}`}
+        className={cn(
+          "flex size-10 items-center justify-center border text-[11px] font-medium tabular-nums",
+          minutes === null && "border-border/60 text-muted-foreground/60",
+          minutes !== null &&
+            !done &&
+            "border-border/60 bg-muted/40 text-foreground",
+          done &&
+            "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+        )}
+      >
+        {minutes === null ? "—" : minutes}
+      </span>
+    );
+  };
+
+  return (
+    <Card className="my-3" size="sm">
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={() => setOpen(!open)}
+      >
+        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2">
+            {open ? (
+              <ChevronDown className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" />
+            )}
+            <BookOpen className="size-4 text-muted-foreground" />
+            Чтение
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">мин</Badge>
+            {totalMinutes > 0 && (
+              <Badge variant="secondary" className="tabular-nums">
+                всего {totalMinutes}
+              </Badge>
+            )}
+            {daysCount > 0 && (
+              <Badge variant="secondary">
+                {daysCount} {pluralDays(daysCount)}
+              </Badge>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+
+      {open && (
+        <CardContent>
+          <div className="mx-auto w-fit">
+            <div className="grid grid-cols-[3.25rem_repeat(7,2.5rem)] items-center gap-1">
+              <span aria-hidden="true" />
+              {WEEKDAYS.map((w) => (
+                <span
+                  key={w}
+                  className="text-center text-[10px] text-muted-foreground"
+                >
+                  {w}
+                </span>
+              ))}
+            </div>
+
+            <div className="mt-1 space-y-1">
+              {monthBlocks.map((block) => (
+                <div
+                  key={block.key}
+                  className="grid grid-cols-[3.25rem_repeat(7,2.5rem)] items-center gap-1"
+                >
+                  {block.weeks.map((wk, wi) => (
+                    <Fragment key={wi}>
+                      <span className="pr-1 text-right text-[10px] leading-tight text-muted-foreground capitalize">
+                        {wi === 0 ? block.label : ""}
+                      </span>
+                      {wk.cells.map((d, ci) =>
+                        d === null ? (
+                          <span key={`empty-${ci}`} aria-hidden="true" />
+                        ) : (
+                          renderTile(d)
+                        ),
+                      )}
+                    </Fragment>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 // Главный компонент: метрики пользователя + форма добавления новой.
 // На десктопе (md+) — таблица «метрика × даты» с редактированием в ячейках,
 // на мобильных — сворачиваемые карточки.
 function Metrics() {
   const queryClient = useQueryClient();
   const metricsQuery = useUserMetrics(true);
+  // Время чтения по дням — показываем в таблице метрик отдельной строкой.
+  const readingQuery = useReadingHistory(true);
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["user-metrics"] });
@@ -983,10 +1180,17 @@ function Metrics() {
     (valuesByMetric[v.metric_id] ||= {})[v.date] = v.value;
   }
 
+  // Чтение по датам: { "ГГГГ-ММ-ДД": { seconds, goal_seconds } }.
+  const readingByDate = {};
+  for (const r of readingQuery.data || []) {
+    if (r?.date) readingByDate[r.date] = r;
+  }
+  const hasReading = Object.keys(readingByDate).length > 0;
+
   // Столбцы таблицы — все даты с записями (+ сегодня). Если не влезают —
   // таблица прокручивается по горизонтали.
   const todayIso = new Date().toISOString().slice(0, 10);
-  const columns = collectDates(valuesByMetric, defs);
+  const columns = collectDates(valuesByMetric, defs, readingByDate);
   const currentYear = Number(todayIso.slice(0, 4));
   const monthGroups = groupColumns(columns);
   // Даты, после которых заканчивается месяц (кроме последней группы):
@@ -1028,7 +1232,7 @@ function Metrics() {
     <section>
       <NewMetricForm onSaved={refresh} />
 
-      {defs.length === 0 ? (
+      {defs.length === 0 && !hasReading ? (
         <Card className="my-3" size="sm">
           <CardContent>
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1098,6 +1302,13 @@ function Metrics() {
                       onOpenDetail={setMetricTarget}
                     />
                   ))}
+                  {hasReading && (
+                    <ReadingRow
+                      reading={readingByDate}
+                      columns={columns}
+                      borders={groupBorders}
+                    />
+                  )}
                 </tbody>
                 </table>
             </div>
@@ -1115,6 +1326,9 @@ function Metrics() {
                 onEdit={setEditTarget}
               />
             ))}
+            {hasReading && (
+              <ReadingCard reading={readingByDate} columns={columns} />
+            )}
           </div>
         </>
       )}
@@ -1172,7 +1386,7 @@ function isoAddDays(iso, n) {
 
 // Все даты таблицы — непрерывный диапазон от самой ранней даты (создание
 // метрики или первое значение) до сегодня, включая дни без показателей.
-function collectDates(valuesByMetric, defs = []) {
+function collectDates(valuesByMetric, defs = [], readingByDate = {}) {
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
   let earliest = null;
   const consider = (d) => {
@@ -1183,6 +1397,8 @@ function collectDates(valuesByMetric, defs = []) {
   for (const byDate of Object.values(valuesByMetric)) {
     for (const d in byDate) consider(d);
   }
+  // Дни с чтением тоже расширяют диапазон (чтение могло быть до первой метрики).
+  for (const d in readingByDate) consider(d);
   for (const def of defs) {
     consider((def.created || "").slice(0, 10));
   }
