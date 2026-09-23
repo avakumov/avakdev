@@ -409,7 +409,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
 
   return (
     <tr className="group border-b border-border/60 last:border-0 hover:bg-muted/30">
-      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card px-3 py-1.5 align-top transition-colors group-hover:bg-[color-mix(in_oklch,var(--muted)_30%,var(--card))]">
+      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card py-1.5 pr-3 align-top transition-colors group-hover:bg-[color-mix(in_oklch,var(--muted)_30%,var(--card))]">
         <button
           type="button"
           onClick={() => onOpenDetail(def)}
@@ -551,7 +551,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
 function ReadingRow({ reading, columns, borders }) {
   return (
     <tr className="group border-t-2 border-border/70 last:border-0 hover:bg-muted/30">
-      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card px-3 py-1.5 align-top transition-colors group-hover:bg-[color-mix(in_oklch,var(--muted)_30%,var(--card))]">
+      <td className="sticky left-0 z-10 w-44 border-r border-border/70 bg-card py-1.5 pr-3 align-top transition-colors group-hover:bg-[color-mix(in_oklch,var(--muted)_30%,var(--card))]">
         <span className="flex items-start gap-1.5">
           <BookOpen className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0">
@@ -1345,7 +1345,9 @@ function Metrics() {
               data-swipe-ignore — у таблицы своя горизонтальная прокрутка,
               жест по ней не должен переключать раздел. */}
           <Card className="my-3 hidden overflow-hidden md:block" size="sm">
-            <div className="relative">
+            {/* px-4 — постоянные отступы по бокам: контент и прокрутка
+                не доходят до краёв карточки. */}
+            <div className="px-4">
               <div
                 className="no-scrollbar overflow-x-auto"
                 ref={scrollRef}
