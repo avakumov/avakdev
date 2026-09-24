@@ -32,6 +32,22 @@ const fmtMin = (m) => {
   return r ? `${h} ч ${r} мин` : `${h} ч`;
 };
 
+// Минуты позиции дня: для задачи — фактически потраченное время (actual_hours),
+// если оно заполнено, иначе плановое; для заметки — оценка времени повторения.
+function itemMinutes(it) {
+  if (it.kind === "task" && it.actual_hours > 0) {
+    return Math.round(it.actual_hours * 60);
+  }
+  return it.minutes;
+}
+
+// Минуты задачи, закрытой вне плана: факт, иначе план.
+function taskSpentMinutes(t) {
+  return t.actual_hours > 0
+    ? Math.round(t.actual_hours * 60)
+    : Math.round((t.planned_hours || 0) * 60);
+}
+
 // Значение метрики (Да/Нет) в виде «залитой» плашки, как активная кнопка в Дне.
 function MetricValue({ def, value }) {
   if (value == null || value === "") {
@@ -103,9 +119,10 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
   const readingGoalSeconds = reading?.goal_seconds || 0;
   // Время чтения за день было — показываем отдельным блоком.
   const hasReading = readingSeconds > 0;
-  // Потрачено за день (для свёрнутой шапки): время задач + время чтения.
+  // Потрачено за день (для свёрнутой шапки): фактическое время задач дня
+  // (для задач без факта — плановое) плюс время чтения. См. /api/day/history.
   const spentMinutes =
-    (day?.total_minutes || 0) + Math.round(readingSeconds / 60);
+    (day?.spent_minutes || 0) + Math.round(readingSeconds / 60);
 
   return (
     <Card className="my-3" size="sm">
@@ -137,7 +154,7 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
               <ListTodo className="size-4 text-muted-foreground" />
               План дня
             </p>
-            {!day ? (
+            {!day?.has_plan ? (
               <p className="text-sm text-muted-foreground">
                 Плана на этот день не было.
               </p>
@@ -183,7 +200,7 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
                     )}
                   </span>
                   <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-                    {fmtMin(it.minutes)}
+                    {fmtMin(itemMinutes(it))}
                   </span>
                 </div>
               ))
@@ -215,6 +232,9 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
                       {t.done_at ? " · выполнена " : ""}
                       <DateDisplay date={t.done_at} withTime />
                     </span>
+                  </span>
+                  <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                    {fmtMin(taskSpentMinutes(t))}
                   </span>
                 </div>
               ))}
@@ -354,7 +374,9 @@ function Reports() {
     if (ex) Object.assign(ex, patch);
     else days.push({ date, day: null, report: null, ...patch });
   };
-  for (const d of history || []) addDay(d.date, { day: d.has_plan ? d : null });
+  // Планы дней. day храним всегда (в нём и spent_minutes), а «плана не было»
+  // определяется по has_plan в карточке.
+  for (const d of history || []) addDay(d.date, { day: d });
   for (const r of reportsQuery.data || []) addDay(r.date, { report: r });
   for (const r of readingQuery.data || []) addDay(r.date, {});
   // Дни с проставленными метриками — тоже дни (даже без плана и отчёта).

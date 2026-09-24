@@ -28,6 +28,9 @@ type DayItem struct {
 	Meta    string `json:"meta"` // категория задачи / тема заметки
 	Minutes int    `json:"minutes"`
 	Done    bool   `json:"done"`
+	// ActualHours — фактически потраченное время задачи (0 — не заполнено;
+	// для заметок всегда 0).
+	ActualHours float64 `json:"actual_hours"`
 }
 
 // DayCandidate — кандидат в план из списка предложений.
@@ -47,6 +50,9 @@ type completedTask struct {
 	Title    string `json:"title"`
 	Category string `json:"category"`
 	DoneAt   string `json:"done_at"` // RFC3339, UTC
+	// Фактические (actual_hours) и плановые (planned_hours) часы задачи.
+	ActualHours  float64 `json:"actual_hours"`
+	PlannedHours float64 `json:"planned_hours"`
 }
 
 type dayBody struct {
@@ -345,23 +351,23 @@ func handleDaySuggest(c *gin.Context) {
 	})
 }
 
-// dayItemTitle возвращает заголовок/мета позиции по kind/ref.
-func dayItemTitle(username, kind string, refID int) (title, meta string, ok bool) {
+// dayItemTitle возвращает заголовок/мета и фактические часы позиции по kind/ref.
+func dayItemTitle(username, kind string, refID int) (title, meta string, actualHours float64, ok bool) {
 	switch kind {
 	case "task":
 		t, found := tasks.getOwned(username, refID)
 		if !found {
-			return "", "", false
+			return "", "", 0, false
 		}
-		return t.Title, t.Category, true
+		return t.Title, t.Category, t.ActualHours, true
 	case "note":
 		n, found := notes.get(refID)
 		if !found {
-			return "", "", false
+			return "", "", 0, false
 		}
-		return n.Title, n.Topic, true
+		return n.Title, n.Topic, 0, true
 	}
-	return "", "", false
+	return "", "", 0, false
 }
 
 // resolveItemMinutes — минуты для позиции: для задач planned*60, для заметок
@@ -419,11 +425,11 @@ func loadDayItems(username, day string, tz int) (dayBody, bool) {
 		if err := rows.Scan(&it.Kind, &it.RefID, &it.Minutes, &it.Done, &pos); err != nil {
 			continue
 		}
-		title, meta, ok := dayItemTitle(username, it.Kind, it.RefID)
+		title, meta, actualHours, ok := dayItemTitle(username, it.Kind, it.RefID)
 		if !ok {
 			continue // задача/заметка удалены — позицию пропускаем
 		}
-		it.Title, it.Meta = title, meta
+		it.Title, it.Meta, it.ActualHours = title, meta, actualHours
 		items = append(items, it)
 		body.TotalMinutes += it.Minutes
 	}
@@ -437,7 +443,8 @@ func dayCompletedTasks(ctx context.Context, username, day string, tz int) []comp
 	out := make([]completedTask, 0)
 	rows, err := db.Query(ctx,
 		`SELECT id, title, category,
-		        to_char(completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		        to_char(completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        actual_hours, planned_hours
 		 FROM tasks
 		 WHERE username = $1 AND status = 'done' AND completed_at IS NOT NULL
 		   AND ((completed_at AT TIME ZONE 'UTC') + make_interval(mins => $3::int))::date = $2::date
@@ -449,7 +456,7 @@ func dayCompletedTasks(ctx context.Context, username, day string, tz int) []comp
 	defer rows.Close()
 	for rows.Next() {
 		var t completedTask
-		if err := rows.Scan(&t.ID, &t.Title, &t.Category, &t.DoneAt); err == nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.Category, &t.DoneAt, &t.ActualHours, &t.PlannedHours); err == nil {
 			out = append(out, t)
 		}
 	}
@@ -605,6 +612,9 @@ type DaySummary struct {
 	TotalMinutes  int    `json:"total_minutes"`
 	Tasks         int    `json:"tasks"`
 	Notes         int    `json:"notes"`
+	// SpentMinutes — фактически потраченное время дня: по задачам (fact,
+	// если заполнен, иначе план) + оценка повторений. Без времени чтения.
+	SpentMinutes int `json:"spent_minutes"`
 	// HasPlan — был ли сохранён план на этот день. День может попасть в
 	// историю только из-за закрытых задач (тогда плана нет).
 	HasPlan bool `json:"has_plan"`
@@ -637,15 +647,49 @@ func handleDayHistory(c *gin.Context) {
 		     FROM tasks
 		     WHERE username = $1 AND status = 'done' AND completed_at IS NOT NULL
 		     GROUP BY 1
+		 ),
+		 /* Время по каждой задаче дня: факт (actual_hours), если он заполнен,
+		    иначе план. Задача берётся один раз, даже если она и в плане, и
+		    закрыта в тот же день. */
+		 task_time AS (
+		     SELECT day, task_id, MAX(minutes) AS minutes FROM (
+		         SELECT p.day AS day,
+		                t.id AS task_id,
+		                CASE WHEN t.actual_hours > 0 THEN t.actual_hours * 60 ELSE i.minutes END AS minutes
+		         FROM day_plans p
+		         JOIN day_items i ON i.plan_id = p.id AND i.kind = 'task'
+		         JOIN tasks t ON t.id = i.ref_id AND t.username = $1
+		         WHERE p.username = $1
+		         UNION ALL
+		         SELECT ((t.completed_at AT TIME ZONE 'UTC') + make_interval(mins => $2::int))::date AS day,
+		                t.id AS task_id,
+		                CASE WHEN t.actual_hours > 0 THEN t.actual_hours * 60 ELSE t.planned_hours * 60 END AS minutes
+		         FROM tasks t
+		         WHERE t.username = $1 AND t.status = 'done' AND t.completed_at IS NOT NULL
+		     ) x
+		     GROUP BY day, task_id
+		 ),
+		 spent_days AS (
+		     SELECT day, ROUND(SUM(minutes))::int AS task_minutes FROM (
+		         SELECT day, minutes FROM task_time
+		         UNION ALL
+		         SELECT p.day AS day, i.minutes
+		         FROM day_plans p
+		         JOIN day_items i ON i.plan_id = p.id AND i.kind = 'note'
+		         WHERE p.username = $1
+		     ) y
+		     GROUP BY day
 		 )
 		 SELECT to_char(d.day, 'YYYY-MM-DD'),
 		        COALESCE(pd.budget_minutes, 0),
 		        COALESCE(pd.total_minutes, 0),
 		        COALESCE(pd.tasks, 0),
 		        COALESCE(pd.notes, 0),
+		        COALESCE(sd.task_minutes, 0),
 		        (pd.day IS NOT NULL)
 		 FROM (SELECT day FROM plan_days UNION SELECT day FROM done_days) d
 		 LEFT JOIN plan_days pd ON pd.day = d.day
+		 LEFT JOIN spent_days sd ON sd.day = d.day
 		 ORDER BY d.day DESC
 		 LIMIT 90`, sessData.username, tz)
 	if err != nil {
@@ -656,7 +700,7 @@ func handleDayHistory(c *gin.Context) {
 	days := make([]DaySummary, 0)
 	for rows.Next() {
 		var d DaySummary
-		if err := rows.Scan(&d.Date, &d.BudgetMinutes, &d.TotalMinutes, &d.Tasks, &d.Notes, &d.HasPlan); err == nil {
+		if err := rows.Scan(&d.Date, &d.BudgetMinutes, &d.TotalMinutes, &d.Tasks, &d.Notes, &d.SpentMinutes, &d.HasPlan); err == nil {
 			days = append(days, d)
 		}
 	}
