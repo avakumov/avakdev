@@ -80,7 +80,7 @@ func handleUpsertReport(c *gin.Context) {
 	}
 
 	if _, err := db.Exec(ctx,
-		`UPDATE day_plans SET report = $3, updated = now()
+		`UPDATE day_plans SET report = $3, report_draft = '', updated = now()
 		 WHERE username = $1 AND day = $2`,
 		sessData.username, day, req.Content); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить отчёт"})
@@ -92,4 +92,47 @@ func handleUpsertReport(c *gin.Context) {
 		Content: req.Content,
 		Updated: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// handleSaveReportDraft сохраняет черновик текстового отчёта за день.
+// Пишется автоматически при вводе (в отличие от «боевого» отчёта, который
+// сохраняет кнопка), чтобы текст не терялся при обновлении страницы или
+// работе с другого устройства.
+func handleSaveReportDraft(c *gin.Context) {
+	day, err := parseDay(c.Param("date"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		return
+	}
+
+	sessData, _ := c.MustGet("session").(session)
+	ctx := context.Background()
+
+	// Гарантируем наличие строки дня (черновик может быть раньше плана).
+	if _, err := db.Exec(ctx,
+		`INSERT INTO day_plans (username, day, budget_minutes)
+		 VALUES ($1, $2, 0)
+		 ON CONFLICT (username, day) DO NOTHING`,
+		sessData.username, day); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить черновик"})
+		return
+	}
+
+	if _, err := db.Exec(ctx,
+		`UPDATE day_plans SET report_draft = $3, updated = now()
+		 WHERE username = $1 AND day = $2`,
+		sessData.username, day, req.Content); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить черновик"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

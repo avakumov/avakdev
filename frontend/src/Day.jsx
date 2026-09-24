@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchDayPlan,
   suggestDay,
@@ -9,8 +9,8 @@ import {
   useKnowledge,
   repeatKnowledge,
   setDayItemDone,
-  useReports,
   updateReport,
+  saveReportDraft,
   useLastBookmark,
   useReadingTime,
   useBooks,
@@ -199,20 +199,47 @@ function NoteReadModal({ note, done, onClose, onRepeat }) {
 // Отчёт за текущий день (как в разделе «Отчёты», но без выбора даты):
 // показывается в конце дня; если отчёт на дату уже есть — его можно
 // перезаписать. Здесь только текст: выполненные задачи видны в «Плане дня».
-function DayReportCard({ date }) {
-  const queryClient = useQueryClient();
-  const reportsQuery = useReports(true);
+// Вводимый текст автоматически сохраняется как черновик (report_draft),
+// поэтому не теряется при обновлении страницы или на другом устройстве.
+function DayReportCard({ date, plan, onSaved }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [draftState, setDraftState] = useState("idle"); // idle | saving | saved | error
   const [error, setError] = useState("");
 
-  const todayReport = reportsQuery.data?.find((r) => r.date === date);
+  const savedReport = plan?.report || "";
+  const savedDraft = plan?.report_draft || "";
 
-  // Подставляем уже сохранённый отчёт за эту дату, если он есть.
+  // Начальное значение: черновик, если он есть, иначе сохранённый отчёт.
+  // Инициализируем один раз на дату, чтобы обновление данных не затирало ввод.
+  const initedRef = useRef(null);
+  const lastSavedRef = useRef("");
   useEffect(() => {
-    setDraft(todayReport?.content ?? "");
-  }, [todayReport?.content]);
+    if (!plan || initedRef.current === date) return;
+    const initial = savedDraft !== "" ? savedDraft : savedReport;
+    initedRef.current = date;
+    lastSavedRef.current = initial;
+    setDraft(initial);
+  }, [plan, date, savedDraft, savedReport]);
+
+  // Автосохранение черновика — с небольшой задержкой после ввода.
+  useEffect(() => {
+    if (initedRef.current !== date || draft === lastSavedRef.current) return;
+    const t = setTimeout(async () => {
+      // Текст мог уйти в «боевой» отчёт кнопкой — тогда черновик не нужен.
+      if (draft === lastSavedRef.current) return;
+      setDraftState("saving");
+      try {
+        await saveReportDraft(date, draft);
+        lastSavedRef.current = draft;
+        setDraftState("saved");
+      } catch {
+        setDraftState("error");
+      }
+    }, 900);
+    return () => clearTimeout(t);
+  }, [draft, date]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -220,14 +247,17 @@ function DayReportCard({ date }) {
     setSaved(false);
     try {
       await updateReport(date, draft);
+      lastSavedRef.current = draft;
       setSaved(true);
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      onSaved?.();
     } catch (err) {
       setError(err.message || "Не удалось сохранить отчёт");
     } finally {
       setSaving(false);
     }
   };
+
+  const hasReport = savedReport !== "";
 
   return (
     <Card className="my-3" size="sm">
@@ -237,7 +267,8 @@ function DayReportCard({ date }) {
           Отчёт за сегодня · <DateDisplay date={date} />
         </CardTitle>
         <CardDescription>
-          Что произошло за этот день — сохранится в разделе «Отчёты».
+          Что произошло за этот день — сохранится в разделе «Отчёты». Черновик
+          сохраняется автоматически.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -251,7 +282,25 @@ function DayReportCard({ date }) {
           placeholder="Задачи выполнены, метрики зафиксированы, итоги дня…"
           className="w-full min-h-24 rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 resize-y"
         />
-        {todayReport && todayReport.content !== "" && (
+        {draftState === "saving" && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Сохраняю черновик…
+          </p>
+        )}
+        {draftState === "saved" && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Check className="size-3.5" />
+            Черновик сохранён
+          </p>
+        )}
+        {draftState === "error" && (
+          <p className="flex items-center gap-1.5 text-xs text-destructive">
+            <AlertCircle className="size-3.5" />
+            Черновик не сохранился — проверьте связь
+          </p>
+        )}
+        {hasReport && (
           <p className="flex items-center gap-1.5 text-sm text-amber-600">
             <AlertCircle className="size-3.5" />
             На эту дату уже есть отчёт — сохранение перезапишет его.
@@ -280,7 +329,7 @@ function DayReportCard({ date }) {
             {saving ? <Loader2 className="animate-spin" /> : <Save />}
             {saving
               ? "Сохраняю…"
-              : todayReport && todayReport.content !== ""
+              : hasReport
                 ? "Заменить отчёт"
                 : "Сохранить отчёт"}
           </Button>
@@ -1072,7 +1121,7 @@ function Day({ onNavigate }) {
       </Card>
 
       {/* Отчёт за сегодня — в конце дня */}
-      <DayReportCard date={date} />
+      <DayReportCard date={date} plan={savedPlan} onSaved={reloadPlan} />
 
       {/* Модалки из списка кандидатов */}
       {openTask && (
