@@ -93,7 +93,6 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
   const valueFor = (id) =>
     values.find((v) => v.metric_id === id && v.date === date)?.value;
 
-  const doneCount = (items || []).filter((i) => i.done).length;
   // Задачи, закрытые в этот день вне плана. Задачи из плана уже видны выше
   // (зелёными), поэтому исключаем их — иначе задача дублировалась бы.
   const planTaskIds = new Set(
@@ -104,11 +103,14 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
   const readingGoalSeconds = reading?.goal_seconds || 0;
   // Время чтения за день было — показываем отдельным блоком.
   const hasReading = readingSeconds > 0;
+  // Потрачено за день (для свёрнутой шапки): время задач + время чтения.
+  const spentMinutes =
+    (day?.total_minutes || 0) + Math.round(readingSeconds / 60);
 
   return (
     <Card className="my-3" size="sm">
       <CardHeader className="cursor-pointer select-none" onClick={toggle}>
-        <div className="flex w-full items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2">
           {open ? (
             <ChevronDown className="size-4 text-muted-foreground" />
           ) : (
@@ -116,32 +118,15 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
           )}
           <CalendarDays className="size-4 text-muted-foreground" />
           <DateDisplay date={date} />
+          {spentMinutes > 0 && (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              ({fmtMin(spentMinutes)})
+            </span>
+          )}
           {hasContent && (
             <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
           )}
         </div>
-
-        {/* Сводка дня — как шапка «Дня» */}
-        <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-          {day ? (
-            <>
-              <span>
-                {doneCount > 0
-                  ? `выполнено ${doneCount} из ${day.tasks + day.notes}`
-                  : `${day.tasks} задач · ${day.notes} повт.`}
-              </span>
-              <span>· {fmtMin(day.total_minutes)}</span>
-              <span>· бюджет {fmtMin(day.budget_minutes)}</span>
-            </>
-          ) : (
-            <span>Плана на этот день не было</span>
-          )}
-          {hasReading && (
-            <span className="tabular-nums">
-              · чтение {fmtMin(Math.round(readingSeconds / 60))}
-            </span>
-          )}
-        </p>
       </CardHeader>
 
       {open && (
@@ -348,6 +333,7 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
 function Reports() {
   const reportsQuery = useReports(true);
   const readingQuery = useReadingHistory(true);
+  const metricsQuery = useUserMetrics(true);
   const [history, setHistory] = useState(null);
   const [openDate, setOpenDate] = useState(null);
 
@@ -361,7 +347,7 @@ function Reports() {
   const readingFor = (date) =>
     (readingQuery.data || []).find((r) => r.date === date) || null;
 
-  // Объединяем даты из планов дней, текстовых отчётов и чтения.
+  // Объединяем даты из планов дней, текстовых отчётов, чтения и метрик.
   const days = [];
   const addDay = (date, patch) => {
     const ex = days.find((x) => x.date === date);
@@ -371,6 +357,12 @@ function Reports() {
   for (const d of history || []) addDay(d.date, { day: d.has_plan ? d : null });
   for (const r of reportsQuery.data || []) addDay(r.date, { report: r });
   for (const r of readingQuery.data || []) addDay(r.date, {});
+  // Дни с проставленными метриками — тоже дни (даже без плана и отчёта).
+  const metricDates = new Set();
+  for (const v of metricsQuery.data?.values || []) {
+    if (v.date && v.value != null && v.value !== "") metricDates.add(v.date);
+  }
+  for (const d of metricDates) addDay(d, {});
   days.sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return (
@@ -389,12 +381,14 @@ function Reports() {
       {days.length === 0 ? (
         <Card className="my-3" size="sm">
           <CardContent>
-            {reportsQuery.isLoading || readingQuery.isLoading ? (
+            {reportsQuery.isLoading ||
+            readingQuery.isLoading ||
+            metricsQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Загрузка…</p>
             ) : (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <CalendarDays className="size-4" />
-                Пока нет ни одного дня. Сформируйте день в разделе «День» или
+                Пока нет ни одного дня. Сформируйте день, проставьте метрику или
                 почитайте книгу — день появится здесь.
               </p>
             )}
