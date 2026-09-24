@@ -140,10 +140,14 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
               ({fmtMin(spentMinutes)})
             </span>
           )}
-          {hasContent && (
-            <FileText className="size-4 text-emerald-600 dark:text-emerald-400" />
-          )}
         </div>
+        {/* Текст отчёта — снизу от даты (кратко), выровнен по значку даты.
+            Целиком — при раскрытии. */}
+        {hasContent && (
+          <p className="line-clamp-3 pl-6 text-xs leading-snug whitespace-pre-wrap text-muted-foreground">
+            {report.content}
+          </p>
+        )}
       </CardHeader>
 
       {open && (
