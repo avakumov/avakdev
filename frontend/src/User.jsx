@@ -21,6 +21,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import UserAvatar from "@/components/UserAvatar.jsx";
+import ModalClose from "@/components/ModalClose.jsx";
 import { AVATAR_PRESETS } from "@/lib/avatars.js";
 import {
   NotificationsCard,
@@ -191,10 +192,11 @@ function AvatarModal({ user, onClose, onSaved }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-md flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-md flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <CardHeader>
+        <ModalClose onClose={onClose} />
+        <CardHeader className="pr-10">
           <CardTitle className="flex items-center gap-3">
             {preview}
             <span className="min-w-0">
@@ -281,10 +283,6 @@ function AvatarModal({ user, onClose, onSaved }) {
         </CardContent>
 
         <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            <X />
-            Отмена
-          </Button>
           <Button onClick={handleSave} disabled={busy}>
             {busy ? <Loader2 className="animate-spin" /> : <Save />}
             {busy ? "Сохраняю…" : "Сохранить"}

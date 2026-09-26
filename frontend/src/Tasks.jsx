@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
 import { cn } from "@/lib/utils";
+import ModalClose from "@/components/ModalClose.jsx";
 
 import {
   Card,
@@ -30,7 +31,6 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
-  X,
   Clock,
   CalendarDays,
   Hourglass,
@@ -185,9 +185,10 @@ export function TaskFormModal({
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-lg flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-lg flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ListTodo className="size-4 text-muted-foreground" />
@@ -309,8 +310,8 @@ export function TaskFormModal({
           )}
         </CardContent>
 
-        <div className="flex items-center justify-between gap-2 border-t p-4">
-          {initial ? (
+        <div className="flex flex-wrap items-center gap-2 border-t p-4">
+          {initial && (
             <Button
               variant="destructive"
               onClick={handleDelete}
@@ -319,14 +320,8 @@ export function TaskFormModal({
               {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
               {deleting ? "Удаляю…" : "Удалить задачу"}
             </Button>
-          ) : (
-            <span />
           )}
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={saving || deleting}>
-              <X />
-              Отмена
-            </Button>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             <Button
               onClick={handleSave}
               disabled={saving || deleting || !title.trim()}

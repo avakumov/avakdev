@@ -1,7 +1,8 @@
 import MarkdownView from "./MarkdownView.jsx";
+import ModalClose from "@/components/ModalClose.jsx";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { X, HelpCircle } from "lucide-react";
+import { HelpCircle } from "lucide-react";
 
 // Справка по Markdown: каждый пункт — заголовок, синтаксис (как писать)
 // и наглядный пример (как будет выглядеть).
@@ -106,9 +107,10 @@ function MarkdownHelp({ onClose }) {
       onClick={onClose}
     >
       <Card
-        className="w-full max-w-xl max-h-[85vh] flex flex-col"
+        className="relative w-full max-w-xl max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -134,12 +136,6 @@ function MarkdownHelp({ onClose }) {
             ))}
           </div>
         </CardContent>
-        <div className="flex justify-end border-t p-4">
-          <Button onClick={onClose}>
-            <X />
-            Закрыть
-          </Button>
-        </div>
       </Card>
     </div>
   );

@@ -10,6 +10,7 @@ import {
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
+import ModalClose from "@/components/ModalClose.jsx";
 import {
   Tooltip,
   TooltipContent,
@@ -286,9 +287,10 @@ function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-md flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-md flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="size-4 text-muted-foreground" />
@@ -335,14 +337,6 @@ function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
             {deleting ? "Удаляю…" : "Удалить метрику"}
           </Button>
           <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              onClick={onClose}
-              disabled={saving || deleting}
-            >
-              <X />
-              Отмена
-            </Button>
             <Button
               onClick={handleSave}
               disabled={saving || deleting || !editName.trim()}
@@ -646,10 +640,11 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
       onClick={onClose}
     >
       <Card
-        className="flex w-full max-w-sm flex-col"
+        className="relative flex w-full max-w-sm flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <CardHeader>
+        <ModalClose onClose={onClose} />
+        <CardHeader className="pr-8">
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="size-4 text-muted-foreground" />
             {def.name}
@@ -700,14 +695,6 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
             {deleting ? "Удаляю…" : "Удалить"}
           </Button>
           <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              onClick={onClose}
-              disabled={saving || deleting}
-            >
-              <X />
-              Отмена
-            </Button>
             <Button onClick={handleSave} disabled={!canSave || saving || deleting}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}
               {saving ? "Сохраняю…" : "Сохранить"}

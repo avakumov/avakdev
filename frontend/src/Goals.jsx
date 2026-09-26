@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
 import { cn } from "@/lib/utils";
+import ModalClose from "@/components/ModalClose.jsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -185,9 +186,10 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-lg flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-lg flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Target className="size-4 text-muted-foreground" />
@@ -386,10 +388,6 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
             </Button>
           )}
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={saving || deleting}>
-              <X />
-              Отмена
-            </Button>
             <Button
               onClick={handleSave}
               disabled={saving || deleting || !title.trim()}
@@ -454,10 +452,11 @@ function AttachTasksModal({ goal, tasks, onClose, onSaved }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-lg flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-lg flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <CardHeader>
+        <ModalClose onClose={onClose} />
+        <CardHeader className="pr-8">
           <CardTitle className="flex items-center gap-2">
             <Link2 className="size-4 text-muted-foreground" />
             Привязать задачи
@@ -521,10 +520,6 @@ function AttachTasksModal({ goal, tasks, onClose, onSaved }) {
         </CardContent>
 
         <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            <X />
-            Отмена
-          </Button>
           <Button
             onClick={handleSave}
             disabled={saving || candidates.length === 0}

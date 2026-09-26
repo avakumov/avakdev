@@ -21,6 +21,7 @@ import { useAppStore } from "./store.js";
 import { todayStr, formatClock } from "@/lib/formatDate.js";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import MarkdownView from "./MarkdownView.jsx";
+import ModalClose from "@/components/ModalClose.jsx";
 import { TaskFormModal } from "./Tasks.jsx";
 import {
   Card,
@@ -144,10 +145,11 @@ function NoteReadModal({ note, done, onClose, onRepeat }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-2xl flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <CardHeader>
+        <ModalClose onClose={onClose} />
+        <CardHeader className="pr-10">
           <CardTitle className="flex flex-wrap items-center gap-2">
             <BookOpen className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1">{note.title}</span>
@@ -185,10 +187,6 @@ function NoteReadModal({ note, done, onClose, onRepeat }) {
               <Repeat />
             )}
             {busy ? "Отмечаю…" : done ? "Повторено сегодня" : "Я повторил"}
-          </Button>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            <X />
-            Закрыть
           </Button>
         </div>
       </Card>

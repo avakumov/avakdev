@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
 import TimeInput from "@/components/TimeInput.jsx";
+import ModalClose from "@/components/ModalClose.jsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -173,9 +174,10 @@ export function CreateNotificationModal({ onClose, onCreated }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-md flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-md flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BellRing className="size-4 text-muted-foreground" />
@@ -301,10 +303,6 @@ export function CreateNotificationModal({ onClose, onCreated }) {
         </CardContent>
 
         <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            <X />
-            Отмена
-          </Button>
           <Button onClick={handleSave} disabled={saving || !text.trim()}>
             {saving ? <Loader2 className="animate-spin" /> : <Save />}
             {saving ? "Сохраняю…" : "Добавить"}

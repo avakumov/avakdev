@@ -3,6 +3,7 @@ import { useUserMetrics, setUserMetricValue } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import { BoolToggle } from "./Metrics.jsx";
+import ModalClose from "@/components/ModalClose.jsx";
 
 import {
   Card,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Save, X, AlertCircle, CalendarDays, BarChart3 } from "lucide-react";
+import { Loader2, Save, AlertCircle, CalendarDays, BarChart3 } from "lucide-react";
 
 // Модальное окно заполнения метрик за конкретный день (показывается после
 // сохранения отчёта за сегодняшний день). Дата показывается один раз сверху.
@@ -66,9 +67,10 @@ function MetricsTodayModal({ date, onClose }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-lg flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-lg flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -146,10 +148,6 @@ function MetricsTodayModal({ date, onClose }) {
 
         {!isLoading && !isError && (
           <div className="flex justify-end gap-2 border-t p-4">
-            <Button variant="ghost" onClick={onClose} disabled={saving}>
-              <X />
-              Отмена
-            </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}
               {saving ? "Сохраняю…" : "Сохранить"}

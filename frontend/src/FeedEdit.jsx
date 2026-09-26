@@ -9,6 +9,7 @@ import {
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import ModalClose from "@/components/ModalClose.jsx";
 import {
   Card,
   CardHeader,
@@ -117,9 +118,10 @@ function FeedItemModal({ initial, onClose, onSaved }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-lg flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-lg flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Rss className="size-4 text-muted-foreground" />
@@ -240,10 +242,6 @@ function FeedItemModal({ initial, onClose, onSaved }) {
             </Button>
           )}
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={saving || deleting}>
-              <X />
-              Отмена
-            </Button>
             <Button
               onClick={handleSave}
               disabled={saving || deleting || !ready}
@@ -338,9 +336,10 @@ function FeedGenerateModal({ onClose, onSaved }) {
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[85vh] w-full max-w-lg flex-col"
+        className="relative flex max-h-[85vh] w-full max-w-lg flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalClose onClose={onClose} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="size-4 text-muted-foreground" />
@@ -465,10 +464,6 @@ function FeedGenerateModal({ onClose, onSaved }) {
         </CardContent>
 
         <div className="flex justify-end gap-2 border-t p-4">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            <X />
-            Отмена
-          </Button>
           <Button
             onClick={handleSave}
             disabled={busy || drafts.length === 0}
