@@ -37,6 +37,8 @@ type Book struct {
 	Created string `json:"created"`
 	// FinishedAt — когда книга отмечена прочитанной (пусто — не прочитана).
 	FinishedAt string `json:"finished_at"`
+	// StartedAt — начало чтения: время первой закладки (пусто — закладок нет).
+	StartedAt string `json:"started_at,omitempty"`
 	// ReadPercent — сколько книги прочитано (0–100) по последней закладке;
 	// считается только в списке книг (omitempty — чтобы не отдавать ложный 0).
 	ReadPercent int `json:"read_percent,omitempty"`
@@ -53,6 +55,11 @@ const bookCreatedExpr = `to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:M
 // bookFinishedExpr — отметка о прочтении (RFC3339, UTC; пусто — не прочитана).
 const bookFinishedExpr = `COALESCE(to_char(finished_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')`
 
+// bookStartedExpr — начало чтения книги: время первой закладки (RFC3339, UTC;
+// пусто — закладок ещё не было). Требует алиас таблицы books как `b`.
+const bookStartedExpr = `COALESCE(to_char((SELECT MIN(bm.created) FROM book_bookmarks bm
+				WHERE bm.book_id = b.id AND bm.username = b.username) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')`
+
 // handleListBooks возвращает книги текущего пользователя (без текста).
 // Непрочитанные идут первыми, прочитанные — в конце списка. У каждой книги
 // считается процент прочтения: позиция последней закладки от длины текста
@@ -60,7 +67,7 @@ const bookFinishedExpr = `COALESCE(to_char(finished_at AT TIME ZONE 'UTC','YYYY-
 func handleListBooks(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
-		`SELECT b.id, b.title, b.author, b.format, `+bookCreatedExpr+`, `+bookFinishedExpr+`,
+		`SELECT b.id, b.title, b.author, b.format, `+bookCreatedExpr+`, `+bookFinishedExpr+`, `+bookStartedExpr+`,
 		        b.text_len,
 		        COALESCE((SELECT MAX(bm.anchor) FROM book_bookmarks bm
 		                  WHERE bm.book_id = b.id AND bm.username = b.username), 0)
@@ -79,7 +86,7 @@ func handleListBooks(c *gin.Context) {
 		var b Book
 		var textLen, lastAnchor int
 		err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.Created, &b.FinishedAt,
-			&textLen, &lastAnchor)
+			&b.StartedAt, &textLen, &lastAnchor)
 		if err != nil {
 			continue
 		}

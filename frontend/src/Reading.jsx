@@ -59,6 +59,29 @@ const READING_SEND_RETRY_MS = 10 * 1000;
 // Запас цели дня на случай, если сервер её не отдал (по умолчанию — 1 час).
 const READING_GOAL_FALLBACK = 3600;
 
+// Сколько календарных дней заняло чтение книги (включительно): от первой
+// закладки (started_at) до отметки «прочитана» (finished_at). null — книга
+// не прочитана или начало чтения неизвестно.
+function readingDays(startedAt, finishedAt) {
+  if (!startedAt || !finishedAt) return null;
+  const start = new Date(startedAt);
+  const end = new Date(finishedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const a = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const b = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  const days = Math.round((b - a) / 86400000) + 1;
+  return days > 1 ? days : 1;
+}
+
+// Русская форма слова «день»: 1 день, 2 дня, 5 дней.
+function dayWord(n) {
+  const d10 = n % 10;
+  const d100 = n % 100;
+  if (d10 === 1 && d100 !== 11) return "день";
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return "дня";
+  return "дней";
+}
+
 // Стили текста книги (HTML приходит с сервера уже очищенным).
 // Размер шрифта задаётся извне (кнопками «−/+»).
 const BOOK_TEXT_CLASS = [
@@ -880,6 +903,8 @@ function Reading() {
           // Процент прочтения приходит с сервера (позиция последней закладки
           // от длины текста; отмеченная прочитанной книга — 100%).
           const percent = b.read_percent || 0;
+          // Сколько дней заняло чтение — только для прочитанных книг.
+          const days = readingDays(b.started_at, b.finished_at);
           return (
             <Card
               key={b.id}
@@ -903,21 +928,35 @@ function Reading() {
                   <div className="min-w-0">
                     <CardTitle className="wrap-break-word">{b.title}</CardTitle>
                     <CardDescription className="wrap-break-word">
-                      {b.author}
-                      {b.finished_at ? (
-                        <span className="text-emerald-600 dark:text-emerald-400">
-                          {b.author ? " · " : ""}прочитана{" "}
-                          <DateDisplay date={b.finished_at} />
-                        </span>
-                      ) : (
-                        percent > 0 && (
-                          <span className="text-emerald-600 dark:text-emerald-400">
-                            {b.author
-                              ? ` · прочитано ${percent}%`
-                              : `прочитано ${percent}%`}
+                      {[
+                        b.author || null,
+                        b.started_at ? (
+                          <span className="text-muted-foreground">
+                            начато <DateDisplay date={b.started_at} />
                           </span>
-                        )
-                      )}
+                        ) : null,
+                        b.finished_at ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            прочитана <DateDisplay date={b.finished_at} />
+                          </span>
+                        ) : percent > 0 ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            прочитано {percent}%
+                          </span>
+                        ) : null,
+                        days != null ? (
+                          <span className="text-muted-foreground">
+                            за {days} {dayWord(days)}
+                          </span>
+                        ) : null,
+                      ]
+                        .filter(Boolean)
+                        .map((part, i) => (
+                          <span key={i}>
+                            {i > 0 ? " · " : ""}
+                            {part}
+                          </span>
+                        ))}
                     </CardDescription>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
