@@ -15,6 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAppStore } from "./store.js";
 import { cn } from "@/lib/utils";
 import { todayStr, formatClock } from "@/lib/formatDate.js";
+import DateDisplay from "@/components/DateDisplay.jsx";
 import {
   Card,
   CardHeader,
@@ -37,7 +38,6 @@ import {
   Bookmark,
   BookmarkPlus,
   BookCheck,
-  RotateCcw,
 } from "lucide-react";
 
 // Допустимый размер шрифта книги (px) и шаг изменения.
@@ -742,29 +742,12 @@ function Reading() {
   const [openBook, setOpenBook] = useState(null);
   const [openJump, setOpenJump] = useState(null); // закладка для перехода
   const [deletingId, setDeletingId] = useState(null);
-  const [finishingId, setFinishingId] = useState(null);
   const closeBook = () => {
     setOpenBook(null);
     setOpenJump(null);
   };
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["books"] });
-
-  // Отметить книгу прочитанной / вернуть в чтение (прочитанные уезжают
-  // в конец списка и не предлагаются в «Дне»).
-  const handleToggleFinished = async (book) => {
-    setFinishingId(book.id);
-    setError("");
-    try {
-      await setBookFinished(book.id, !book.finished_at);
-      refresh();
-      queryClient.invalidateQueries({ queryKey: ["last-bookmark"] });
-    } catch (err) {
-      setError(err.message || "Не удалось отметить книгу");
-    } finally {
-      setFinishingId(null);
-    }
-  };
 
   const handlePick = async (e) => {
     const file = e.target.files?.[0];
@@ -923,7 +906,8 @@ function Reading() {
                       {b.author}
                       {b.finished_at ? (
                         <span className="text-emerald-600 dark:text-emerald-400">
-                          {b.author ? " · прочитана" : "прочитана"}
+                          {b.author ? " · " : ""}прочитана{" "}
+                          <DateDisplay date={b.finished_at} />
                         </span>
                       ) : (
                         percent > 0 && (
@@ -940,30 +924,6 @@ function Reading() {
                     <Button size="sm" onClick={() => setOpenBook(b)}>
                       <BookOpenText />
                       Читать
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleToggleFinished(b)}
-                      disabled={finishingId === b.id}
-                      title={
-                        b.finished_at
-                          ? "Вернуть книгу в чтение"
-                          : "Отметить книгу прочитанной"
-                      }
-                      aria-label={
-                        b.finished_at
-                          ? "Вернуть книгу в чтение"
-                          : "Отметить книгу прочитанной"
-                      }
-                    >
-                      {finishingId === b.id ? (
-                        <Loader2 className="animate-spin" />
-                      ) : b.finished_at ? (
-                        <RotateCcw />
-                      ) : (
-                        <BookCheck />
-                      )}
                     </Button>
                     <Button
                       variant="destructive"
