@@ -13,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"avakumov/server/internal/database"
 )
 
 // User — представление записи в таблице users.
@@ -158,12 +160,8 @@ func initDB() error {
 		return nil // БД не настроена — авторизация будет отключена.
 	}
 	var err error
-	// Пул соединений. Внутри pgx сам разберётся с контекстом и переподключением.
-	db, err = pgxpool.New(context.Background(), dsn)
+	db, err = database.Open(context.Background(), dsn)
 	if err != nil {
-		return err
-	}
-	if err := db.Ping(context.Background()); err != nil {
 		return err
 	}
 	sess = newSessionStore()
