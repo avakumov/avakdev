@@ -1114,3 +1114,16 @@ export async function setDayItemDone(date, kind, refId, done) {
   if (!res.ok) throw new Error(data.error || "Не удалось обновить позицию дня");
   return data;
 }
+
+// Фактически потраченное время по позиции дня (PUT /api/day/spent):
+// минуты за этот день (0 — очистить). Только для задач.
+export async function setDayItemSpent(date, kind, refId, minutes) {
+  const res = await fetch(`${BASE}/api/day/spent`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, kind, ref_id: refId, minutes }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить время");
+  return data;
+}

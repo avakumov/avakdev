@@ -239,6 +239,7 @@ func main() {
 		authed.POST("/day/suggest", handleDaySuggest)
 		authed.PUT("/day", handleSaveDay)
 		authed.PUT("/day/done", handleSetDayItemDone)
+		authed.PUT("/day/spent", handleSetDayItemSpent)
 		authed.GET("/day/history", handleDayHistory)
 
 		// Уведомления пользователя (колокольчик на странице профиля).

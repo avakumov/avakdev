@@ -28,6 +28,10 @@ type DayItem struct {
 	Meta    string `json:"meta"` // категория задачи / тема заметки
 	Minutes int    `json:"minutes"`
 	Done    bool   `json:"done"`
+	// SpentMinutes — фактически потраченное время позиции в этот день (0 —
+	// не указано). Имеет приоритет над ActualHours и Minutes при подсчёте
+	// «потрачено». Для заметок не используется — у них время по символам.
+	SpentMinutes int `json:"spent_minutes"`
 	// ActualHours — фактически потраченное время задачи (0 — не заполнено;
 	// для заметок всегда 0).
 	ActualHours float64 `json:"actual_hours"`
@@ -409,7 +413,7 @@ func loadDayItems(username, day string) (dayBody, bool) {
 
 	items := make([]DayItem, 0)
 	rows, err := db.Query(ctx,
-		`SELECT kind, ref_id, minutes, done, position
+		`SELECT kind, ref_id, minutes, done, position, actual_minutes
 		 FROM day_items WHERE plan_id = $1 ORDER BY position`, planID)
 	if err != nil {
 		return body, false
@@ -418,7 +422,7 @@ func loadDayItems(username, day string) (dayBody, bool) {
 	for rows.Next() {
 		var it DayItem
 		var pos int
-		if err := rows.Scan(&it.Kind, &it.RefID, &it.Minutes, &it.Done, &pos); err != nil {
+		if err := rows.Scan(&it.Kind, &it.RefID, &it.Minutes, &it.Done, &pos, &it.SpentMinutes); err != nil {
 			continue
 		}
 		title, meta, actualHours, ok := dayItemTitle(username, it.Kind, it.RefID)
@@ -600,6 +604,55 @@ func handleSetDayItemDone(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// maxDayItemSpentMinutes — верхняя граница фактического времени по позиции дня
+// (сутки): защита от случайного ввода.
+const maxDayItemSpentMinutes = 24 * 60
+
+// handleSetDayItemSpent — фактически потраченное время позиции дня
+// (PUT /api/day/spent, тело {"date","kind","ref_id","minutes"}).
+// Пишется в day_items.actual_minutes; 0 очищает значение. Только для задач:
+// у конспектов время считается по символам.
+func handleSetDayItemSpent(c *gin.Context) {
+	var req struct {
+		Date    string `json:"date"`
+		Kind    string `json:"kind"`
+		RefID   int    `json:"ref_id"`
+		Minutes int    `json:"minutes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		return
+	}
+	if req.Kind != "task" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Факт можно указать только для задачи"})
+		return
+	}
+	if req.Minutes < 0 || req.Minutes > maxDayItemSpentMinutes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное время"})
+		return
+	}
+	day, err := parseDay(req.Date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sessData, _ := c.MustGet("session").(session)
+	tag, err := db.Exec(context.Background(),
+		`UPDATE day_items SET actual_minutes = $1
+		 WHERE kind = 'task' AND ref_id = $2 AND plan_id =
+		       (SELECT id FROM day_plans WHERE username = $3 AND day = $4)`,
+		req.Minutes, req.RefID, sessData.username, day)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Позиция дня не найдена"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "minutes": req.Minutes})
+}
+
 // DaySummary — строка истории (прошедшие дни).
 type DaySummary struct {
 	Date          string `json:"date"`
@@ -607,8 +660,8 @@ type DaySummary struct {
 	TotalMinutes  int    `json:"total_minutes"`
 	Tasks         int    `json:"tasks"`
 	Notes         int    `json:"notes"`
-	// SpentMinutes — фактически потраченное время дня: по задачам (fact,
-	// если заполнен, иначе план) + оценка повторений. Без времени чтения.
+	// SpentMinutes — фактически проставленное время дня по задачам: факт дня,
+	// иначе факт задачи (план и повторения не считаются). Без времени чтения.
 	SpentMinutes int `json:"spent_minutes"`
 	// HasPlan — был ли сохранён план на этот день. День может попасть в
 	// историю только из-за закрытых задач (тогда плана нет).
@@ -642,14 +695,20 @@ func handleDayHistory(c *gin.Context) {
 		     WHERE t.username = $1 AND t.status = 'done' AND t.completed_date IS NOT NULL
 		     GROUP BY 1
 		 ),
-		 /* Время по каждой задаче дня: факт (actual_hours), если он заполнен,
-		    иначе план. Задача берётся один раз, даже если она и в плане, и
-		    закрыта в тот же день. */
+		 /* Фактически проставленное время по задачам дня: факт дня
+		    (day_items.actual_minutes), иначе факт задачи; план не считаем.
+		    Если задача есть и в плане, и среди закрытых в тот же день —
+		    берём значение из плана. */
 		 task_time AS (
-		     SELECT day, task_id, MAX(minutes) AS minutes FROM (
+		     SELECT day, task_id,
+		            (ARRAY_AGG(minutes ORDER BY in_plan DESC))[1] AS minutes
+		     FROM (
 		         SELECT p.day AS day,
 		                t.id AS task_id,
-		                CASE WHEN t.actual_hours > 0 THEN t.actual_hours * 60 ELSE i.minutes END AS minutes
+		                1 AS in_plan,
+		                CASE WHEN i.actual_minutes > 0 THEN i.actual_minutes
+		                     WHEN t.actual_hours > 0 THEN t.actual_hours * 60
+		                     ELSE 0 END AS minutes
 		         FROM day_plans p
 		         JOIN day_items i ON i.plan_id = p.id AND i.kind = 'task'
 		         JOIN tasks t ON t.id = i.ref_id AND t.username = $1
@@ -657,21 +716,16 @@ func handleDayHistory(c *gin.Context) {
 		         UNION ALL
 		         SELECT t.completed_date AS day,
 		                t.id AS task_id,
-		                CASE WHEN t.actual_hours > 0 THEN t.actual_hours * 60 ELSE t.planned_hours * 60 END AS minutes
+		                0 AS in_plan,
+		                CASE WHEN t.actual_hours > 0 THEN t.actual_hours * 60 ELSE 0 END AS minutes
 		         FROM tasks t
 		         WHERE t.username = $1 AND t.status = 'done' AND t.completed_date IS NOT NULL
 		     ) x
 		     GROUP BY day, task_id
 		 ),
 		 spent_days AS (
-		     SELECT day, ROUND(SUM(minutes))::int AS task_minutes FROM (
-		         SELECT day, minutes FROM task_time
-		         UNION ALL
-		         SELECT p.day AS day, i.minutes
-		         FROM day_plans p
-		         JOIN day_items i ON i.plan_id = p.id AND i.kind = 'note'
-		         WHERE p.username = $1
-		     ) y
+		     SELECT day, ROUND(SUM(minutes))::int AS task_minutes
+		     FROM task_time
 		     GROUP BY day
 		 )
 		 SELECT to_char(d.day, 'YYYY-MM-DD'),
