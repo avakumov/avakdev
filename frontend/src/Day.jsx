@@ -9,7 +9,6 @@ import {
   useKnowledge,
   repeatKnowledge,
   setDayItemDone,
-  setDayItemSpent,
   updateReport,
   saveReportDraft,
   useLastBookmark,
@@ -78,11 +77,6 @@ const taskMetaLabel = (category, hours) => {
 function itemFactMinutes(it) {
   if (it.kind !== "task") return 0;
   return it.spent_minutes > 0 ? it.spent_minutes : 0;
-}
-
-// Есть ли у позиции фактическое время — только для задач.
-function itemHasFact(it) {
-  return it.kind === "task" && it.spent_minutes > 0;
 }
 
 // Строка-кандидат: чекбокс «включить в день» + клик по строке открывает
@@ -523,9 +517,6 @@ function Day({ onNavigate }) {
   const [openNote, setOpenNote] = useState(null);
   // Выполненные позиции (задача «Готова», конспект «Повторено») — зелёные.
   const [doneKeys, setDoneKeys] = useState({});
-  // Ввод фактического времени по позиции плана: ключ «kind:ref_id».
-  const [spentEdit, setSpentEdit] = useState(null);
-  const [spentText, setSpentText] = useState("");
 
   // Полные данные задач (для модалки) и конспектов (для чтения).
   const tasksQuery = useTasks(true);
@@ -628,42 +619,6 @@ function Day({ onNavigate }) {
       await setDayItemDone(date, kind, id, done);
     } catch {
       /* план мог быть ещё не сохранён — отметка останется локальной */
-    }
-  };
-
-  // Фактическое время позиции дня: открываем поле в строке, сохраняем
-  // в day_items.actual_minutes (факт дня) — он приоритетнее факта задачи.
-  const startSpentEdit = (it) => {
-    const known = itemHasFact(it) ? itemFactMinutes(it) : 0;
-    setSpentText(known > 0 ? String(Number((known / 60).toFixed(2))) : "");
-    setSpentEdit(`${it.kind}:${it.ref_id}`);
-  };
-
-  const commitSpentEdit = async (it) => {
-    setSpentEdit(null);
-    const hours = Number(String(spentText).replace(",", "."));
-    const minutes =
-      Number.isFinite(hours) && hours > 0
-        ? Math.min(1440, Math.round(hours * 60))
-        : 0;
-    // Оптимистично показываем факт дня; при ошибке — перечитываем план.
-    setSavedPlan((p) =>
-      p
-        ? {
-            ...p,
-            items: p.items.map((x) =>
-              x.kind === it.kind && x.ref_id === it.ref_id
-                ? { ...x, spent_minutes: minutes }
-                : x,
-            ),
-          }
-        : p,
-    );
-    try {
-      await setDayItemSpent(date, it.kind, it.ref_id, minutes);
-    } catch (err) {
-      window.alert(err.message || "Не удалось сохранить время");
-      reloadPlan();
     }
   };
 
@@ -972,7 +927,6 @@ function Day({ onNavigate }) {
                 const done = Boolean(
                   it.done || doneKeys[`${it.kind}:${it.ref_id}`],
                 );
-                const key = `${it.kind}:${it.ref_id}`;
                 return (
                   <div
                     key={`${it.kind}-${it.ref_id}-${i}`}
@@ -999,46 +953,23 @@ function Day({ onNavigate }) {
                         <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                       )}
                     </button>
-                    <span className="flex shrink-0 items-center gap-2 text-xs">
+                    <span className="flex shrink-0 items-baseline gap-1.5 text-xs">
                       <span className="tabular-nums text-muted-foreground">
                         {fmtMin(it.minutes)}
                       </span>
-                      {/* Факт по задаче: ввод открывается по клику. */}
-                      {it.kind === "task" &&
-                        (spentEdit === key ? (
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            autoFocus
-                            value={spentText}
-                            onChange={(e) => setSpentText(e.target.value)}
-                            onBlur={() => commitSpentEdit(it)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") commitSpentEdit(it);
-                              if (e.key === "Escape") setSpentEdit(null);
-                            }}
-                            aria-label={`Фактически потрачено по задаче «${it.title}», часов`}
-                            className="h-7 w-16 px-1 text-right tabular-nums"
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => startSpentEdit(it)}
-                            title="Указать фактически потраченное время"
-                            className={cn(
-                              "cursor-pointer tabular-nums",
-                              itemHasFact(it)
-                                ? "font-medium text-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
+                      {/* Факт за этот день — только показ (задаётся в форме
+                          задачи или приходит из плана). */}
+                      {it.kind === "task" && it.spent_minutes > 0 && (
+                        <>
+                          <span className="text-muted-foreground/50">·</span>
+                          <span
+                            className="tabular-nums font-medium text-foreground"
+                            title="Фактически потрачено за этот день"
                           >
-                            факт{" "}
-                            {itemHasFact(it)
-                              ? fmtMin(itemFactMinutes(it))
-                              : "—"}
-                          </button>
-                        ))}
+                            {fmtMin(it.spent_minutes)}
+                          </span>
+                        </>
+                      )}
                     </span>
                   </div>
                 );

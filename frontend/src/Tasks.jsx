@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useTasks, createTask, updateTask, deleteTask } from "./api.js";
+import { useTasks, createTask, updateTask, deleteTask, setDayItemSpent } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
@@ -156,12 +156,33 @@ export function TaskFormModal({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
-  // Потраченное время задачи — только для чтения: сумма фактического времени
-  // по дням (факт указывается в разделе «День»).
+  // Потраченное время: итог и разбивка по дням — только для чтения.
+  // Факт «за сегодня» можно задать прямо здесь: он пишется в позицию
+  // сегодняшнего дня, и задача при необходимости автоматически попадает
+  // в «План дня» (см. «День»).
   const spentByDay = Array.isArray(initial?.spent_by_day)
     ? initial.spent_by_day
     : [];
-  const spentTotal = Number(initial?.actual_hours) || 0;
+  const today = todayStr();
+  const serverTodayMinutes =
+    spentByDay.find((d) => d.date === today)?.minutes || 0;
+  const [spentToday, setSpentToday] = useState(
+    serverTodayMinutes > 0 ? fmtHours(serverTodayMinutes / 60) : "",
+  );
+
+  // Живой итог: «старая база» без разбивки + прочие дни + то, что ввели сейчас.
+  const enteredMinutes = (() => {
+    const h = Number(String(spentToday).replace(",", "."));
+    return Number.isFinite(h) && h > 0 ? Math.min(1440, Math.round(h * 60)) : 0;
+  })();
+  const otherDays = spentByDay.filter((d) => d.date !== today);
+  const otherDaysMinutes = otherDays.reduce((s, d) => s + d.minutes, 0);
+  const daysMinutes = spentByDay.reduce((s, d) => s + d.minutes, 0);
+  const legacyMinutes = Math.max(
+    0,
+    Math.round((Number(initial?.actual_hours) || 0) * 60) - daysMinutes,
+  );
+  const spentTotalMinutes = legacyMinutes + otherDaysMinutes + enteredMinutes;
 
   const num = (v) => {
     const n = Number(v);
@@ -185,6 +206,11 @@ export function TaskFormModal({
       const saved = initial
         ? await updateTask(initial.id, payload)
         : await createTask(payload);
+      // Факт за сегодня пишем в позицию дня. Если задачи в плане дня не было,
+      // сервер добавит её (и сам план) автоматически.
+      if (saved?.id != null && enteredMinutes !== serverTodayMinutes) {
+        await setDayItemSpent(today, "task", saved.id, enteredMinutes);
+      }
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -293,32 +319,53 @@ export function TaskFormModal({
                 placeholder="0"
               />
             </div>
-            {initial && (
-              <div className="space-y-1.5">
-                <Label>Потрачено всего</Label>
-                <p className="flex h-9 items-center text-sm font-medium tabular-nums">
-                  {spentTotal > 0 ? `${fmtHours(spentTotal)} ч` : "—"}
-                </p>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label>Фактическое время сегодня, ч</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.25"
+                value={spentToday}
+                onChange={(e) => setSpentToday(e.target.value)}
+                placeholder="0"
+              />
+            </div>
           </div>
 
-          {initial && spentByDay.length > 0 && (
+          {initial && (
             <div className="space-y-1">
-              <Label>По дням</Label>
-              <ul className="space-y-0.5 text-sm text-muted-foreground">
-                {spentByDay.map((d) => (
-                  <li
-                    key={d.date}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <DateDisplay date={d.date} />
-                    <span className="tabular-nums">{fmtMin(d.minutes)}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">Потрачено всего</span>
+                <span className="font-medium tabular-nums">
+                  {spentTotalMinutes > 0
+                    ? fmtMin(spentTotalMinutes)
+                    : "—"}
+                </span>
+              </div>
+              {(otherDays.length > 0 || legacyMinutes > 0) && (
+                <ul className="space-y-0.5 text-xs text-muted-foreground">
+                  {otherDays.map((d) => (
+                    <li
+                      key={d.date}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <DateDisplay date={d.date} />
+                      <span className="tabular-nums">{fmtMin(d.minutes)}</span>
+                    </li>
+                  ))}
+                  {legacyMinutes > 0 && (
+                    <li className="flex items-center justify-between gap-3">
+                      <span>Без разбивки по дням</span>
+                      <span className="tabular-nums">
+                        {fmtMin(legacyMinutes)}
+                      </span>
+                    </li>
+                  )}
+                </ul>
+              )}
               <p className="text-xs text-muted-foreground">
-                Время указывается в разделе «День» — факт по задаче.
+                Время за сегодня можно указать здесь — задача попадёт в «План
+                дня». Остальные дни — в разделе «День».
               </p>
             </div>
           )}

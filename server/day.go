@@ -532,15 +532,34 @@ func handleSaveDay(c *gin.Context) {
 		return
 	}
 
+	type kv struct {
+		kind string
+		id   int
+	}
+	// Сохраняем факт и отметку «выполнено» у позиций, которые остаются в плане:
+	// пере-формирование дня не должно обнулять уже введённое время.
+	type prevItem struct {
+		actual int
+		done   bool
+	}
+	prev := make(map[kv]prevItem)
+	if rows, err := tx.Query(ctx,
+		`SELECT kind, ref_id, actual_minutes, done FROM day_items WHERE plan_id = $1`, planID); err == nil {
+		for rows.Next() {
+			var k kv
+			var p prevItem
+			if err := rows.Scan(&k.kind, &k.id, &p.actual, &p.done); err == nil {
+				prev[k] = p
+			}
+		}
+		rows.Close()
+	}
+
 	if _, err := tx.Exec(ctx, `DELETE FROM day_items WHERE plan_id = $1`, planID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить день: " + err.Error()})
 		return
 	}
 
-	type kv struct {
-		kind string
-		id   int
-	}
 	seen := make(map[kv]bool)
 	for pos, it := range req.Items {
 		if it.Kind != "task" && it.Kind != "note" {
@@ -555,10 +574,11 @@ func handleSaveDay(c *gin.Context) {
 			continue
 		}
 		seen[k] = true
+		p := prev[k]
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO day_items (plan_id, kind, ref_id, minutes, position)
-			 VALUES ($1, $2, $3, $4, $5)`,
-			planID, it.Kind, it.RefID, minutes, pos); err != nil {
+			`INSERT INTO day_items (plan_id, kind, ref_id, minutes, done, position, actual_minutes)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			planID, it.Kind, it.RefID, minutes, p.done, pos, p.actual); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить день: " + err.Error()})
 			return
 		}
@@ -616,6 +636,8 @@ const maxDayItemSpentMinutes = 24 * 60
 // (PUT /api/day/spent, тело {"date","kind","ref_id","minutes"}).
 // Пишется в day_items.actual_minutes; 0 очищает значение. Только для задач:
 // у конспектов время считается по символам.
+// Если задачи ещё нет в плане этого дня, она добавляется в день (план при
+// необходимости создаётся) — чтобы время можно было указать прямо из задачи.
 func handleSetDayItemSpent(c *gin.Context) {
 	var req struct {
 		Date    string `json:"date"`
@@ -641,17 +663,43 @@ func handleSetDayItemSpent(c *gin.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	tag, err := db.Exec(context.Background(),
-		`UPDATE day_items SET actual_minutes = $1
-		 WHERE kind = 'task' AND ref_id = $2 AND plan_id =
-		       (SELECT id FROM day_plans WHERE username = $3 AND day = $4)`,
-		req.Minutes, req.RefID, sessData.username, day)
-	if err != nil {
+	username := sessData.username
+	// Чужая/несуществующая задача в день не добавляется.
+	if _, ok := tasks.getOwned(username, req.RefID); !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Задача не найдена"})
+		return
+	}
+
+	ctx := context.Background()
+	// План дня создаём при необходимости (шапку «доступное время» пользователь
+	// задаст сам при формировании).
+	if _, err := db.Exec(ctx,
+		`INSERT INTO day_plans (username, day, budget_minutes)
+		 VALUES ($1, $2, 0)
+		 ON CONFLICT (username, day) DO NOTHING`, username, day); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время"})
 		return
 	}
-	if tag.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Позиция дня не найдена"})
+	var planID int
+	if err := db.QueryRow(ctx,
+		`SELECT id FROM day_plans WHERE username = $1 AND day = $2`,
+		username, day).Scan(&planID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время"})
+		return
+	}
+
+	// Позиция дня создаётся при необходимости: задача с указанным временем
+	// должна появиться в «Плане дня». Плановые минуты — обычная оценка задачи.
+	minutes, _ := resolveItemMinutes(username, "task", req.RefID)
+	if _, err := db.Exec(ctx,
+		`INSERT INTO day_items (plan_id, kind, ref_id, minutes, position, actual_minutes)
+		 VALUES ($1, 'task', $2, $3,
+		         COALESCE((SELECT MAX(position) + 1 FROM day_items WHERE plan_id = $1), 0),
+		         $4)
+		 ON CONFLICT (plan_id, kind, ref_id)
+		 DO UPDATE SET actual_minutes = EXCLUDED.actual_minutes`,
+		planID, req.RefID, minutes, req.Minutes); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "minutes": req.Minutes})
