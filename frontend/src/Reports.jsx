@@ -32,16 +32,18 @@ const fmtMin = (m) => {
   return r ? `${h} ч ${r} мин` : `${h} ч`;
 };
 
-// Минуты позиции дня: для задачи — фактически потраченное время (actual_hours),
-// если оно заполнено, иначе плановое; для заметки — оценка времени повторения.
+// Минуты позиции дня: для задачи — фактически потраченное время этого дня
+// (spent_minutes), если оно проставлено, иначе плановое; для заметки — оценка
+// времени повторения.
 function itemMinutes(it) {
-  if (it.kind === "task" && it.actual_hours > 0) {
-    return Math.round(it.actual_hours * 60);
+  if (it.kind === "task" && it.spent_minutes > 0) {
+    return it.spent_minutes;
   }
   return it.minutes;
 }
 
-// Минуты задачи, закрытой вне плана: факт, иначе план.
+// Минуты задачи, закрытой вне плана: потраченное время (сумма по дням), иначе
+// плановая оценка.
 function taskSpentMinutes(t) {
   return t.actual_hours > 0
     ? Math.round(t.actual_hours * 60)

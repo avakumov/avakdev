@@ -20,7 +20,7 @@ func TestTaskStore(t *testing.T) {
 	}
 
 	// Создание с полными полями.
-	task, err := tasks.create("admin", "Работа", "Сверстать таблицу", "Таблица для десктопа, карточки для мобильных", 4, 0, "2026-09-01", taskTodo, nil)
+	task, err := tasks.create("admin", "Работа", "Сверстать таблицу", "Таблица для десктопа, карточки для мобильных", 4, "2026-09-01", taskTodo, nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestTaskStore(t *testing.T) {
 	}
 
 	// Пустая категория подставляется «Прочее».
-	other, err := tasks.create("admin", "", "Без категории", "", 0, 0, "", taskTodo, nil)
+	other, err := tasks.create("admin", "", "Без категории", "", 0, "", taskTodo, nil)
 	if err != nil {
 		t.Fatalf("create без категории: %v", err)
 	}
@@ -38,23 +38,23 @@ func TestTaskStore(t *testing.T) {
 	}
 
 	// Пустой заголовок отклоняется.
-	if _, err := tasks.create("admin", "Работа", "   ", "", 0, 0, "", taskTodo, nil); err == nil {
+	if _, err := tasks.create("admin", "Работа", "   ", "", 0, "", taskTodo, nil); err == nil {
 		t.Fatal("create с пустым заголовком должен падать")
 	}
 
 	// Некорректный статус отклоняется.
-	if _, err := tasks.create("admin", "Работа", "Задача", "", 0, 0, "", "banana", nil); err == nil {
+	if _, err := tasks.create("admin", "Работа", "Задача", "", 0, "", "banana", nil); err == nil {
 		t.Fatal("create с неизвестным статусом должен падать")
 	}
 
 	// Отрицательное время отклоняется.
-	if _, err := tasks.create("admin", "Работа", "Задача", "", -1, 0, "", taskTodo, nil); err == nil {
+	if _, err := tasks.create("admin", "Работа", "Задача", "", -1, "", taskTodo, nil); err == nil {
 		t.Fatal("create с отрицательным временем должен падать")
 	}
 
 	// Ссылка на несуществующую/чужую цель отклоняется.
 	missingGoal := 999
-	if _, err := tasks.create("admin", "Работа", "Задача", "", 0, 0, "", taskTodo, &missingGoal); err == nil {
+	if _, err := tasks.create("admin", "Работа", "Задача", "", 0, "", taskTodo, &missingGoal); err == nil {
 		t.Fatal("create с несуществующей целью должен падать")
 	}
 
@@ -63,7 +63,7 @@ func TestTaskStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create goal: %v", err)
 	}
-	linked, err := tasks.create("admin", "Работа", "Тренировка", "", 1, 0, "", taskTodo, &goal.ID)
+	linked, err := tasks.create("admin", "Работа", "Тренировка", "", 1, "", taskTodo, &goal.ID)
 	if err != nil {
 		t.Fatalf("create с целью: %v", err)
 	}
@@ -75,31 +75,31 @@ func TestTaskStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create goal other: %v", err)
 	}
-	if _, err := tasks.create("admin", "Работа", "Задача", "", 0, 0, "", taskTodo, &otherGoal.ID); err == nil ||
+	if _, err := tasks.create("admin", "Работа", "Задача", "", 0, "", taskTodo, &otherGoal.ID); err == nil ||
 		!strings.Contains(err.Error(), "цель не найдена") {
 		t.Fatalf("create с целью другого пользователя должен падать: %v", err)
 	}
 
 	// Обновление.
-	updated, err := tasks.update("admin", task.ID, "Личное", "Новый заголовок", "Новое описание", 2, 1.5, "", taskInProgress, nil)
+	updated, err := tasks.update("admin", task.ID, "Личное", "Новый заголовок", "Новое описание", 2, "", taskInProgress, nil)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	if updated.Title != "Новый заголовок" || updated.Category != "Личное" ||
-		updated.PlannedHours != 2 || updated.ActualHours != 1.5 ||
+		updated.PlannedHours != 2 ||
 		updated.Status != taskInProgress || updated.Deadline != "" {
 		t.Fatalf("update не применился: %+v", updated)
 	}
 
 	// Привязка к цели при обновлении и отвязка (nil).
-	linked2, err := tasks.update("admin", other.ID, other.Category, other.Title, other.Description, 0, 0, "", taskTodo, &goal.ID)
+	linked2, err := tasks.update("admin", other.ID, other.Category, other.Title, other.Description, 0, "", taskTodo, &goal.ID)
 	if err != nil {
 		t.Fatalf("update с целью: %v", err)
 	}
 	if linked2.GoalID == nil || *linked2.GoalID != goal.ID {
 		t.Fatalf("update не привязал цель: %+v", linked2)
 	}
-	unlinked, err := tasks.update("admin", other.ID, other.Category, other.Title, other.Description, 0, 0, "", taskTodo, nil)
+	unlinked, err := tasks.update("admin", other.ID, other.Category, other.Title, other.Description, 0, "", taskTodo, nil)
 	if err != nil {
 		t.Fatalf("update без цели: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestTaskStore(t *testing.T) {
 	if list := tasks.list("other"); len(list) != 0 {
 		t.Fatalf("list(other) = %d задач, want 0", len(list))
 	}
-	if _, err := tasks.update("other", task.ID, "Работа", "Чужая", "", 0, 0, "", taskTodo, nil); err == nil ||
+	if _, err := tasks.update("other", task.ID, "Работа", "Чужая", "", 0, "", taskTodo, nil); err == nil ||
 		!strings.Contains(err.Error(), "не найдена") {
 		t.Fatalf("update чужой задачи должен падать: %v", err)
 	}

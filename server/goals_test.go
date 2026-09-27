@@ -40,7 +40,7 @@ func TestGoalAutoProgress(t *testing.T) {
 
 	add := func(status string) {
 		t.Helper()
-		if _, err := tasks.create("admin", "Прочее", "Задача", "", 1, 0, "", status, &goal.ID); err != nil {
+		if _, err := tasks.create("admin", "Прочее", "Задача", "", 1, "", status, &goal.ID); err != nil {
 			t.Fatalf("create task %q: %v", status, err)
 		}
 	}
@@ -87,7 +87,7 @@ func TestGoalAutoProgress(t *testing.T) {
 	}
 
 	// Задачи без цели не влияют на прогресс.
-	if _, err := tasks.create("admin", "Прочее", "Свободная", "", 1, 0, "", taskDone, nil); err != nil {
+	if _, err := tasks.create("admin", "Прочее", "Свободная", "", 1, "", taskDone, nil); err != nil {
 		t.Fatalf("create task без цели: %v", err)
 	}
 	if got := progressOf(); got != 50 {
@@ -149,16 +149,16 @@ func TestGoalDeleteWithTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create goal: %v", err)
 	}
-	t1, err := tasks.create("admin", "Работа", "Задача 1", "", 1, 0, "", taskTodo, &goal.ID)
+	t1, err := tasks.create("admin", "Работа", "Задача 1", "", 1, "", taskTodo, &goal.ID)
 	if err != nil {
 		t.Fatalf("create task 1: %v", err)
 	}
-	t2, err := tasks.create("admin", "Работа", "Задача 2", "", 2, 0, "", taskDone, &goal.ID)
+	t2, err := tasks.create("admin", "Работа", "Задача 2", "", 2, "", taskDone, &goal.ID)
 	if err != nil {
 		t.Fatalf("create task 2: %v", err)
 	}
 	// Задачи других пользователей не затрагиваются.
-	other, err := tasks.create("other", "Личное", "Чужая задача", "", 1, 0, "", taskTodo, nil)
+	other, err := tasks.create("other", "Личное", "Чужая задача", "", 1, "", taskTodo, nil)
 	if err != nil {
 		t.Fatalf("create other task: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestTaskGoalOrder(t *testing.T) {
 
 	var ids []int
 	for _, name := range []string{"Первый", "Второй", "Третий"} {
-		tk, err := tasks.create("admin", "Работа", name, "", 1, 0, "", taskTodo, &goal.ID)
+		tk, err := tasks.create("admin", "Работа", name, "", 1, "", taskTodo, &goal.ID)
 		if err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
@@ -245,7 +245,7 @@ func TestTaskGoalOrder(t *testing.T) {
 		t.Fatal("setGoalOrder с неполным списком должен падать")
 	}
 	// Список с чужой задачей отклоняется.
-	other, err := tasks.create("other", "Работа", "Чужая", "", 1, 0, "", taskTodo, nil)
+	other, err := tasks.create("other", "Работа", "Чужая", "", 1, "", taskTodo, nil)
 	if err != nil {
 		t.Fatalf("create other: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestTaskGoalOrder(t *testing.T) {
 	}
 
 	// Задача без цели при переносе в цель дописывается в конец (позиция 4).
-	free, err := tasks.create("admin", "Работа", "Свободная", "", 1, 0, "", taskTodo, nil)
+	free, err := tasks.create("admin", "Работа", "Свободная", "", 1, "", taskTodo, nil)
 	if err != nil {
 		t.Fatalf("create free: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestTaskGoalOrder(t *testing.T) {
 		t.Fatalf("position задачи без цели = %d, want 0", got)
 	}
 	if _, err := tasks.update("admin", free.ID, free.Category, free.Title, free.Description,
-		free.PlannedHours, free.ActualHours, free.Deadline, taskTodo, &goal.ID); err != nil {
+		free.PlannedHours, free.Deadline, taskTodo, &goal.ID); err != nil {
 		t.Fatalf("attach free: %v", err)
 	}
 	if got := pos(free.ID); got != 4 {
@@ -290,7 +290,7 @@ func TestTaskGoalDeleteCompaction(t *testing.T) {
 	}
 	ids := make([]int, 0, 3)
 	for _, name := range []string{"Подготовка", "Тренировка", "Соревнование"} {
-		tk, err := tasks.create("admin", "Работа", name, "", 1, 0, "", taskTodo, &goal.ID)
+		tk, err := tasks.create("admin", "Работа", name, "", 1, "", taskTodo, &goal.ID)
 		if err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
@@ -346,7 +346,7 @@ func TestTaskGoalUnlinkCompaction(t *testing.T) {
 	}
 	ids := make([]int, 0, 3)
 	for _, name := range []string{"Подготовка", "Тренировка", "Соревнование"} {
-		tk, err := tasks.create("admin", "Работа", name, "", 1, 0, "", taskTodo, &goal.ID)
+		tk, err := tasks.create("admin", "Работа", name, "", 1, "", taskTodo, &goal.ID)
 		if err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
@@ -367,7 +367,7 @@ func TestTaskGoalUnlinkCompaction(t *testing.T) {
 		t.Fatalf("задача %d не найдена", ids[1])
 	}
 	if _, err := tasks.update("admin", mid.ID, mid.Category, mid.Title, mid.Description,
-		mid.PlannedHours, mid.ActualHours, mid.Deadline, taskTodo, nil); err != nil {
+		mid.PlannedHours, mid.Deadline, taskTodo, nil); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
 	if got := pos(ids[1]); got != 0 {

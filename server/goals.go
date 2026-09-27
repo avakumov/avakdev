@@ -431,7 +431,7 @@ func handleCreateGoal(c *gin.Context) {
 	for _, draft := range req.Tasks {
 		d := normalizeGoalTaskDraft(draft)
 		if _, err := tasks.create(sessData.username, d.Category, d.Title, d.Description,
-			d.PlannedHours, 0, "", taskTodo, &g.ID); err != nil {
+			d.PlannedHours, "", taskTodo, &g.ID); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "Не удалось создать задачу «" + d.Title + "»: " + err.Error(),
 			})

@@ -72,19 +72,17 @@ const taskMetaLabel = (category, hours) => {
   return `${category || "Прочее"} · ${String(h)} ч`;
 };
 
-// Минуты фактически проставленного времени по позиции плана: факт дня →
-// факт задачи. План и оценка конспекта не считаются: в «потрачено» идёт
-// только то, что проставили руками (плюс время чтения отдельно).
+// Минуты фактически проставленного времени по позиции плана — факт дня.
+// План и оценка конспекта не считаются: в «потрачено» идёт только то, что
+// проставили руками (плюс время чтения отдельно).
 function itemFactMinutes(it) {
   if (it.kind !== "task") return 0;
-  if (it.spent_minutes > 0) return it.spent_minutes;
-  if (it.actual_hours > 0) return Math.round(it.actual_hours * 60);
-  return 0;
+  return it.spent_minutes > 0 ? it.spent_minutes : 0;
 }
 
-// Есть ли у позиции фактическое время (дня или задачи) — только для задач.
+// Есть ли у позиции фактическое время — только для задач.
 function itemHasFact(it) {
-  return it.kind === "task" && (it.spent_minutes > 0 || it.actual_hours > 0);
+  return it.kind === "task" && it.spent_minutes > 0;
 }
 
 // Строка-кандидат: чекбокс «включить в день» + клик по строке открывает
@@ -819,20 +817,15 @@ function Day({ onNavigate }) {
     (t) => !planTaskIds.has(t.id),
   );
 
-  // «Потрачено» за сегодня — только фактически проставленное время: факт дня →
-  // факт задачи по позициям плана, факт задач, закрытых вне плана, и время
-  // чтения. План и оценка повторений не считаются.
+  // «Потрачено» за сегодня — только фактически проставленное время: факт по
+  // позициям плана и время чтения. План и оценка повторений не считаются;
+  // у задач, закрытых вне плана, факта за день нет.
   const planSpentMinutes = (savedPlan?.items || []).reduce(
     (s, it) => s + itemFactMinutes(it),
     0,
   );
-  const extraSpentMinutes = extraDoneTasks.reduce(
-    (s, t) => s + (t.actual_hours > 0 ? Math.round(t.actual_hours * 60) : 0),
-    0,
-  );
   const readingSpentMinutes = Math.round(todayReadingSeconds / 60);
-  const daySpentMinutes =
-    planSpentMinutes + extraSpentMinutes + readingSpentMinutes;
+  const daySpentMinutes = planSpentMinutes + readingSpentMinutes;
 
   return (
     <section>

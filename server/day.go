@@ -29,12 +29,9 @@ type DayItem struct {
 	Minutes int    `json:"minutes"`
 	Done    bool   `json:"done"`
 	// SpentMinutes — фактически потраченное время позиции в этот день (0 —
-	// не указано). Имеет приоритет над ActualHours и Minutes при подсчёте
-	// «потрачено». Для заметок не используется — у них время по символам.
+	// не указано). При подсчёте «потрачено» имеет приоритет над Minutes.
+	// Для заметок не используется — у них время по символам.
 	SpentMinutes int `json:"spent_minutes"`
-	// ActualHours — фактически потраченное время задачи (0 — не заполнено;
-	// для заметок всегда 0).
-	ActualHours float64 `json:"actual_hours"`
 }
 
 // DayCandidate — кандидат в план из списка предложений.
@@ -56,7 +53,8 @@ type completedTask struct {
 	DoneAt   string `json:"done_at"` // RFC3339, UTC
 	// CompletedDate — за какой день задача выполнена (ГГГГ-ММ-ДД).
 	CompletedDate string `json:"completed_date"`
-	// Фактические (actual_hours) и плановые (planned_hours) часы задачи.
+	// ActualHours — потраченное время задачи (ч) — сумма фактического времени
+	// по дням; PlannedHours — плановая оценка (ч).
 	ActualHours  float64 `json:"actual_hours"`
 	PlannedHours float64 `json:"planned_hours"`
 }
@@ -350,23 +348,23 @@ func handleDaySuggest(c *gin.Context) {
 	})
 }
 
-// dayItemTitle возвращает заголовок/мета и фактические часы позиции по kind/ref.
-func dayItemTitle(username, kind string, refID int) (title, meta string, actualHours float64, ok bool) {
+// dayItemTitle возвращает заголовок и мета-подпись позиции по kind/ref.
+func dayItemTitle(username, kind string, refID int) (title, meta string, ok bool) {
 	switch kind {
 	case "task":
 		t, found := tasks.getOwned(username, refID)
 		if !found {
-			return "", "", 0, false
+			return "", "", false
 		}
-		return t.Title, t.Category, t.ActualHours, true
+		return t.Title, t.Category, true
 	case "note":
 		n, found := notes.get(refID)
 		if !found {
-			return "", "", 0, false
+			return "", "", false
 		}
-		return n.Title, n.Topic, 0, true
+		return n.Title, n.Topic, true
 	}
-	return "", "", 0, false
+	return "", "", false
 }
 
 // resolveItemMinutes — минуты для позиции: для задач planned*60, для заметок
@@ -425,11 +423,11 @@ func loadDayItems(username, day string) (dayBody, bool) {
 		if err := rows.Scan(&it.Kind, &it.RefID, &it.Minutes, &it.Done, &pos, &it.SpentMinutes); err != nil {
 			continue
 		}
-		title, meta, actualHours, ok := dayItemTitle(username, it.Kind, it.RefID)
+		title, meta, ok := dayItemTitle(username, it.Kind, it.RefID)
 		if !ok {
 			continue // задача/заметка удалены — позицию пропускаем
 		}
-		it.Title, it.Meta, it.ActualHours = title, meta, actualHours
+		it.Title, it.Meta = title, meta
 		items = append(items, it)
 		body.TotalMinutes += it.Minutes
 	}
@@ -440,16 +438,22 @@ func loadDayItems(username, day string) (dayBody, bool) {
 // dayCompletedTasks возвращает задачи пользователя, закрытые в указанный день.
 // День берётся из completed_date — локальной даты, которую пользователь может
 // задать (в том числе задним числом), поэтому часовой пояс здесь не нужен.
+// ActualHours — сумма фактического времени задачи по дням (0, если фактов нет).
 func dayCompletedTasks(ctx context.Context, username, day string) []completedTask {
 	out := make([]completedTask, 0)
 	rows, err := db.Query(ctx,
-		`SELECT id, title, category,
-		        to_char(completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-		        COALESCE(to_char(completed_date,'YYYY-MM-DD'),''),
-		        actual_hours, planned_hours
-		 FROM tasks
-		 WHERE username = $1 AND status = 'done' AND completed_date = $2::date
-		 ORDER BY completed_at`,
+		`SELECT t.id, t.title, t.category,
+		        to_char(t.completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        COALESCE(to_char(t.completed_date,'YYYY-MM-DD'),''),
+		        COALESCE((SELECT SUM(i.actual_minutes)
+		                    FROM day_items i
+		                    JOIN day_plans p ON p.id = i.plan_id
+		                   WHERE i.kind = 'task' AND i.ref_id = t.id
+		                     AND p.username = t.username), 0)::float8 / 60.0,
+		        t.planned_hours
+		   FROM tasks t
+		  WHERE t.username = $1 AND t.status = 'done' AND t.completed_date = $2::date
+		  ORDER BY t.completed_at`,
 		username, day)
 	if err != nil {
 		return out
@@ -695,38 +699,16 @@ func handleDayHistory(c *gin.Context) {
 		     WHERE t.username = $1 AND t.status = 'done' AND t.completed_date IS NOT NULL
 		     GROUP BY 1
 		 ),
-		 /* Фактически проставленное время по задачам дня: факт дня
-		    (day_items.actual_minutes), иначе факт задачи; план не считаем.
-		    Если задача есть и в плане, и среди закрытых в тот же день —
-		    берём значение из плана. */
-		 task_time AS (
-		     SELECT day, task_id,
-		            (ARRAY_AGG(minutes ORDER BY in_plan DESC))[1] AS minutes
-		     FROM (
-		         SELECT p.day AS day,
-		                t.id AS task_id,
-		                1 AS in_plan,
-		                CASE WHEN i.actual_minutes > 0 THEN i.actual_minutes
-		                     WHEN t.actual_hours > 0 THEN t.actual_hours * 60
-		                     ELSE 0 END AS minutes
-		         FROM day_plans p
-		         JOIN day_items i ON i.plan_id = p.id AND i.kind = 'task'
-		         JOIN tasks t ON t.id = i.ref_id AND t.username = $1
-		         WHERE p.username = $1
-		         UNION ALL
-		         SELECT t.completed_date AS day,
-		                t.id AS task_id,
-		                0 AS in_plan,
-		                CASE WHEN t.actual_hours > 0 THEN t.actual_hours * 60 ELSE 0 END AS minutes
-		         FROM tasks t
-		         WHERE t.username = $1 AND t.status = 'done' AND t.completed_date IS NOT NULL
-		     ) x
-		     GROUP BY day, task_id
-		 ),
+		 /* Фактически проставленное время по задачам дня: сумма фактов позиций
+		    дня (day_items.actual_minutes). Плановые оценки не считаем, а время
+		    задачи, закрытой вне плана, сюда не попадает — для неё факта нет. */
 		 spent_days AS (
-		     SELECT day, ROUND(SUM(minutes))::int AS task_minutes
-		     FROM task_time
-		     GROUP BY day
+		     SELECT p.day AS day,
+		            COALESCE(SUM(i.actual_minutes), 0)::int AS task_minutes
+		       FROM day_plans p
+		       JOIN day_items i ON i.plan_id = p.id AND i.kind = 'task'
+		      WHERE p.username = $1
+		      GROUP BY p.day
 		 )
 		 SELECT to_char(d.day, 'YYYY-MM-DD'),
 		        COALESCE(pd.budget_minutes, 0),

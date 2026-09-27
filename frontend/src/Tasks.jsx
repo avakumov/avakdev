@@ -59,13 +59,14 @@ export const statusVariant = (s) => STATUS_META[s]?.variant || "outline";
 
 // Базовый payload задачи для PUT/POST /api/tasks.
 // extra позволяет переопределить отдельные поля (например, статус или goal_id).
+// Фактическое время здесь не передаётся: оно складывается из фактов по дням
+// (раздел «День») и доступно только для чтения (actual_hours в ответе).
 export function taskPayload(t, extra = {}) {
   return {
     category: t.category || "Прочее",
     title: t.title,
     description: t.description || "",
     planned_hours: Number(t.planned_hours) || 0,
-    actual_hours: Number(t.actual_hours) || 0,
     deadline: t.deadline || "",
     status: t.status || "todo",
     goal_id: t.goal_id != null ? t.goal_id : null,
@@ -79,6 +80,22 @@ export function taskPayload(t, extra = {}) {
 export const fmtHours = (h) => {
   const n = Number(h || 0);
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+};
+
+// Минуты: 65 -> "1 ч 5 мин" (для разбивки потраченного времени по дням).
+const fmtMin = (m) => {
+  if (!m) return "0 мин";
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h} ч ${r} мин` : `${h} ч`;
+};
+
+// Подсказка для «Факт, ч»: разбивка потраченного времени по дням.
+const spentTitle = (t) => {
+  const days = Array.isArray(t.spent_by_day) ? t.spent_by_day : [];
+  if (days.length === 0) return "";
+  return days.map((d) => `${d.date}: ${fmtMin(d.minutes)}`).join("\n");
 };
 
 // Перенос по словам (стандартное поведение) — см. ячейку названия в TaskRow.
@@ -116,9 +133,6 @@ export function TaskFormModal({
   const [plannedHours, setPlannedHours] = useState(
     initial ? fmtHours(initial.planned_hours) : "",
   );
-  const [actualHours, setActualHours] = useState(
-    initial ? fmtHours(initial.actual_hours) : "",
-  );
   const [deadline, setDeadline] = useState(initial?.deadline || "");
   const [status, setStatus] = useState(initial?.status || "todo");
   // Дата выполнения: по умолчанию сегодня; пользователь может указать прошлый
@@ -142,6 +156,13 @@ export function TaskFormModal({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
+  // Потраченное время задачи — только для чтения: сумма фактического времени
+  // по дням (факт указывается в разделе «День»).
+  const spentByDay = Array.isArray(initial?.spent_by_day)
+    ? initial.spent_by_day
+    : [];
+  const spentTotal = Number(initial?.actual_hours) || 0;
+
   const num = (v) => {
     const n = Number(v);
     return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -155,7 +176,6 @@ export function TaskFormModal({
       title,
       description,
       planned_hours: num(plannedHours),
-      actual_hours: num(actualHours),
       deadline,
       status,
       goal_id: goalKey === "none" ? null : Number(goalKey),
@@ -204,7 +224,8 @@ export function TaskFormModal({
             {initial ? "Редактировать задачу" : "Новая задача"}
           </CardTitle>
           <CardDescription>
-            Категория, планируемое и фактическое время в часах, дедлайн и статус.
+            Категория, планируемое время в часах, дедлайн и статус. Потраченное
+            время складывается из фактов по дням в разделе «День».
           </CardDescription>
         </CardHeader>
 
@@ -272,18 +293,35 @@ export function TaskFormModal({
                 placeholder="0"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Фактическое время, ч</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.5"
-                value={actualHours}
-                onChange={(e) => setActualHours(e.target.value)}
-                placeholder="0"
-              />
-            </div>
+            {initial && (
+              <div className="space-y-1.5">
+                <Label>Потрачено всего</Label>
+                <p className="flex h-9 items-center text-sm font-medium tabular-nums">
+                  {spentTotal > 0 ? `${fmtHours(spentTotal)} ч` : "—"}
+                </p>
+              </div>
+            )}
           </div>
+
+          {initial && spentByDay.length > 0 && (
+            <div className="space-y-1">
+              <Label>По дням</Label>
+              <ul className="space-y-0.5 text-sm text-muted-foreground">
+                {spentByDay.map((d) => (
+                  <li
+                    key={d.date}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <DateDisplay date={d.date} />
+                    <span className="tabular-nums">{fmtMin(d.minutes)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                Время указывается в разделе «День» — факт по задаче.
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -412,7 +450,9 @@ function TaskRow({ task, goals = [], onEdit, onStatusChange }) {
         <Badge variant="outline">{task.category || "Прочее"}</Badge>
       </td>
       <td className="px-1.5 py-2 align-top tabular-nums">{fmtHours(task.planned_hours)}</td>
-      <td className="px-1.5 py-2 align-top tabular-nums">{fmtHours(task.actual_hours)}</td>
+      <td className="px-1.5 py-2 align-top tabular-nums" title={spentTitle(task)}>
+        {fmtHours(task.actual_hours)}
+      </td>
       <td className="px-1.5 py-2 align-top whitespace-nowrap text-muted-foreground">
         {task.deadline ? <DateDisplay date={task.deadline} /> : "—"}
       </td>
@@ -511,7 +551,10 @@ function TaskCard({ task, goals = [], onEdit, onStatusChange }) {
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <Clock className="size-3.5" />
             Факт:{" "}
-            <span className="font-medium tabular-nums text-foreground">
+            <span
+              className="font-medium tabular-nums text-foreground"
+              title={spentTitle(task)}
+            >
               {fmtHours(task.actual_hours)} ч
             </span>
           </div>

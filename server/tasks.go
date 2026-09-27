@@ -33,6 +33,13 @@ var validTodoStatuses = map[string]bool{
 // TaskCategories — предопределённые категории задач.
 var TaskCategories = []string{"Работа", "Личное", "Учёба", "Дом", "Прочее"}
 
+// TaskDaySpent — фактически потраченное время задачи за конкретный день
+// (позиция плана этого дня).
+type TaskDaySpent struct {
+	Date    string `json:"date"`    // ГГГГ-ММ-ДД
+	Minutes int    `json:"minutes"` // фактически проставленные минуты
+}
+
 // Task — задача раздела «Задачи»: категория, планируемое и фактическое время
 // в часах, дедлайн и статус. Владелец — конкретный пользователь.
 // GoalID — ссылка на цель из раздела «Цели» (nil — задача без цели);
@@ -44,9 +51,15 @@ type Task struct {
 	Title        string  `json:"title"`
 	Description  string  `json:"description"`
 	PlannedHours float64 `json:"planned_hours"`
-	ActualHours  float64 `json:"actual_hours"`
-	Deadline     string  `json:"deadline"` // дата YYYY-MM-DD или пусто
-	Status       string  `json:"status"`
+	// ActualHours — потраченное время, ч. Только для чтения: сумма фактического
+	// времени по дням (day_items.actual_minutes) плюс «база» — остаток прежнего
+	// значения tasks.actual_hours у задач, которых нет ни в одном плане.
+	// Редактируется в разделе «День» (факт по позиции дня).
+	ActualHours float64 `json:"actual_hours"`
+	// SpentByDay — разбивка потраченного времени по дням (только для чтения).
+	SpentByDay []TaskDaySpent `json:"spent_by_day"`
+	Deadline   string         `json:"deadline"` // дата YYYY-MM-DD или пусто
+	Status     string         `json:"status"`
 	// CompletedAt — когда задача отмечена выполненной (пусто — не выполнена).
 	CompletedAt string `json:"completed_at"`
 	// CompletedDate — за какой день задача выполнена (ГГГГ-ММ-ДД). По ней она
@@ -115,6 +128,57 @@ func initTasks() error {
 		}
 	}
 	return rows.Err()
+}
+
+// taskSpentByDay возвращает разбивку фактически потраченного времени по дням
+// для задач пользователя: id задачи → список дней с минутами. Без БД — пустая
+// карта. Источник — day_items.actual_minutes (ввод в разделе «День»).
+func taskSpentByDay(username string) map[int][]TaskDaySpent {
+	byDay := make(map[int][]TaskDaySpent)
+	if db == nil {
+		return byDay
+	}
+	rows, err := db.Query(context.Background(),
+		`SELECT i.ref_id, to_char(p.day, 'YYYY-MM-DD'), i.actual_minutes
+		   FROM day_items i
+		   JOIN day_plans p ON p.id = i.plan_id
+		  WHERE i.kind = 'task' AND p.username = $1 AND i.actual_minutes > 0
+		  ORDER BY i.ref_id, p.day`, username)
+	if err != nil {
+		return byDay
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, minutes int
+		var day string
+		if err := rows.Scan(&id, &day, &minutes); err != nil {
+			continue
+		}
+		byDay[id] = append(byDay[id], TaskDaySpent{Date: day, Minutes: minutes})
+	}
+	return byDay
+}
+
+// withSpent заполняет у копий задач потраченное время: ActualHours — сумма
+// фактического времени по дням плюс «база» (остаток tasks.actual_hours у задач
+// вне планов), SpentByDay — разбивка по дням. Вызывать нужно один раз на срез:
+// повторный вызов примет уже посчитанную сумму за «базу».
+func withSpent(username string, ts []Task) []Task {
+	byDay := taskSpentByDay(username)
+	for i := range ts {
+		t := &ts[i]
+		days := byDay[t.ID]
+		if days == nil {
+			days = []TaskDaySpent{}
+		}
+		minutes := int(t.ActualHours*60 + 0.5) // «база» без разбивки по дням
+		for _, d := range days {
+			minutes += d.Minutes
+		}
+		t.SpentByDay = days
+		t.ActualHours = float64(minutes) / 60
+	}
+	return ts
 }
 
 // list возвращает задачи пользователя, новые сверху (по дате создания).
@@ -211,7 +275,9 @@ func explicitDate(dates []string) string {
 // goalID — ссылка на цель пользователя; nil означает «без цели».
 // Необязательный completedDate (ГГГГ-ММ-ДД) — за какой день задача выполнена:
 // нужен, когда задачу создают сразу закрытой задним числом.
-func (s *taskStore) create(username, category, title, description string, plannedHours, actualHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
+// Потраченное время (ActualHours) не задаётся здесь: оно складывается из
+// фактического времени по дням (см. раздел «День»).
+func (s *taskStore) create(username, category, title, description string, plannedHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Task{}, errors.New("укажите заголовок задачи")
@@ -222,7 +288,7 @@ func (s *taskStore) create(username, category, title, description string, planne
 	if category == "" {
 		category = "Прочее"
 	}
-	if plannedHours < 0 || actualHours < 0 {
+	if plannedHours < 0 {
 		return Task{}, errors.New("время не может быть отрицательным")
 	}
 	if goalID != nil {
@@ -258,7 +324,6 @@ func (s *taskStore) create(username, category, title, description string, planne
 		Title:         title,
 		Description:   description,
 		PlannedHours:  plannedHours,
-		ActualHours:   actualHours,
 		Deadline:      deadline,
 		Status:        status,
 		CompletedAt:   completedAt,
@@ -279,12 +344,12 @@ func (s *taskStore) create(username, category, title, description string, planne
 			gid = *goalID
 		}
 		err := db.QueryRow(context.Background(),
-			`INSERT INTO tasks (username, category, title, description, planned_hours, actual_hours, deadline, status, completed_at, completed_date, goal_id, position)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::timestamptz, $10::text::date, $11, $12)
+			`INSERT INTO tasks (username, category, title, description, planned_hours, deadline, status, completed_at, completed_date, goal_id, position)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9::text::date, $10, $11)
 			 RETURNING id,
 			           to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 			           to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
-			username, category, title, description, plannedHours, actualHours, dl, status,
+			username, category, title, description, plannedHours, dl, status,
 			nullableDate(completedAt), nullableDate(doneDate), gid, position).
 			Scan(&t.ID, &t.Created, &t.Updated)
 		if err != nil {
@@ -306,7 +371,8 @@ func (s *taskStore) create(username, category, title, description string, planne
 // goalID — новая ссылка на цель пользователя; nil означает «без цели».
 // Необязательный completedDate (ГГГГ-ММ-ДД) — за какой день задача выполнена
 // (позволяет отметить забытую задачу задним числом).
-func (s *taskStore) update(username string, id int, category, title, description string, plannedHours, actualHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
+// Потраченное время здесь не меняется: оно складывается из фактов по дням.
+func (s *taskStore) update(username string, id int, category, title, description string, plannedHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Task{}, errors.New("укажите заголовок задачи")
@@ -317,7 +383,7 @@ func (s *taskStore) update(username string, id int, category, title, description
 	if category == "" {
 		category = "Прочее"
 	}
-	if plannedHours < 0 || actualHours < 0 {
+	if plannedHours < 0 {
 		return Task{}, errors.New("время не может быть отрицательным")
 	}
 	if goalID != nil {
@@ -348,7 +414,6 @@ func (s *taskStore) update(username string, id int, category, title, description
 	t.Title = title
 	t.Description = description
 	t.PlannedHours = plannedHours
-	t.ActualHours = actualHours
 	t.Deadline = deadline
 	// Отметка закрытия: время ставим при переходе в «выполнена», снимаем при
 	// возврате из неё. Дата (completed_date) определяет день в плане/отчётах:
@@ -385,12 +450,12 @@ func (s *taskStore) update(username string, id int, category, title, description
 		if _, err := db.Exec(context.Background(),
 			`UPDATE tasks
 			 SET category = $2, title = $3, description = $4,
-			     planned_hours = $5, actual_hours = $6, deadline = $7,
-			     status = $8, completed_at = $9::text::timestamptz,
-			     completed_date = $10::text::date, goal_id = $11, position = $12, updated = now()
+			     planned_hours = $5, deadline = $6,
+			     status = $7, completed_at = $8::text::timestamptz,
+			     completed_date = $9::text::date, goal_id = $10, position = $11, updated = now()
 			 WHERE id = $1`,
 			id, t.Category, t.Title, t.Description, t.PlannedHours,
-			t.ActualHours, dl, t.Status, nullableDate(t.CompletedAt),
+			dl, t.Status, nullableDate(t.CompletedAt),
 			nullableDate(t.CompletedDate), gid, t.Position); err != nil {
 			return Task{}, err
 		}
@@ -488,7 +553,7 @@ func handleListTasks(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"tasks":      tasks.list(sessData.username),
+		"tasks":      withSpent(sessData.username, tasks.list(sessData.username)),
 		"categories": TaskCategories,
 		"goals":      brief,
 	})
@@ -501,7 +566,6 @@ func handleCreateTask(c *gin.Context) {
 		Title         string  `json:"title"`
 		Description   string  `json:"description"`
 		PlannedHours  float64 `json:"planned_hours"`
-		ActualHours   float64 `json:"actual_hours"`
 		Deadline      string  `json:"deadline"`
 		Status        string  `json:"status"`
 		GoalID        *int    `json:"goal_id"`
@@ -519,12 +583,12 @@ func handleCreateTask(c *gin.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := tasks.create(sessData.username, req.Category, req.Title, req.Description, req.PlannedHours, req.ActualHours, req.Deadline, req.Status, req.GoalID, doneDate)
+	t, err := tasks.create(sessData.username, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, t)
+	c.JSON(http.StatusOK, withSpent(sessData.username, []Task{t})[0])
 }
 
 // optionalDay проверяет необязательную дату из запроса (ГГГГ-ММ-ДД).
@@ -554,7 +618,6 @@ func handleUpdateTask(c *gin.Context) {
 		Title         string  `json:"title"`
 		Description   string  `json:"description"`
 		PlannedHours  float64 `json:"planned_hours"`
-		ActualHours   float64 `json:"actual_hours"`
 		Deadline      string  `json:"deadline"`
 		Status        string  `json:"status"`
 		GoalID        *int    `json:"goal_id"`
@@ -569,7 +632,7 @@ func handleUpdateTask(c *gin.Context) {
 	if !ok {
 		return
 	}
-	t, err := tasks.update(sessData.username, id, req.Category, req.Title, req.Description, req.PlannedHours, req.ActualHours, req.Deadline, req.Status, req.GoalID, doneDate)
+	t, err := tasks.update(sessData.username, id, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {
@@ -578,7 +641,7 @@ func handleUpdateTask(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, t)
+	c.JSON(http.StatusOK, withSpent(sessData.username, []Task{t})[0])
 }
 
 // handleDeleteTask удаляет задачу.
