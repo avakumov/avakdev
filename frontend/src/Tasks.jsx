@@ -3,6 +3,7 @@ import { useTasks, createTask, updateTask, deleteTask } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
+import { todayStr } from "@/lib/formatDate.js";
 import { cn } from "@/lib/utils";
 import ModalClose from "@/components/ModalClose.jsx";
 
@@ -68,6 +69,8 @@ export function taskPayload(t, extra = {}) {
     deadline: t.deadline || "",
     status: t.status || "todo",
     goal_id: t.goal_id != null ? t.goal_id : null,
+    // За какой день задача выполнена (ГГГГ-ММ-ДД); пусто — сервер возьмёт сегодня.
+    completed_date: t.completed_date || "",
     ...extra,
   };
 }
@@ -118,6 +121,11 @@ export function TaskFormModal({
   );
   const [deadline, setDeadline] = useState(initial?.deadline || "");
   const [status, setStatus] = useState(initial?.status || "todo");
+  // Дата выполнения: по умолчанию сегодня; пользователь может указать прошлый
+  // день, чтобы отметить забытую задачу задним числом.
+  const [completedDate, setCompletedDate] = useState(
+    initial?.completed_date || todayStr(),
+  );
   // Ключ цели в Select: "none" — без цели, иначе строковый id.
   // Если указанная цель пропала (например, удалена), сбрасываем на «Без цели».
   const [goalKey, setGoalKey] = useState(() => {
@@ -151,6 +159,7 @@ export function TaskFormModal({
       deadline,
       status,
       goal_id: goalKey === "none" ? null : Number(goalKey),
+      completed_date: status === "done" ? completedDate : "",
     };
     try {
       const saved = initial
@@ -298,6 +307,17 @@ export function TaskFormModal({
               <DateInput value={deadline} onChange={setDeadline} />
             </div>
           </div>
+
+          {status === "done" && (
+            <div className="space-y-1.5">
+              <Label>Дата выполнения</Label>
+              <DateInput value={completedDate} onChange={setCompletedDate} />
+              <p className="text-xs text-muted-foreground">
+                За какой день задача выполнена — можно указать прошлый день,
+                если забыли отметить вовремя.
+              </p>
+            </div>
+          )}
 
           {error && (
             <p
@@ -567,7 +587,10 @@ function Tasks() {
   );
 
   const handleStatusChange = async (task, status) => {
-    await updateTask(task.id, taskPayload(task, { status }));
+    // При закрытии задачи проставляем дату выполнения (сегодняшнюю локальную).
+    const extra = { status };
+    if (status === "done") extra.completed_date = todayStr();
+    await updateTask(task.id, taskPayload(task, extra));
     refresh();
   };
 

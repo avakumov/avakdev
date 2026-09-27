@@ -497,7 +497,8 @@ const bookmarkLabel = (s, max = 80) => {
 function Day({ onNavigate }) {
   const queryClient = useQueryClient();
   const date = todayStr();
-  const [hours, setHours] = useState("2");
+  // Доступное на день время (в часах). По умолчанию — 8 часов.
+  const [hours, setHours] = useState("8");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [suggest, setSuggest] = useState(null); // результат «сформировать»
@@ -948,7 +949,7 @@ function Day({ onNavigate }) {
                     <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    <DateDisplay date={t.done_at} withTime />
+                    <DateDisplay date={t.completed_date || t.done_at} withTime />
                   </span>
                 </button>
               ))}

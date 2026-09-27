@@ -233,8 +233,8 @@ function DayCard({ date, day, report, reading, open, onOpenChange }) {
                     </span>
                     <span className="block text-xs text-muted-foreground">
                       {t.category || "Прочее"}
-                      {t.done_at ? " · выполнена " : ""}
-                      <DateDisplay date={t.done_at} withTime />
+                      {t.completed_date || t.done_at ? " · выполнена " : ""}
+                      <DateDisplay date={t.completed_date || t.done_at} withTime />
                     </span>
                   </span>
                   <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
