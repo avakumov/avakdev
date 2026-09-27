@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 .PHONY: help dev dev-backend dev-frontend install build build-binary run \
         run-with-db run-without-db deploy deploy-deps \
-        pg-status pg-start pg-stop pg-setup pg-init
+        pg-status pg-start pg-stop pg-setup pg-init db-pull
 
 # По умолчанию `make` без аргументов показывает справку
 .DEFAULT_GOAL := help
@@ -31,6 +31,7 @@ help:
 	@echo "    make pg-stop              — остановить сервис PostgreSQL (sudo)"
 	@echo "    make pg-setup             — создать роль/БД/таблицу users и админа (sudo)"
 	@echo "    make pg-status            — статус PostgreSQL и DATABASE_URL"
+	@echo "    make db-pull              — скопировать production-базу в локальную (по SSH)"
 	@echo ""
 	@echo "  Прочее:"
 	@echo "    make install              — установить зависимости (go mod tidy + npm install)"
@@ -49,9 +50,10 @@ help:
 # извне, например: make dev PG_PORT=5434 PG_USER=foo
 # ---------------------------------------------------------------------------
 PG_USER  ?= avakumov
-PG_PASS  ?= 2d38869aeef2a8c628edce3903a94a09
 PG_PORT  ?= 5432
 PG_DB    ?= avakumov
+# Пароль dev-роли: только из окружения или .env (в git не хранится).
+PG_PASS  ?= $(shell grep -E '^PG_PASS=' .env 2>/dev/null | head -n1 | cut -d= -f2-)
 
 # Строка подключения, используемая dev/run. Если DATABASE_URL уже задана
 # в окружении (или в .env), берём её; иначе собираем из параметров выше.
@@ -91,6 +93,13 @@ pg-stop:
 
 pg-setup:
 	./scripts/dev-pg.sh setup
+
+# Копирует production-базу в локальную: дамп снимается НА сервере по SSH
+# (реквизиты из .env, как в deploy.sh), креды прода не покидают сервер.
+# Локальная база перезаписывается — скрипт спросит подтверждение.
+# Полезные флаги: YES=1 (без вопроса), SCHEMA_ONLY=1 (только структура).
+db-pull:
+	./scripts/db-pull.sh
 
 # ---------------------------------------------------------------------------
 # Разработка

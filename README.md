@@ -124,6 +124,8 @@ go install github.com/air-verse/air@latest
 - `GIN_MODE=release` — release-режим Gin
 - `DEEPSEEK_API_KEY` — ключ DeepSeek для генерации конспектов и резюме
 - `DATABASE_URL` — строка подключения PostgreSQL
+- `PG_PASS` — пароль роли PostgreSQL для локальной dev-БД (используют `Makefile` и скрипты в `scripts/`; можно не задавать, если пароль есть в `DATABASE_URL`)
+- `ADMIN_USER` / `ADMIN_PASSWORD` / `ADMIN_EMAIL` — справочный администратор, создаваемый `scripts/dev-pg.sh setup` (если `ADMIN_PASSWORD` пуст, админ не создаётся)
 - `YANDEX_FOLDER_ID` — ID каталога Yandex Cloud для SpeechKit
 - `YANDEX_IAM_TOKEN` — IAM-токен Yandex Cloud (способ аутентификации №1)
 - `YANDEX_API_KEY` — статический API-ключ Yandex Cloud (способ аутентификации №2)
