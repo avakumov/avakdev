@@ -17,6 +17,6 @@ var migrationsFS embed.FS
 // "-- +goose Up" и "-- +goose Down" — она применится при следующем старте.
 func runMigrations() error {
 	// База не настроена (DATABASE_URL пуст) — мигрировать нечего:
-	// database.Migrate сама пропускает такой случай (pool == nil).
-	return database.Migrate(db, migrationsFS, "migrations")
+	// database.Migrate сама пропускает такой случай.
+	return database.Migrate(migrationsFS, "migrations")
 }

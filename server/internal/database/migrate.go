@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 )
@@ -13,8 +12,8 @@ import (
 // Встроенные миграции передаёт вызывающий код (//go:embed в main), чтобы файлы
 // оставались рядом с пакетом main.
 //
-// pool == nil означает «БД не настроена» — миграции пропускаются.
-func Migrate(pool *pgxpool.Pool, fsys fs.FS, dir string) error {
+// БД не настроена (пул не создан) — миграции пропускаются.
+func Migrate(fsys fs.FS, dir string) error {
 	if pool == nil {
 		return nil
 	}

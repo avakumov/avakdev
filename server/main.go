@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"avakumov/server/internal/database"
 )
 
 // indexData читает index.html из переданной FS.
@@ -54,6 +56,9 @@ func main() {
 	if err := initDB(); err != nil {
 		log.Fatalf("не удалось подключиться к PostgreSQL: %v", err)
 	}
+	defer database.Close() // пул закроется при выходе из main
+	// Хранилища БД разделов (создаются после подключения, см. stores.go).
+	initStores()
 	// Применяем версионированные миграции БД (goose), встроенные в бинарник.
 	if err := runMigrations(); err != nil {
 		log.Fatalf("не удалось применить миграции БД: %v", err)

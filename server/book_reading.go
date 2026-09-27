@@ -1,18 +1,16 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 )
 
 // Раздел «Чтение»: учёт времени чтения. Клиент считает секунды в модалке книги
 // (отсчёт идёт, пока пользователь листает текст) и по закрытию книги добавляет
 // их к дню. Дата — календарный день клиента в формате ГГГГ-ММ-ДД.
 // Цель чтения у каждого дня своя (по умолчанию — час), её можно менять.
+// Данные и SQL живут в store.Reading (переменная readingStore).
 
 // readingGoalSeconds — цель чтения по умолчанию: час в день.
 const readingGoalSeconds = 3600
@@ -27,46 +25,20 @@ const (
 // случайный сбой клиента не записал в день мусорное значение.
 const maxReadingSecondsPerSave = 24 * 3600
 
-// readingTimeBody — ответ по времени чтения за день.
-type readingTimeBody struct {
-	Date        string `json:"date"`
-	Seconds     int    `json:"seconds"`
-	GoalSeconds int    `json:"goal_seconds"`
-}
-
-// readingDay — время чтения за один день (для истории и отчётов).
-type readingDay struct {
-	Date        string `json:"date"`
-	Seconds     int    `json:"seconds"`
-	GoalSeconds int    `json:"goal_seconds"`
-}
+// readingHistoryDays — сколько последних дней с чтением отдаём отчётам.
+const readingHistoryDays = 90
 
 // handleReadingHistory — дни, в которые было чтение (сначала новые).
 // Нужна отчётам: такие дни попадают в список дней наравне с планами.
 // Дни с нулём секунд (например, только изменённая цель) не отдаём.
 func handleReadingHistory(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	rows, err := db.Query(context.Background(),
-		`SELECT to_char(br.date,'YYYY-MM-DD'), br.seconds, br.goal_seconds
-		 FROM book_reading br
-		 WHERE br.username = $1 AND br.seconds > 0
-		 ORDER BY br.date DESC
-		 LIMIT 90`,
-		sessData.username)
+	days, err := readingStore.History(c.Request.Context(), sessData.username, readingHistoryDays)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить историю чтения"})
 		return
 	}
-	defer rows.Close()
-
-	out := make([]readingDay, 0)
-	for rows.Next() {
-		var d readingDay
-		if err := rows.Scan(&d.Date, &d.Seconds, &d.GoalSeconds); err == nil {
-			out = append(out, d)
-		}
-	}
-	c.JSON(http.StatusOK, out)
+	c.JSON(http.StatusOK, days)
 }
 
 // handleGetReadingTime возвращает, сколько секунд пользователь читал за день
@@ -79,20 +51,12 @@ func handleGetReadingTime(c *gin.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	seconds := 0
-	goal := readingGoalSeconds
-	err = db.QueryRow(context.Background(),
-		`SELECT seconds, goal_seconds FROM book_reading WHERE username = $1 AND date = $2`,
-		sessData.username, day).Scan(&seconds, &goal)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	res, err := readingStore.Day(c.Request.Context(), sessData.username, day, readingGoalSeconds)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить время чтения"})
 		return
 	}
-	c.JSON(http.StatusOK, readingTimeBody{
-		Date:        day,
-		Seconds:     seconds,
-		GoalSeconds: goal,
-	})
+	c.JSON(http.StatusOK, res)
 }
 
 // handleAddReadingTime добавляет секунды чтения к дню (POST /api/reading/time,
@@ -117,23 +81,12 @@ func handleAddReadingTime(c *gin.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	var total, goal int
-	err = db.QueryRow(context.Background(),
-		`INSERT INTO book_reading (username, date, seconds)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (username, date)
-		 DO UPDATE SET seconds = book_reading.seconds + EXCLUDED.seconds
-		 RETURNING seconds, goal_seconds`,
-		sessData.username, day, req.Seconds).Scan(&total, &goal)
+	res, err := readingStore.Add(c.Request.Context(), sessData.username, day, req.Seconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время чтения"})
 		return
 	}
-	c.JSON(http.StatusOK, readingTimeBody{
-		Date:        day,
-		Seconds:     total,
-		GoalSeconds: goal,
-	})
+	c.JSON(http.StatusOK, res)
 }
 
 // handleSetReadingGoal меняет цель чтения на день (PUT /api/reading/goal,
@@ -158,21 +111,10 @@ func handleSetReadingGoal(c *gin.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	var seconds, goal int
-	err = db.QueryRow(context.Background(),
-		`INSERT INTO book_reading (username, date, seconds, goal_seconds)
-		 VALUES ($1, $2, 0, $3)
-		 ON CONFLICT (username, date)
-		 DO UPDATE SET goal_seconds = EXCLUDED.goal_seconds
-		 RETURNING seconds, goal_seconds`,
-		sessData.username, day, req.GoalSeconds).Scan(&seconds, &goal)
+	res, err := readingStore.SetGoal(c.Request.Context(), sessData.username, day, req.GoalSeconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить цель чтения"})
 		return
 	}
-	c.JSON(http.StatusOK, readingTimeBody{
-		Date:        day,
-		Seconds:     seconds,
-		GoalSeconds: goal,
-	})
+	c.JSON(http.StatusOK, res)
 }

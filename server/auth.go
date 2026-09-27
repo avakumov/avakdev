@@ -154,17 +154,16 @@ var (
 )
 
 // initDB подключается к PostgreSQL по строке подключения из DATABASE_URL.
+// БД не настроена (пустая переменная) — приложение работает без неё.
 func initDB() error {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		return nil // БД не настроена — авторизация будет отключена.
-	}
-	var err error
-	db, err = database.Open(context.Background(), dsn)
-	if err != nil {
+	if err := database.Init(context.Background(), os.Getenv("DATABASE_URL")); err != nil {
 		return err
 	}
-	sess = newSessionStore()
+	// Ссылка на пул для хендлеров. Постепенно её вытесняют хранилища (store).
+	db = database.Pool()
+	if db != nil {
+		sess = newSessionStore()
+	}
 	return nil
 }
 
