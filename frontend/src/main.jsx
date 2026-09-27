@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { initTheme } from "./store.js";
+import DevBanner from "./components/DevBanner.jsx";
 import "./index.css";
 
 // Применяем сохранённую тему до первого рендера (без «вспышки»).
@@ -23,6 +24,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <DevBanner />
         <App />
       </TooltipProvider>
     </QueryClientProvider>

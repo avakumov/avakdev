@@ -17,6 +17,7 @@ import {
   Rss,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { IS_LOCAL_DEV } from "@/lib/env";
 import { Button } from "@/components/ui/button";
 import UserBadge from "./UserBadge.jsx";
 import Brand from "./Brand.jsx";
@@ -74,7 +75,9 @@ function Sidebar({ view, onSelect, open, onClose, user, notifCount = 0, onOpenBe
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+          "fixed left-0 z-50 flex w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+          // top-7 — место под жёлтую полосу dev-версии (DevBanner).
+          IS_LOCAL_DEV ? "top-7 bottom-0" : "inset-y-0",
           "transition-transform duration-200 ease-in-out lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}

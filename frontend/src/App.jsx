@@ -12,6 +12,7 @@ import {
 } from "./api.js";
 import { useAppStore } from "./store.js";
 import { cn } from "@/lib/utils";
+import { IS_LOCAL_DEV } from "@/lib/env";
 import { useQueryClient } from "@tanstack/react-query";
 import Sidebar, { NAV_ITEMS } from "./Sidebar.jsx";
 import Login from "./Login.jsx";
@@ -472,12 +473,15 @@ function App() {
     // вьюпорт (со скрытой адресной строкой), и страница стала бы прокручиваемой
     // на высоту панели браузера. Важно для «Ленты»: она занимает ровно dvh, и от
     // «страница прокручивается» зависит распознавание вертикального свайпа.
-    <div className="min-h-dvh">
+    // pt-7 — место под жёлтую полосу dev-версии (DevBanner); в «Ленте» не
+    // добавляем, иначе её min-h-dvh даст лишнюю прокрутку.
+    <div className={cn("min-h-dvh", IS_LOCAL_DEV && view !== "feed" && "pt-7")}>
       {/* Мобильная шапка с бургером (на десктопе скрыта — меню в сайдбаре).
           В «Ленте» её нет: элемент ленты занимает всё окно. */}
       <header
         className={cn(
-          "sticky top-0 z-40 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur lg:hidden",
+          "sticky z-40 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur lg:hidden",
+          IS_LOCAL_DEV ? "top-7" : "top-0",
           view === "feed" && "hidden",
         )}
       >
