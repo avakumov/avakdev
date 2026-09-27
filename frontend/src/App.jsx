@@ -11,7 +11,6 @@ import {
   setOnUnauthorized,
 } from "./api.js";
 import { useAppStore } from "./store.js";
-import { useSwipeNav, useMediaQuery } from "./lib/useSwipeNav.js";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import Sidebar, { NAV_ITEMS } from "./Sidebar.jsx";
@@ -76,7 +75,8 @@ import {
 
 // Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
 // работают кнопки назад/вперёд. Главная «/» — раздел «Цели».
-// feed — не пункт меню: экран для мобильных, открывается свайпом влево.
+// feed — не пункт меню: отдельный экран-просмотр ленты, открывается кнопкой
+// «Запуск» в разделе «Лента» (feed-edit).
 // feed-edit — раздел меню «Лента» (редактирование ленты).
 const VIEW_PATHS = {
   day: "/",
@@ -369,10 +369,9 @@ function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // Свайп по горизонтали на мобильных: влево — открыть «Ленту», вправо —
-  // вернуться из неё. Разделы между собой переключаются меню (бургер).
-  const isMobileLayout = useMediaQuery("(max-width: 1023px)");
-  // Раздел, из которого открыли ленту, — туда и возвращаемся свайпом вправо.
+  // Раздел «Лента» (просмотр) открывается кнопкой «Запуск» в разделе меню
+  // «Лента» (feed-edit), а «Выход» в ленте возвращает туда же.
+  // Раздел запоминаем, чтобы вернуться именно в него.
   const [feedReturn, setFeedReturn] = useState(null);
 
   const openFeed = () => {
@@ -384,20 +383,6 @@ function App() {
   const closeFeed = () => {
     setView(feedReturn || "day");
   };
-
-  useSwipeNav({
-    enabled: isMobileLayout && isAuthed,
-    onPrev: () => {
-      // Свайп вправо: возвращаемся из ленты (вне ленты — ничего).
-      if (view !== "feed") return;
-      closeFeed();
-    },
-    onNext: () => {
-      // Свайп влево: открываем ленту (в самой ленте — ничего).
-      if (view === "feed") return;
-      openFeed();
-    },
-  });
 
   // Открыто ли боковое меню на мобильных (бургер).
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -576,8 +561,8 @@ function App() {
           {view === "profile" && <Profile />}
           {view === "important" && <Important />}
           {view === "notes" && <Notes />}
-          {view === "feed" && <Feed />}
-          {view === "feed-edit" && <FeedEdit />}
+          {view === "feed" && <Feed onExit={closeFeed} />}
+          {view === "feed-edit" && <FeedEdit onLaunch={openFeed} />}
           {view === "app" && <AppTasks />}
           {view === "user" && (
             <User user={meQuery.data} onLogout={handleLogout} />

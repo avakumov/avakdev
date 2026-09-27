@@ -40,6 +40,7 @@ import {
   Eye,
   Sparkles,
   Check,
+  Play,
 } from "lucide-react";
 
 // Типы контента ленты. Пока один — «вопрос-ответ» (размеры полей проверяет
@@ -480,7 +481,9 @@ function FeedGenerateModal({ onClose, onSaved }) {
 // Раздел «Лента» (пункт меню) — редактирование ленты. Это отдельный экран от
 // ленты для просмотра, которая открывается свайпом влево на мобильных
 // (см. Feed.jsx: он в меню не входит).
-function FeedEdit() {
+// Раздел меню «Лента»: редактирование элементов ленты. Отсюда же лента
+// запускается на просмотр (кнопка «Запуск» → экран Feed).
+function FeedEdit({ onLaunch }) {
   const queryClient = useQueryClient();
   const feedQuery = useFeedItems(true);
   const [modal, setModal] = useState(null); // null | { item: null } | { item }
@@ -549,6 +552,18 @@ function FeedEdit() {
           Лента
         </h2>
         <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={onLaunch}
+            disabled={items.length === 0}
+            title={
+              items.length === 0
+                ? "В ленте нет элементов"
+                : "Открыть ленту для просмотра"
+            }
+          >
+            <Play />
+            Запуск
+          </Button>
           <Button variant="outline" onClick={() => setGenerateOpen(true)}>
             <Sparkles />
             Создать с ИИ

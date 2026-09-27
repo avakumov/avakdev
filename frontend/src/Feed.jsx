@@ -1,10 +1,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFeedItems, markFeedItemShown, reactToFeedItem } from "./api.js";
-import { useSwipeNav } from "./lib/useSwipeNav.js";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import MarkdownView from "./MarkdownView.jsx";
-import { Loader2, AlertCircle, Check, X } from "lucide-react";
+import {
+  Loader2,
+  AlertCircle,
+  Check,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Пределы адаптивного кегля (px) и запас (px), который вычитаем из высоты
@@ -18,7 +25,10 @@ const FONT_MARGIN = 48 + 12 + 8;
 // (MarkdownView bare), кегль и цвет наследуются от карточки, переносы строк из
 // исходного текста сохраняем. Вопрос, ответ и объяснение — Markdown,
 // потому что в них бывают примеры кода.
-const MD_FEED = "leading-snug whitespace-pre-wrap";
+// Код показываем мельче основного текста: блоки — 0.75em, инлайн — 0.8em
+// (внутри блока множитель компонента сбрасываем, иначе он уменьшается дважды).
+const MD_FEED =
+  "leading-snug whitespace-pre-wrap [&_pre]:text-[0.75em] [&_pre_code]:text-[1em] [&_code]:text-[0.8em]";
 
 // Один элемент ленты: сначала вопрос, ответ — после касания.
 //
@@ -31,7 +41,7 @@ const MD_FEED = "leading-snug whitespace-pre-wrap";
 // ref-защёлка не даёт посчитать один показ дважды (в т.ч. в StrictMode).
 // Пересоздаётся по key=id (см. Feed), поэтому состояние «раскрыт» и реакции
 // сбрасываются сами при переходе к следующему элементу.
-function FeedItem({ item }) {
+function FeedItem({ item, onExit, onPrev, onNext, canPrev, canNext }) {
   const [open, setOpen] = useState(false);
   const [font, setFont] = useState(MAX_FONT);
   const counted = useRef(false);
@@ -213,8 +223,8 @@ function FeedItem({ item }) {
         )}
       </div>
 
-      {/* Низ карточки: реакции. */}
-      <div ref={rowRef} className="mt-3 flex flex-col items-center gap-2">
+      {/* Низ карточки: реакции и навигация по ленте. */}
+      <div ref={rowRef} className="mt-3 flex flex-col items-center gap-3">
         <div className="flex flex-wrap items-center justify-center gap-20">
           <Button
             variant="outline"
@@ -259,6 +269,43 @@ function FeedItem({ item }) {
             </span>
           </Button>
         </div>
+
+        {/* Навигация: выход из ленты и переход к предыдущему/следующему. */}
+        <div className="flex w-full items-center justify-between gap-2">
+          <Button
+            variant="ghost"
+            onClick={onExit}
+            title="Выйти из ленты"
+            aria-label="Выйти из ленты"
+          >
+            <LogOut />
+            Выход
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-12 rounded-full"
+              onClick={onPrev}
+              disabled={!canPrev}
+              title="Предыдущая"
+              aria-label="Предыдущая"
+            >
+              <ChevronLeft className="size-6" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-12 rounded-full"
+              onClick={onNext}
+              disabled={!canNext}
+              title="Следующая"
+              aria-label="Следующая"
+            >
+              <ChevronRight className="size-6" />
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -275,25 +322,16 @@ function shuffled(list) {
   return out;
 }
 
-// Раздел «Лента» (просмотр) — мобильный экран, который открывается свайпом
-// влево (обратно — свайпом вправо). В боковом меню его нет: раздел не привязан
-// к разделам с сервера (sections) и живёт только на клиенте. Наполняется он
-// в разделе меню «Лента» (FeedEdit.jsx).
-// Показываем ровно один элемент в случайном порядке: свайп вверх — следующий,
-// вниз — предыдущий. Карточка едет за пальцем, при отпускании — либо возврат,
-// либо переход: текущая уезжает в сторону свайпа, следующая приезжает с другой.
+// Раздел «Лента» (просмотр) — отдельный экран, который открывается кнопкой
+// «Запуск» в разделе меню «Лента» (FeedEdit.jsx) и закрывается кнопкой «Выход».
+// Показываем ровно один элемент в случайном порядке; переход к следующему и
+// предыдущему — кнопками со стрелками.
 
-// Сдвиг карточки идёт медленнее пальца (как в пейджере), переход — 200 мс.
-const DRAG_DAMP = 0.55;
-const DRAG_DAMP_EDGE = 0.15; // на краях списка — почти не двигаем
-const SWIPE_COMMIT = 60; // порог сдвига карточки для перехода, px
-const SLIDE_MS = 200;
-
-function Feed() {
+function Feed({ onExit }) {
   const feedQuery = useFeedItems(true);
 
   // Порядок перемешивается один раз на заход в ленту (и при обновлении
-  // данных) и дальше стабилен, чтобы свайпы ходили по одному и тому же списку.
+  // данных) и дальше стабилен, чтобы стрелки ходили по одному и тому же списку.
   const items = useMemo(
     () => (feedQuery.data ? shuffled(feedQuery.data) : []),
     [feedQuery.data],
@@ -304,84 +342,12 @@ function Feed() {
   // Индекс держим в границах: лента могла измениться (элемент удалили).
   const current = count > 0 ? Math.min(index, count - 1) : 0;
 
-  // Фаза жеста: idle → drag → out → in → idle.
-  const phase = useRef("idle");
-  const [dragY, setDragY] = useState(0); // текущий сдвиг карточки, px
-  const [animated, setAnimated] = useState(false); // включать ли transition
-
   const move = (step) =>
     setIndex(Math.max(0, Math.min(current + step, count - 1)));
 
-  // Карточка едет за пальцем (с демпфированием).
-  const handleDrag = ({ dy }) => {
-    if (phase.current === "out" || phase.current === "in") return;
-    phase.current = "drag";
-    const forward = dy < 0; // вверх — следующий
-    const canMove = forward ? current < count - 1 : current > 0;
-    setAnimated(false);
-    setDragY(dy * (canMove ? DRAG_DAMP : DRAG_DAMP_EDGE));
-  };
-
-  // Отпустили: либо возвращаем на место, либо уводим карточку в сторону свайпа.
-  const handleDragEnd = ({ dy, flick }) => {
-    if (phase.current !== "drag") {
-      // Быстрый флик на прокручиваемой странице — переходим сразу (§ без анимации входа).
-      if (flick && Math.abs(dy) >= SWIPE_COMMIT) {
-        move(dy < 0 ? 1 : -1);
-        setAnimated(false);
-        setDragY(0);
-      }
-      return;
-    }
-    const forward = dy < 0;
-    const canMove = forward ? current < count - 1 : current > 0;
-    // Порог считаем от хода пальца, а не от dragY: не зависим от того,
-    // успел ли React перерисоваться к моменту отпускания.
-    const moved = Math.abs(dy) * (canMove ? DRAG_DAMP : DRAG_DAMP_EDGE);
-    if (!canMove || moved < SWIPE_COMMIT) {
-      // Не дотянули — возвращаем на место.
-      phase.current = "idle";
-      setAnimated(true);
-      setDragY(0);
-      return;
-    }
-    // Уводим текущую карточку за край в сторону свайпа.
-    phase.current = "out";
-    setAnimated(true);
-    setDragY(forward ? -window.innerHeight : window.innerHeight);
-  };
-
-  // Уехавшая карточка доехала до края: меняем элемент и вводим новую
-  // с противоположной стороны. Реагируем только на свой transition —
-  // события детей (анимация ответа, кнопки) сюда тоже всплывают.
-  const handleSlideOut = (e) => {
-    if (e && e.target !== e.currentTarget) return;
-    if (phase.current !== "out") return;
-    const forward = dragY < 0;
-    phase.current = "in";
-    setAnimated(false);
-    move(forward ? 1 : -1);
-    setDragY((forward ? 1 : -1) * window.innerHeight * 0.35);
-    // Два кадра на отрисовку стартовой позиции — потом плавно на место.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        phase.current = "idle";
-        setAnimated(true);
-        setDragY(0);
-      });
-    });
-  };
-
-  useSwipeNav({
-    enabled: count > 1,
-    onDrag: handleDrag,
-    onDragEnd: handleDragEnd,
-  });
-
   // Пока открыта лента, глушим штатное «потянуть вниз для обновления»
-  // (pull-to-refresh в Chrome на Android). Иначе жест вниз, который у нас
-  // листает к предыдущему элементу, вместо этого перезагружает страницу.
-  // Ставим на корневой скролл — именно он отвечает за этот жест.
+  // (pull-to-refresh в Chrome на Android), чтобы случайный жест не перезагружал
+  // страницу. Ставим на корневой скролл — именно он отвечает за этот жест.
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -397,22 +363,34 @@ function Feed() {
 
   if (feedQuery.isLoading) {
     return (
-      <p className="flex min-h-dvh items-center justify-center gap-1.5 p-6 text-center text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Загрузка ленты…
-      </p>
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Загрузка ленты…
+        </p>
+        <Button variant="outline" size="sm" onClick={onExit}>
+          <LogOut />
+          Выход
+        </Button>
+      </div>
     );
   }
 
   if (feedQuery.isError) {
     return (
-      <p
-        className="flex min-h-dvh items-center justify-center gap-1.5 p-6 text-center text-sm text-destructive"
-        role="alert"
-      >
-        <AlertCircle className="size-4 shrink-0" />
-        Не удалось загрузить ленту: {feedQuery.error?.message}
-      </p>
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
+        <p
+          className="flex items-center gap-1.5 text-sm text-destructive"
+          role="alert"
+        >
+          <AlertCircle className="size-4 shrink-0" />
+          Не удалось загрузить ленту: {feedQuery.error?.message}
+        </p>
+        <Button variant="outline" size="sm" onClick={onExit}>
+          <LogOut />
+          Выход
+        </Button>
+      </div>
     );
   }
 
@@ -420,11 +398,14 @@ function Feed() {
     return (
       <div className="flex min-h-dvh items-center justify-center p-6">
         <Card size="sm" className="w-full">
-          <CardContent>
+          <CardContent className="flex flex-col items-center gap-3 text-center">
             <p className="text-sm text-muted-foreground">
-              В ленте пока пусто. Наполните её в разделе «Лента» меню, свайп
-              вправо — вернуться назад.
+              В ленте пока пусто. Наполните её в разделе «Лента» меню.
             </p>
+            <Button variant="outline" size="sm" onClick={onExit}>
+              <LogOut />
+              Выход
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -432,16 +413,15 @@ function Feed() {
   }
 
   return (
-    <div
-      className="min-h-dvh w-full"
-      style={{
-        transform: `translateY(${dragY}px)`,
-        transition: animated ? `transform ${SLIDE_MS}ms ease-out` : "none",
-      }}
-      onTransitionEnd={handleSlideOut}
-    >
-      <FeedItem key={items[current].id} item={items[current]} />
-    </div>
+    <FeedItem
+      key={items[current].id}
+      item={items[current]}
+      onExit={onExit}
+      onPrev={() => move(-1)}
+      onNext={() => move(1)}
+      canPrev={current > 0}
+      canNext={current < count - 1}
+    />
   );
 }
 
