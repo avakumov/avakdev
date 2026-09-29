@@ -9,7 +9,7 @@ import {
   generateGoalTasks,
   reorderGoalTasks,
 } from "./api.js";
-import { TaskFormModal, taskPayload, statusLabel, statusVariant, fmtHours, fmtMin } from "./Tasks.jsx";
+import { TaskFormModal, taskPayload, statusLabel, statusVariant, fmtHours } from "./Tasks.jsx";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
@@ -556,12 +556,12 @@ function GoalCard({
   const sumHours = (list) =>
     list.reduce((s, t) => s + (Number(t.planned_hours) || 0), 0);
   const totalHours = sumHours(activeTasks);
-  const doneHours = sumHours(doneTasks);
   // Потраченное (фактическое) время цели — сумма факта по всем её задачам.
-  const spentMinutes = goalTasks.reduce(
-    (s, t) => s + Math.round((Number(t.actual_hours) || 0) * 60),
-    0,
-  );
+  const spentHours =
+    goalTasks.reduce(
+      (s, t) => s + Math.round((Number(t.actual_hours) || 0) * 60),
+      0,
+    ) / 60;
   // Выполненные задачи — в конце списка (как в разделе «Задачи»), остальные
   // (включая отменённые) сохраняют заданную последовательность выполнения.
   const displayTasks = [
@@ -681,15 +681,10 @@ function GoalCard({
             </span>
           </div>
           {activeTasks.length > 0 ? (
-            <>
-              <p className="text-xs text-muted-foreground">
-                Часы: {fmtHours(doneHours)} / {fmtHours(totalHours)} · выполнено{" "}
-                {doneTasks.length} из {activeTasks.length} задач
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Потрачено: {spentMinutes > 0 ? fmtMin(spentMinutes) : "—"}
-              </p>
-            </>
+            <p className="text-xs text-muted-foreground">
+              Часы: {fmtHours(spentHours)} / {fmtHours(totalHours)} · выполнено{" "}
+              {doneTasks.length} из {activeTasks.length} задач
+            </p>
           ) : (
             <p className="text-xs text-muted-foreground">
               Прогресс появится после добавления задач
