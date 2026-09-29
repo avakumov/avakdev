@@ -83,7 +83,7 @@ export const fmtHours = (h) => {
 };
 
 // Минуты: 65 -> "1 ч 5 мин" (для разбивки потраченного времени по дням).
-const fmtMin = (m) => {
+export const fmtMin = (m) => {
   if (!m) return "0 мин";
   if (m < 60) return `${m} мин`;
   const h = Math.floor(m / 60);
