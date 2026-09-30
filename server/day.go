@@ -428,6 +428,14 @@ func loadDayItems(username, day string) (dayBody, bool) {
 			continue // задача/заметка удалены — позицию пропускаем
 		}
 		it.Title, it.Meta = title, meta
+		// Задача, закрытая в разделе «Задачи», тоже считается выполненной
+		// позицией дня: иначе строка не подсвечивалась бы зелёным, а из списка
+		// «выполнено вне плана» она исключена (она уже есть в плане).
+		if it.Kind == "task" && !it.Done {
+			if t, found := tasks.getOwned(username, it.RefID); found && t.Status == taskDone {
+				it.Done = true
+			}
+		}
 		items = append(items, it)
 		body.TotalMinutes += it.Minutes
 	}
