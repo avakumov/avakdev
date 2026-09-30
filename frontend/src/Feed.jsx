@@ -13,6 +13,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { IS_LOCAL_DEV } from "@/lib/env";
 
 // Пределы адаптивного кегля (px) и запас (px), который вычитаем из высоты
 // окна помимо полей карточки и строки кнопок: люфт на расхождения dvh/innerHeight
@@ -41,7 +42,7 @@ const MD_FEED =
 // ref-защёлка не даёт посчитать один показ дважды (в т.ч. в StrictMode).
 // Пересоздаётся по key=id (см. Feed), поэтому состояние «раскрыт» и реакции
 // сбрасываются сами при переходе к следующему элементу.
-function FeedItem({ item, onExit, onPrev, onNext, canPrev, canNext }) {
+function FeedItem({ item, onPrev, onNext, canPrev, canNext }) {
   const [open, setOpen] = useState(false);
   const [font, setFont] = useState(MAX_FONT);
   const counted = useRef(false);
@@ -270,17 +271,9 @@ function FeedItem({ item, onExit, onPrev, onNext, canPrev, canNext }) {
           </Button>
         </div>
 
-        {/* Навигация: выход из ленты и переход к предыдущему/следующему. */}
-        <div className="flex w-full items-center justify-between gap-2">
-          <Button
-            variant="ghost"
-            onClick={onExit}
-            title="Выйти из ленты"
-            aria-label="Выйти из ленты"
-          >
-            <LogOut />
-            Выход
-          </Button>
+        {/* Навигация: переход к предыдущему/следующему. Выход — отдельной
+            кнопкой вверху экрана (см. Feed): она видна всегда. */}
+        <div className="flex w-full items-center justify-end gap-2">
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -345,6 +338,26 @@ function Feed({ onExit }) {
   const move = (step) =>
     setIndex(Math.max(0, Math.min(current + step, count - 1)));
 
+  // Кнопка выхода — всегда на экране (фиксированная, правый верх): содержимое
+  // элемента может не поместиться, и выйти из ленты нужно в любом состоянии.
+  // В dev сверху висит жёлтая полоса (DevBanner) — учитываем её высоту.
+  const exitButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={onExit}
+      title="Выйти из ленты"
+      aria-label="Выйти из ленты"
+      className={cn(
+        "fixed right-3 z-40 border-border/60 bg-background/85 backdrop-blur",
+        IS_LOCAL_DEV ? "top-10" : "top-3",
+      )}
+    >
+      <LogOut />
+      Выход
+    </Button>
+  );
+
   // Пока открыта лента, глушим штатное «потянуть вниз для обновления»
   // (pull-to-refresh в Chrome на Android), чтобы случайный жест не перезагружал
   // страницу. Ставим на корневой скролл — именно он отвечает за этот жест.
@@ -363,65 +376,64 @@ function Feed({ onExit }) {
 
   if (feedQuery.isLoading) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          Загрузка ленты…
-        </p>
-        <Button variant="outline" size="sm" onClick={onExit}>
-          <LogOut />
-          Выход
-        </Button>
-      </div>
+      <>
+        {exitButton}
+        <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Загрузка ленты…
+          </p>
+        </div>
+      </>
     );
   }
 
   if (feedQuery.isError) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
-        <p
-          className="flex items-center gap-1.5 text-sm text-destructive"
-          role="alert"
-        >
-          <AlertCircle className="size-4 shrink-0" />
-          Не удалось загрузить ленту: {feedQuery.error?.message}
-        </p>
-        <Button variant="outline" size="sm" onClick={onExit}>
-          <LogOut />
-          Выход
-        </Button>
-      </div>
+      <>
+        {exitButton}
+        <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
+          <p
+            className="flex items-center gap-1.5 text-sm text-destructive"
+            role="alert"
+          >
+            <AlertCircle className="size-4 shrink-0" />
+            Не удалось загрузить ленту: {feedQuery.error?.message}
+          </p>
+        </div>
+      </>
     );
   }
 
   if (count === 0) {
     return (
-      <div className="flex min-h-dvh items-center justify-center p-6">
-        <Card size="sm" className="w-full">
-          <CardContent className="flex flex-col items-center gap-3 text-center">
-            <p className="text-sm text-muted-foreground">
-              В ленте пока пусто. Наполните её в разделе «Лента» меню.
-            </p>
-            <Button variant="outline" size="sm" onClick={onExit}>
-              <LogOut />
-              Выход
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <>
+        {exitButton}
+        <div className="flex min-h-dvh items-center justify-center p-6">
+          <Card size="sm" className="w-full">
+            <CardContent className="flex flex-col items-center gap-3 text-center">
+              <p className="text-sm text-muted-foreground">
+                В ленте пока пусто. Наполните её в разделе «Лента» меню.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </>
     );
   }
 
   return (
-    <FeedItem
-      key={items[current].id}
-      item={items[current]}
-      onExit={onExit}
-      onPrev={() => move(-1)}
-      onNext={() => move(1)}
-      canPrev={current > 0}
-      canNext={current < count - 1}
-    />
+    <>
+      {exitButton}
+      <FeedItem
+        key={items[current].id}
+        item={items[current]}
+        onPrev={() => move(-1)}
+        onNext={() => move(1)}
+        canPrev={current > 0}
+        canNext={current < count - 1}
+      />
+    </>
   );
 }
 
