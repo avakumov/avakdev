@@ -28,6 +28,17 @@ export function initTheme() {
   applyTheme(getStoredTheme());
 }
 
+// Тема оформления кода по умолчанию (совпадает с DEFAULT в миграции).
+export const CODE_THEME_DEFAULT = "night-owl";
+
+// Применяет тему кода: атрибут data-code-theme на <html> (палитры — в
+// highlight.css). Светлый/тёмный вариант выбирается там же, по классу .dark,
+// поэтому при переключении темы сайта код перекрашивается автоматически.
+// Значение хранится в профиле пользователя (/api/me).
+export function applyCodeTheme(theme) {
+  document.documentElement.dataset.codeTheme = theme || CODE_THEME_DEFAULT;
+}
+
 // Глобальное состояние приложения (Zustand).
 export const useAppStore = create((set) => ({
   // Пример глобального счётчика запросов / последнего обновления.

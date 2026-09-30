@@ -10,7 +10,7 @@ import {
   logout,
   setOnUnauthorized,
 } from "./api.js";
-import { useAppStore } from "./store.js";
+import { useAppStore, applyCodeTheme } from "./store.js";
 import { cn } from "@/lib/utils";
 import { IS_LOCAL_DEV } from "@/lib/env";
 import { useQueryClient } from "@tanstack/react-query";
@@ -295,6 +295,13 @@ function App() {
   // TanStack Query — данные с сервера (запрашиваем только после входа).
   const importantQuery = useImportant(isAuthed);
   const notificationsQuery = useNotificationInbox(isAuthed);
+
+  // Тема оформления кода приходит из профиля (/api/me) — применяем её к
+  // документу (атрибут data-code-theme; палитры — в highlight.css).
+  const codeTheme = meQuery.data?.code_theme;
+  useEffect(() => {
+    if (codeTheme) applyCodeTheme(codeTheme);
+  }, [codeTheme]);
 
   // Zustand — глобальное UI-состояние
   const queryClient = useQueryClient();

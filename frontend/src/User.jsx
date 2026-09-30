@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { updateMe, updateAvatar, linkTelegram, unlinkTelegram } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAppStore } from "./store.js";
+import { useAppStore, applyCodeTheme, CODE_THEME_DEFAULT } from "./store.js";
 import {
   Avatar,
   AvatarFallback,
@@ -13,6 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Card,
   CardHeader,
@@ -43,12 +50,26 @@ import {
   Trash2,
   X,
   Gauge,
+  Code2,
 } from "lucide-react";
 
 // Скорость чтения заметок (раздел «День»): диапазон ползунка в профиле.
 const READING_SPEED_MIN = 500;
 const READING_SPEED_MAX = 3000;
 const READING_SPEED_DEFAULT = 1500;
+
+// Темы оформления блоков кода: id семейства → подпись. Светлый или тёмный
+// вариант подставляется автоматически по теме сайта; у dracula и monokai
+// вариант один — палитра не меняется вместе с темой сайта.
+const CODE_THEMES = [
+  { value: "night-owl", label: "Night Owl" },
+  { value: "github", label: "GitHub" },
+  { value: "solarized", label: "Solarized" },
+  { value: "one", label: "One" },
+  { value: "plain", label: "Plain (без цветных токенов)" },
+  { value: "dracula", label: "Dracula (только тёмная)" },
+  { value: "monokai", label: "Monokai (только тёмная)" },
+];
 
 // Приводит скорость чтения к диапазону ползунка.
 // 0 / пусто / нечисловое значение = среднее по умолчанию.
@@ -318,6 +339,10 @@ function User({ user, onLogout }) {
   const [readingSpeed, setReadingSpeed] = useState(
     normalizeReadingSpeed(user?.reading_speed)
   );
+  // Тема оформления кода (значение из профиля; применяется сразу при выборе).
+  const [codeTheme, setCodeTheme] = useState(
+    user?.code_theme || CODE_THEME_DEFAULT
+  );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -327,6 +352,7 @@ function User({ user, onLogout }) {
     setPhone(user?.phone || "");
     setTelegram(user?.telegram || "");
     setReadingSpeed(normalizeReadingSpeed(user?.reading_speed));
+    setCodeTheme(user?.code_theme || CODE_THEME_DEFAULT);
   }, [user]);
 
   const refreshMe = () =>
@@ -341,6 +367,7 @@ function User({ user, onLogout }) {
         phone: phone.trim(),
         telegram: telegram.trim().replace(/^@/, ""),
         reading_speed: normalizeReadingSpeed(readingSpeed),
+        code_theme: codeTheme,
       });
       await refreshMe();
       setSaved(true);
@@ -486,6 +513,52 @@ function User({ user, onLogout }) {
             <p className="text-xs text-muted-foreground">
               Среднее значение — {READING_SPEED_DEFAULT} символов в минуту.
               Влияет на расчёт времени повторения заметок в разделе «День».
+            </p>
+          </div>
+
+          {/* Тема оформления блоков кода */}
+          <div className="space-y-1.5">
+            <Label>Тема оформления кода</Label>
+            <div className="flex items-center gap-3">
+              <Code2 className="size-4 shrink-0 text-muted-foreground" />
+              <Select
+                value={codeTheme}
+                onValueChange={(v) => {
+                  setCodeTheme(v);
+                  // Применяем сразу — превью ниже обновляется без сохранения.
+                  applyCodeTheme(v);
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CODE_THEMES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <pre className="md-pre text-xs leading-relaxed">
+              <code className="md-code">
+                <span className="hljs-comment">// пример</span>
+                {"\n"}
+                <span className="hljs-keyword">func</span>{" "}
+                <span className="hljs-title">main</span>() {"{"}
+                {"\n"}
+                {"  "}
+                <span className="hljs-built_in">fmt</span>.
+                <span className="hljs-title">Println</span>(
+                <span className="hljs-string">"привет"</span>)
+                {"\n"}
+                {"}"}
+              </code>
+            </pre>
+            <p className="text-xs text-muted-foreground">
+              Светлый или тёмный вариант темы подбирается автоматически по теме
+              сайта. Применяется к блокам кода и инлайн-коду.
             </p>
           </div>
 

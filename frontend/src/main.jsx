@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { initTheme } from "./store.js";
 import DevBanner from "./components/DevBanner.jsx";
 import "./index.css";
+import "./highlight.css";
 
 // Применяем сохранённую тему до первого рендера (без «вспышки»).
 initTheme();

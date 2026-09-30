@@ -72,14 +72,15 @@ export async function logout() {
 }
 
 // Обновить данные текущего пользователя (PUT /api/me):
-// необязательные телефон, Telegram и скорость чтения (0 = среднее).
+// необязательные телефон, Telegram, скорость чтения (0 = среднее) и тема кода.
 export async function updateMe(
-  { phone = "", telegram = "", reading_speed } = {}
+  { phone = "", telegram = "", reading_speed, code_theme } = {}
 ) {
   const body = { phone, telegram };
-  // reading_speed присылаем только явно — чтобы не сбрасывать значение
-  // при сохранении контактов из других мест.
+  // reading_speed и code_theme присылаем только явно — чтобы не сбрасывать
+  // значения при сохранении контактов из других мест.
   if (reading_speed !== undefined) body.reading_speed = reading_speed;
+  if (code_theme !== undefined) body.code_theme = code_theme;
   const res = await fetch(`${BASE}/api/me`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

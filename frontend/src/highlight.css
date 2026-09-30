@@ -1,0 +1,350 @@
+/* Оформление кода: палитры тем + правила токенов подсветки.
+ *
+ * Семейство темы задаётся атрибутом на <html>: data-code-theme="night-owl".
+ * Светлый/тёмный вариант выбирается по теме сайта (класс .dark на <html>):
+ *   html[data-code-theme="github"]       — светлый вариант
+ *   html.dark[data-code-theme="github"]  — тёмный вариант
+ * Для тем без второго варианта (dracula, monokai) палитра одна — она одинакова
+ * при любой теме сайта.
+ *
+ * Все цвета собраны в переменные --code-*, поэтому правила токенов пишутся
+ * один раз и работают для любой темы.
+ */
+
+:root {
+  /* Запасная палитра (Night Owl Light) — на случай, если атрибут ещё не выставлен. */
+  --code-bg: #fbfbfb;
+  --code-fg: #403f53;
+  --code-inline-bg: #f0f0f0;
+  --code-border: #d9d9d9;
+  --code-comment: #989fb1;
+  --code-keyword: #994cc3;
+  --code-string: #c96765;
+  --code-number: #aa0982;
+  --code-function: #4876d6;
+  --code-type: #0c969b;
+  --code-builtin: #4876d6;
+  --code-attr: #0c969b;
+  --code-tag: #994cc3;
+  --code-deletion: #de3d3b;
+}
+
+/* ------------------------------------------------------------------ */
+/* Палитры тем                                                        */
+/* ------------------------------------------------------------------ */
+
+/* Night Owl */
+html[data-code-theme="night-owl"] {
+  --code-bg: #fbfbfb;
+  --code-fg: #403f53;
+  --code-inline-bg: #f0f0f0;
+  --code-border: #d9d9d9;
+  --code-comment: #989fb1;
+  --code-keyword: #994cc3;
+  --code-string: #c96765;
+  --code-number: #aa0982;
+  --code-function: #4876d6;
+  --code-type: #0c969b;
+  --code-builtin: #4876d6;
+  --code-attr: #0c969b;
+  --code-tag: #994cc3;
+  --code-deletion: #de3d3b;
+}
+html.dark[data-code-theme="night-owl"] {
+  --code-bg: #011627;
+  --code-fg: #d6deeb;
+  --code-inline-bg: #0b2942;
+  --code-border: #1d3b53;
+  --code-comment: #637777;
+  --code-keyword: #c792ea;
+  --code-string: #ecc48d;
+  --code-number: #f78c6c;
+  --code-function: #82aaff;
+  --code-type: #ffcb8b;
+  --code-builtin: #addb67;
+  --code-attr: #7fdbca;
+  --code-tag: #7fdbca;
+  --code-deletion: #ef5350;
+}
+
+/* GitHub */
+html[data-code-theme="github"] {
+  --code-bg: #f6f8fa;
+  --code-fg: #24292f;
+  --code-inline-bg: #eff2f5;
+  --code-border: #d0d7de;
+  --code-comment: #6e7781;
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-number: #0550ae;
+  --code-function: #8250df;
+  --code-type: #953800;
+  --code-builtin: #953800;
+  --code-attr: #0550ae;
+  --code-tag: #116329;
+  --code-deletion: #cf222e;
+}
+html.dark[data-code-theme="github"] {
+  --code-bg: #0d1117;
+  --code-fg: #c9d1d9;
+  --code-inline-bg: #161b22;
+  --code-border: #30363d;
+  --code-comment: #8b949e;
+  --code-keyword: #ff7b72;
+  --code-string: #a5d6ff;
+  --code-number: #79c0ff;
+  --code-function: #d2a8ff;
+  --code-type: #ffa657;
+  --code-builtin: #ffa657;
+  --code-attr: #79c0ff;
+  --code-tag: #7ee787;
+  --code-deletion: #ffa198;
+}
+
+/* Solarized */
+html[data-code-theme="solarized"] {
+  --code-bg: #fdf6e3;
+  --code-fg: #657b83;
+  --code-inline-bg: #eee8d5;
+  --code-border: #e5ddc8;
+  --code-comment: #93a1a1;
+  --code-keyword: #859900;
+  --code-string: #2aa198;
+  --code-number: #d33682;
+  --code-function: #268bd2;
+  --code-type: #b58900;
+  --code-builtin: #b58900;
+  --code-attr: #b58900;
+  --code-tag: #268bd2;
+  --code-deletion: #dc322f;
+}
+html.dark[data-code-theme="solarized"] {
+  --code-bg: #002b36;
+  --code-fg: #839496;
+  --code-inline-bg: #073642;
+  --code-border: #073642;
+  --code-comment: #586e75;
+  --code-keyword: #859900;
+  --code-string: #2aa198;
+  --code-number: #d33682;
+  --code-function: #268bd2;
+  --code-type: #b58900;
+  --code-builtin: #b58900;
+  --code-attr: #b58900;
+  --code-tag: #268bd2;
+  --code-deletion: #dc322f;
+}
+
+/* One */
+html[data-code-theme="one"] {
+  --code-bg: #fafafa;
+  --code-fg: #383a42;
+  --code-inline-bg: #f0f0f1;
+  --code-border: #e5e5e6;
+  --code-comment: #a0a1a7;
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-number: #986801;
+  --code-function: #4078f2;
+  --code-type: #c18401;
+  --code-builtin: #c18401;
+  --code-attr: #986801;
+  --code-tag: #e45649;
+  --code-deletion: #e45649;
+}
+html.dark[data-code-theme="one"] {
+  --code-bg: #282c34;
+  --code-fg: #abb2bf;
+  --code-inline-bg: #2c313a;
+  --code-border: #3e4451;
+  --code-comment: #5c6370;
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-number: #d19a66;
+  --code-function: #61afef;
+  --code-type: #e5c07b;
+  --code-builtin: #e5c07b;
+  --code-attr: #d19a66;
+  --code-tag: #e06c75;
+  --code-deletion: #e06c75;
+}
+
+/* Plain — нейтральная, без цветных токенов; адаптируется под тему сайта */
+html[data-code-theme="plain"] {
+  --code-bg: #f4f4f5;
+  --code-fg: #3f3f46;
+  --code-inline-bg: #eaeaec;
+  --code-border: #e4e4e7;
+  --code-comment: #a1a1aa;
+  --code-keyword: #3f3f46;
+  --code-string: #3f3f46;
+  --code-number: #3f3f46;
+  --code-function: #3f3f46;
+  --code-type: #3f3f46;
+  --code-builtin: #3f3f46;
+  --code-attr: #3f3f46;
+  --code-tag: #3f3f46;
+  --code-deletion: #3f3f46;
+}
+html.dark[data-code-theme="plain"] {
+  --code-bg: #27272a;
+  --code-fg: #e4e4e7;
+  --code-inline-bg: #3f3f46;
+  --code-border: #3f3f46;
+  --code-comment: #a1a1aa;
+  --code-keyword: #e4e4e7;
+  --code-string: #e4e4e7;
+  --code-number: #e4e4e7;
+  --code-function: #e4e4e7;
+  --code-type: #e4e4e7;
+  --code-builtin: #e4e4e7;
+  --code-attr: #e4e4e7;
+  --code-tag: #e4e4e7;
+  --code-deletion: #e4e4e7;
+}
+
+/* Dracula — только тёмная (палитра не меняется вместе с темой сайта) */
+html[data-code-theme="dracula"] {
+  --code-bg: #282a36;
+  --code-fg: #f8f8f2;
+  --code-inline-bg: #343746;
+  --code-border: #44475a;
+  --code-comment: #6272a4;
+  --code-keyword: #ff79c6;
+  --code-string: #f1fa8c;
+  --code-number: #bd93f9;
+  --code-function: #50fa7b;
+  --code-type: #8be9fd;
+  --code-builtin: #8be9fd;
+  --code-attr: #50fa7b;
+  --code-tag: #ff79c6;
+  --code-deletion: #ff5555;
+}
+
+/* Monokai — только тёмная */
+html[data-code-theme="monokai"] {
+  --code-bg: #272822;
+  --code-fg: #f8f8f2;
+  --code-inline-bg: #3e3d32;
+  --code-border: #3e3d32;
+  --code-comment: #75715e;
+  --code-keyword: #f92672;
+  --code-string: #e6db74;
+  --code-number: #ae81ff;
+  --code-function: #a6e22e;
+  --code-type: #66d9ef;
+  --code-builtin: #66d9ef;
+  --code-attr: #a6e22e;
+  --code-tag: #f92672;
+  --code-deletion: #f92672;
+}
+
+/* ------------------------------------------------------------------ */
+/* Оформление блоков и инлайн-кода                                    */
+/* ------------------------------------------------------------------ */
+
+.md-code {
+  border-radius: var(--radius);
+  background: var(--code-inline-bg);
+  color: var(--code-fg);
+  padding: 0.1em 0.35em;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+.md-pre {
+  overflow-x: auto;
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+  tab-size: 4;
+}
+
+/* Код внутри блока — без «таблетки»: фон и рамку задаёт сам блок. */
+.md-pre .md-code {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* ------------------------------------------------------------------ */
+/* Токены подсветки (классы lowlight/highlight.js)                    */
+/* ------------------------------------------------------------------ */
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--code-comment);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-name,
+.hljs-operator {
+  color: var(--code-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: var(--code-string);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--code-number);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: var(--code-function);
+}
+
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: var(--code-type);
+}
+
+.hljs-built_in {
+  color: var(--code-builtin);
+}
+
+.hljs-attr,
+.hljs-property,
+.hljs-params {
+  color: var(--code-attr);
+}
+
+.hljs-meta,
+.hljs-tag {
+  color: var(--code-tag);
+}
+
+.hljs-deletion {
+  color: var(--code-deletion);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}

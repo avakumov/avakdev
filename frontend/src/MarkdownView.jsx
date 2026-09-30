@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 import { cn } from "@/lib/utils";
 
 // Отрисовка Markdown-контента в HTML. Используется вместо сырого <pre>,
@@ -26,17 +27,13 @@ function MarkdownView({ children, className, bare = false }) {
         {...props}
       />
     ),
-    code: (props) => (
-      <code
-        className="rounded bg-background px-1.5 py-0.5 text-[0.85em]"
-        {...props}
-      />
+    // Код: классы .md-code/.md-pre — оформление и темы в highlight.css
+    // (фон, рамка и цвета токенов берутся из переменных --code-*).
+    code: ({ className, ...props }) => (
+      <code className={cn("md-code text-[0.85em]", className)} {...props} />
     ),
-    pre: (props) => (
-      <pre
-        className="overflow-x-auto rounded-md bg-background p-3 my-2"
-        {...props}
-      />
+    pre: ({ className, ...props }) => (
+      <pre className={cn("md-pre", className)} {...props} />
     ),
     blockquote: (props) => (
       <blockquote
@@ -65,7 +62,11 @@ function MarkdownView({ children, className, bare = false }) {
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={components}
+      >
         {children}
       </ReactMarkdown>
     </div>

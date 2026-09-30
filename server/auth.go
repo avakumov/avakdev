@@ -30,6 +30,9 @@ type User struct {
 	// ReadingSpeed — скорость чтения (символов в минуту); 0 = «не задано»
 	// (при сохранении приводится к среднему значению 1500).
 	ReadingSpeed int `json:"reading_speed"`
+	// CodeTheme — тема оформления блоков кода (id семейства, напр. night-owl).
+	// Светлый/тёмный вариант выбирается по теме сайта.
+	CodeTheme string `json:"code_theme"`
 	// AvatarPreset — выбранный готовый вариант аватара (id) или пусто.
 	AvatarPreset string `json:"avatar_preset"`
 	// AvatarData — своё фото аватара в base64 (без data URI префикса).
@@ -53,6 +56,7 @@ func userPayload(u User) gin.H {
 		"phone":           u.Phone,
 		"telegram":        u.Telegram,
 		"reading_speed":   u.ReadingSpeed,
+		"code_theme":      u.CodeTheme,
 		"avatar_preset":   u.AvatarPreset,
 		"avatar_data":     u.AvatarData,
 		"avatar_mime":     u.AvatarMime,
@@ -206,11 +210,11 @@ func loadUser(username string) (User, bool) {
 	var u User
 	err := db.QueryRow(context.Background(),
 		`SELECT id, username, email, is_admin, phone, telegram,
-		        reading_speed,
+		        reading_speed, code_theme,
 		        avatar_preset, avatar_data, avatar_mime, telegram_chat_id
 		 FROM users WHERE username = $1`,
 		username).Scan(&u.ID, &u.Username, &u.Email, &u.IsAdmin, &u.Phone,
-		&u.Telegram, &u.ReadingSpeed, &u.AvatarPreset, &u.AvatarData,
+		&u.Telegram, &u.ReadingSpeed, &u.CodeTheme, &u.AvatarPreset, &u.AvatarData,
 		&u.AvatarMime, &u.TelegramChatID)
 	if err != nil {
 		return User{}, false
@@ -291,6 +295,20 @@ func handleMe(c *gin.Context) {
 	c.JSON(http.StatusOK, userPayload(u))
 }
 
+// defaultCodeTheme — тема кода по умолчанию (совпадает с DEFAULT в миграции).
+const defaultCodeTheme = "night-owl"
+
+// validCodeThemes — допустимые значения users.code_theme (семейства тем).
+var validCodeThemes = map[string]bool{
+	"night-owl": true,
+	"github":    true,
+	"solarized": true,
+	"one":       true,
+	"plain":     true,
+	"dracula":   true,
+	"monokai":   true,
+}
+
 // handleUpdateMe сохраняет контактные данные текущего пользователя
 // (необязательные поля phone и telegram).
 func handleUpdateMe(c *gin.Context) {
@@ -302,9 +320,10 @@ func handleUpdateMe(c *gin.Context) {
 	sessData, _ := sessVal.(session)
 
 	var req struct {
-		Phone        string `json:"phone"`
-		Telegram     string `json:"telegram"`
-		ReadingSpeed *int   `json:"reading_speed"`
+		Phone        string  `json:"phone"`
+		Telegram     string  `json:"telegram"`
+		ReadingSpeed *int    `json:"reading_speed"`
+		CodeTheme    *string `json:"code_theme"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
@@ -331,21 +350,37 @@ func handleUpdateMe(c *gin.Context) {
 		}
 		req.ReadingSpeed = &speed
 	}
+	if req.CodeTheme != nil {
+		theme := strings.TrimSpace(*req.CodeTheme)
+		// Пусто → тема по умолчанию (как и DEFAULT в миграции).
+		if theme == "" {
+			theme = defaultCodeTheme
+		}
+		if !validCodeThemes[theme] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Неизвестная тема кода"})
+			return
+		}
+		req.CodeTheme = &theme
+	}
 
+	// Необязательные поля (reading_speed, code_theme) приходят как nil, если их
+	// не трогали — COALESCE оставляет текущее значение в БД.
+	var speedArg, themeArg interface{}
 	if req.ReadingSpeed != nil {
-		if _, err := db.Exec(context.Background(),
-			`UPDATE users SET phone = $1, telegram = $2, reading_speed = $3 WHERE username = $4`,
-			req.Phone, req.Telegram, *req.ReadingSpeed, sessData.username); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
-			return
-		}
-	} else {
-		if _, err := db.Exec(context.Background(),
-			`UPDATE users SET phone = $1, telegram = $2 WHERE username = $3`,
-			req.Phone, req.Telegram, sessData.username); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
-			return
-		}
+		speedArg = *req.ReadingSpeed
+	}
+	if req.CodeTheme != nil {
+		themeArg = *req.CodeTheme
+	}
+	if _, err := db.Exec(context.Background(),
+		`UPDATE users
+		    SET phone = $1, telegram = $2,
+		        reading_speed = COALESCE($3::int, reading_speed),
+		        code_theme = COALESCE($4::text, code_theme)
+		  WHERE username = $5`,
+		req.Phone, req.Telegram, speedArg, themeArg, sessData.username); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
+		return
 	}
 
 	u, found := loadUser(sessData.username)
