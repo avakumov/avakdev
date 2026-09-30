@@ -10,7 +10,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  LogOut,
+  ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IS_LOCAL_DEV } from "@/lib/env";
@@ -338,23 +338,23 @@ function Feed({ onExit }) {
   const move = (step) =>
     setIndex(Math.max(0, Math.min(current + step, count - 1)));
 
-  // Кнопка выхода — всегда на экране (фиксированная, правый верх): содержимое
+  // Кнопка выхода — всегда на экране (фиксированная, левый верх): содержимое
   // элемента может не поместиться, и выйти из ленты нужно в любом состоянии.
-  // В dev сверху висит жёлтая полоса (DevBanner) — учитываем её высоту.
+  // На десктопе слева стоит сайдбар (16rem), поэтому там кнопку сдвигаем
+  // правее него. В dev сверху висит жёлтая полоса (DevBanner) — учитываем её.
   const exitButton = (
     <Button
       variant="outline"
-      size="sm"
+      size="icon"
       onClick={onExit}
       title="Выйти из ленты"
       aria-label="Выйти из ленты"
       className={cn(
-        "fixed right-3 z-40 border-border/60 bg-background/85 backdrop-blur",
+        "fixed left-3 z-40 border-border/60 bg-background/85 backdrop-blur lg:left-[17rem]",
         IS_LOCAL_DEV ? "top-10" : "top-3",
       )}
     >
-      <LogOut />
-      Выход
+      <ArrowLeft />
     </Button>
   );
 
