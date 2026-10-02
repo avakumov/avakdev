@@ -109,3 +109,59 @@ func (s *Users) SetAvatar(ctx context.Context, username, preset, photo, mime str
 		preset, photo, mime, username)
 	return err
 }
+
+// SetLinkCode сохраняет одноразовый код привязки Telegram.
+func (s *Users) SetLinkCode(ctx context.Context, username, code string) error {
+	if s.pool == nil {
+		return ErrNoDB
+	}
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET telegram_link_code = $1, telegram_link_at = now()
+		 WHERE username = $2`,
+		code, username)
+	return err
+}
+
+// UnlinkTelegram отвязывает Telegram от пользователя.
+func (s *Users) UnlinkTelegram(ctx context.Context, username string) error {
+	if s.pool == nil {
+		return ErrNoDB
+	}
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users
+		 SET telegram_chat_id = '', telegram_link_code = '', telegram_link_at = NULL
+		 WHERE username = $1`,
+		username)
+	return err
+}
+
+// UsernameByLinkCode возвращает пользователя по действующему (не старше 30 мин)
+// коду привязки Telegram.
+func (s *Users) UsernameByLinkCode(ctx context.Context, code string) (string, bool) {
+	if s.pool == nil {
+		return "", false
+	}
+	var username string
+	err := s.pool.QueryRow(ctx,
+		`SELECT username FROM users
+		 WHERE telegram_link_code = $1
+		   AND telegram_link_at > now() - interval '30 minutes'`,
+		code).Scan(&username)
+	if err != nil {
+		return "", false
+	}
+	return username, true
+}
+
+// LinkTelegramChat привязывает chat_id к пользователю и очищает код привязки.
+func (s *Users) LinkTelegramChat(ctx context.Context, username, chatID string) error {
+	if s.pool == nil {
+		return ErrNoDB
+	}
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users
+		 SET telegram_chat_id = $1, telegram_link_code = '', telegram_link_at = NULL
+		 WHERE username = $2`,
+		chatID, username)
+	return err
+}

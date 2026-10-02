@@ -118,10 +118,7 @@ func handleLinkTelegram(c *httpkit.Context) {
 	}
 	code := hex.EncodeToString(buf)
 
-	if _, err := db.Exec(context.Background(),
-		`UPDATE users SET telegram_link_code = $1, telegram_link_at = now()
-		 WHERE username = $2`,
-		code, sessData.username); err != nil {
+	if err := usersStore.SetLinkCode(context.Background(), sessData.username, code); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить код привязки"})
 		return
 	}
@@ -140,11 +137,7 @@ func handleLinkTelegram(c *httpkit.Context) {
 // (POST /api/me/telegram/unlink).
 func handleUnlinkTelegram(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	if _, err := db.Exec(context.Background(),
-		`UPDATE users
-		 SET telegram_chat_id = '', telegram_link_code = '', telegram_link_at = NULL
-		 WHERE username = $1`,
-		sessData.username); err != nil {
+	if err := usersStore.UnlinkTelegram(context.Background(), sessData.username); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось отключить Telegram"})
 		return
 	}
@@ -203,21 +196,12 @@ func startTelegramLinkWatcher() {
 					continue
 				}
 				code := fields[1]
-				var username string
-				err := db.QueryRow(context.Background(),
-					`SELECT username FROM users
-					 WHERE telegram_link_code = $1
-					   AND telegram_link_at > now() - interval '30 minutes'`,
-					code).Scan(&username)
-				if err != nil {
+				username, ok := usersStore.UsernameByLinkCode(context.Background(), code)
+				if !ok {
 					continue // код не найден/просрочен
 				}
 				chatID := fmt.Sprintf("%d", msg.Chat.ID)
-				if _, err := db.Exec(context.Background(),
-					`UPDATE users
-					 SET telegram_chat_id = $1, telegram_link_code = '', telegram_link_at = NULL
-					 WHERE username = $2`,
-					chatID, username); err != nil {
+				if err := usersStore.LinkTelegramChat(context.Background(), username, chatID); err != nil {
 					log.Printf("TELEGRAM: не удалось привязать %s: %v", username, err)
 					continue
 				}
