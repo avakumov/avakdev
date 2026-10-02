@@ -148,7 +148,7 @@ func handleSynthesizeNote(c *httpkit.Context) {
 		return
 	}
 
-	n, ok := notes.get(id)
+	n, ok := application.Knowledge.Get(id)
 	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Конспект не найден"})
 		return
@@ -167,8 +167,8 @@ func handleSynthesizeNote(c *httpkit.Context) {
 	}
 
 	// Если уже есть сохранённое аудио — отдаём его, не тратя квоту.
-	if notes.hasAudio(id) {
-		data, mime := notes.getAudio(id)
+	if application.Knowledge.HasAudio(id) {
+		data, mime := application.Knowledge.GetAudio(id)
 		c.Data(http.StatusOK, mime, data)
 		return
 	}
@@ -182,7 +182,7 @@ func handleSynthesizeNote(c *httpkit.Context) {
 		return
 	}
 
-	if err := notes.saveAudio(id, audio, mime); err != nil {
+	if err := application.Knowledge.SaveAudio(id, audio, mime); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аудио"})
 		return
 	}
@@ -200,12 +200,12 @@ func handleGetNoteAudio(c *httpkit.Context) {
 		return
 	}
 
-	if !notes.hasAudio(id) {
+	if !application.Knowledge.HasAudio(id) {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Аудио ещё не сгенерировано"})
 		return
 	}
 
-	data, mime := notes.getAudio(id)
+	data, mime := application.Knowledge.GetAudio(id)
 	c.Data(http.StatusOK, mime, data)
 }
 

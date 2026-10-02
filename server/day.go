@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,157 +38,8 @@ type completedTask = store.CompletedTask
 
 type dayBody = store.DayBody
 
-// envReadingSpeed — символов в минуту из переменной окружения
-// DAY_READING_SPEED; 0, если переменная не задана или некорректна.
-func envReadingSpeed() int {
-	v := os.Getenv("DAY_READING_SPEED")
-	if n, err := strconv.Atoi(v); err == nil && n > 0 {
-		return n
-	}
-	return 0
-}
-
-// readingSpeedFor — скорость чтения пользователя из профиля (users.reading_speed).
-// 0 или отсутствие значения = «среднее»: сначала DAY_READING_SPEED, иначе 1500.
-func readingSpeedFor(username string) int {
-	if db != nil && username != "" {
-		if v, ok := dayStore.ReadingSpeed(context.Background(), username); ok && v > 0 {
-			return v
-		}
-	}
-	if v := envReadingSpeed(); v > 0 {
-		return v
-	}
-	return 1500
-}
-
-// readingMinutes — время повторения заметки по количеству символов.
-func readingMinutes(content string, speed int) int {
-	if speed <= 0 {
-		speed = 1500
-	}
-	chars := len([]rune(content))
-	if chars == 0 {
-		return 1
-	}
-	m := int(math.Ceil(float64(chars) / float64(speed)))
-	if m < 1 {
-		return 1
-	}
-	return m
-}
-
-// taskMinutes — время задачи: planned_hours * 60, минимум 1 минута.
-func taskMinutes(hours float64) int {
-	m := int(math.Round(hours * 60))
-	if m < 1 {
-		return 1
-	}
-	return m
-}
-
-// hoursLabel форматирует часы: 2 → "2 ч", 2.5 → "2.5 ч".
-func hoursLabel(h float64) string {
-	s := strconv.FormatFloat(h, 'f', -1, 64)
-	return s + " ч"
-}
-
-// repeatIntervals — даты повторений конспекта, отсчитанные в днях от даты его
-// создания («первого назначения»). Индекс = число нажатий «Я повторил»:
-// 0 — свежая заметка доступна сразу; затем повторение через 1, 2, 4, 7, … дней
-// после создания.
-var repeatIntervals = []int{0, 1, 2, 4, 7, 14, 30, 60}
-
-// nextRepeatDays — сдвиг (в днях от создания) следующего повторения после
-// n выполненных повторений.
-func nextRepeatDays(n int) int {
-	if n < 0 {
-		n = 0
-	}
-	if n >= len(repeatIntervals) {
-		return repeatIntervals[len(repeatIntervals)-1]
-	}
-	return repeatIntervals[n]
-}
-
-// parseNoteTime разбирает время заметки (RFC3339 или ГГГГ-ММ-ДД).
-func parseNoteTime(s string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		t, err = time.Parse("2006-01-02", s)
-		if err != nil {
-			return time.Time{}, err
-		}
-	}
-	return t, nil
-}
-
-// noteDueDate — дата следующего повторения конспекта.
-// График отсчитывается от даты создания: свежая заметка (0 повторений)
-// доступна сразу, дальше +1, +2, +4, +7, … дней. Когда график пройден
-// (7+ повторений), интервал 60 дней отсчитывается от последнего повторения.
-func noteDueDate(created, updated string, repetitions int) (time.Time, error) {
-	anchor := created
-	interval := 0
-	if repetitions >= len(repeatIntervals) {
-		// График пройден — держим интервал 60 дней от последнего повторения.
-		anchor = updated
-		interval = repeatIntervals[len(repeatIntervals)-1]
-	} else {
-		interval = repeatIntervals[repetitions]
-	}
-	t, err := parseNoteTime(anchor)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return t.AddDate(0, 0, interval), nil
-}
-
 // parseDay — обёртка над app.ParseDay (для кода, оставшегося в main).
 func parseDay(s string) (string, error) { return app.ParseDay(s) }
-
-// dueKnowledgeNotes — заметки к повторению на дату day, по возрастанию даты.
-// Свежая заметка (0 повторений) доступна сразу после создания, дальше график
-// отсчитывается от даты создания. Сравнение идёт по календарной дате, чтобы
-// время создания/повторения в течение дня не сдвигало срок.
-// Раздел «Знания» общий, поэтому владелец не проверяется.
-func dueKnowledgeNotes(day string) []Note {
-	dayTime, err := time.Parse("2006-01-02", day)
-	if err != nil {
-		return nil
-	}
-	out := make([]Note, 0)
-	for _, n := range notes.list() {
-		due, err := noteDueDate(n.Created, n.Updated, n.Repetitions)
-		if err != nil {
-			continue
-		}
-		// Свежие конспекты (0 повторений) доступны всегда — их можно добавить
-		// в день сразу после создания, независимо от даты создания.
-		if n.Repetitions == 0 {
-			out = append(out, n)
-			continue
-		}
-		// Приводим срок к началу календарного дня в локальной зоне.
-		dueDay := time.Date(due.Year(), due.Month(), due.Day(), 0, 0, 0, 0, dayTime.Location())
-		if dueDay.After(dayTime) {
-			continue // срок ещё не наступил
-		}
-		out = append(out, n)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		di, _ := noteDueDate(out[i].Created, out[i].Updated, out[i].Repetitions)
-		dj, _ := noteDueDate(out[j].Created, out[j].Updated, out[j].Repetitions)
-		// Сравниваем по календарной дате срока.
-		diD := time.Date(di.Year(), di.Month(), di.Day(), 0, 0, 0, 0, dayTime.Location())
-		djD := time.Date(dj.Year(), dj.Month(), dj.Day(), 0, 0, 0, 0, dayTime.Location())
-		if !diD.Equal(djD) {
-			return diD.Before(djD)
-		}
-		return out[i].ID < out[j].ID
-	})
-	return out
-}
 
 // handleDaySuggest — предложения состава дня под лимит времени.
 func handleDaySuggest(c *httpkit.Context) {
@@ -213,7 +62,7 @@ func handleDaySuggest(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	speed := readingSpeedFor(sessData.Username)
+	speed := application.ReadingSpeed(sessData.Username)
 
 	// Активные задачи: по дедлайну (без дедлайна — в конец), затем старые.
 	type tc struct {
@@ -227,8 +76,8 @@ func handleDaySuggest(c *httpkit.Context) {
 		}
 		rows = append(rows, tc{task: t, cand: DayCandidate{
 			Kind: "task", ID: t.ID, Title: t.Title,
-			Meta:    t.Category + " · " + hoursLabel(t.PlannedHours),
-			Minutes: taskMinutes(t.PlannedHours),
+			Meta:    t.Category + " · " + app.HoursLabel(t.PlannedHours),
+			Minutes: app.TaskMinutes(t.PlannedHours),
 		}})
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -248,19 +97,19 @@ func handleDaySuggest(c *httpkit.Context) {
 
 	// Заметки к повторению: время по символам.
 	noteCands := make([]DayCandidate, 0)
-	dueNotes := dueKnowledgeNotes(day)
+	dueNotes := application.DueKnowledgeNotes(day)
 	for _, n := range dueNotes {
 		noteCands = append(noteCands, DayCandidate{
 			Kind: "note", ID: n.ID, Title: n.Title, Meta: n.Topic,
-			Minutes: readingMinutes(n.Content, speed),
+			Minutes: app.ReadingMinutes(n.Content, speed),
 		})
 	}
 
 	// Диагностика: конспекты есть, но к повторению ничего не отобралось.
-	if len(dueNotes) == 0 && len(notes.list()) > 0 {
+	if len(dueNotes) == 0 && len(application.Knowledge.List()) > 0 {
 		var sb strings.Builder
-		for _, n := range notes.list() {
-			due, err := noteDueDate(n.Created, n.Updated, n.Repetitions)
+		for _, n := range application.Knowledge.List() {
+			due, err := app.NoteDueDate(n.Created, n.Updated, n.Repetitions)
 			dueStr := "?"
 			if err == nil {
 				dueStr = due.Format(time.RFC3339)
@@ -269,7 +118,7 @@ func handleDaySuggest(c *httpkit.Context) {
 				n.ID, n.Repetitions, n.Created, dueStr)
 		}
 		log.Printf("DAY: на %s нет заметок к повторению, всего %d:%s",
-			day, len(notes.list()), sb.String())
+			day, len(application.Knowledge.List()), sb.String())
 	}
 
 	// Подбор: сначала задачи, потом заметки — пока влезают в лимит.
@@ -314,7 +163,7 @@ func dayItemTitle(username, kind string, refID int) (title, meta string, ok bool
 		}
 		return t.Title, t.Category, true
 	case "note":
-		n, found := notes.get(refID)
+		n, found := application.Knowledge.Get(refID)
 		if !found {
 			return "", "", false
 		}
@@ -332,13 +181,13 @@ func resolveItemMinutes(username, kind string, refID int) (int, bool) {
 		if !found {
 			return 0, false
 		}
-		return taskMinutes(t.PlannedHours), true
+		return app.TaskMinutes(t.PlannedHours), true
 	case "note":
-		n, found := notes.get(refID)
+		n, found := application.Knowledge.Get(refID)
 		if !found {
 			return 0, false
 		}
-		return readingMinutes(n.Content, readingSpeedFor(username)), true
+		return app.ReadingMinutes(n.Content, application.ReadingSpeed(username)), true
 	}
 	return 0, false
 }
@@ -353,15 +202,15 @@ func loadDayItems(username, day string) (dayBody, bool) {
 	body.Date = day
 	body.Items = make([]DayItem, 0)
 	// Задачи, закрытые в этот день: не зависят от того, был ли план.
-	body.CompletedTasks = dayStore.CompletedTasks(ctx, username, day)
+	body.CompletedTasks = application.Day.CompletedTasks(ctx, username, day)
 
-	planID, budget, report, ok := dayStore.PlanInfo(ctx, username, day)
+	planID, budget, report, ok := application.Day.PlanInfo(ctx, username, day)
 	if !ok {
 		return body, false
 	}
 	body.BudgetMinutes, body.Report = budget, report
 
-	raw, err := dayStore.Items(ctx, planID)
+	raw, err := application.Day.Items(ctx, planID)
 	if err != nil {
 		return body, false
 	}
@@ -453,7 +302,7 @@ func handleSaveDay(c *httpkit.Context) {
 		items = append(items, store.SaveItem{Kind: it.Kind, RefID: it.RefID, Minutes: minutes})
 	}
 
-	if err := dayStore.SavePlan(ctx, username, day, req.BudgetMinutes, items); err != nil {
+	if err := application.Day.SavePlan(ctx, username, day, req.BudgetMinutes, items); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
 		return
 	}
@@ -485,7 +334,7 @@ func handleSetDayItemDone(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := dayStore.SetItemDone(context.Background(), sessData.Username, day, req.Kind, req.RefID, req.Done); err != nil {
+	if err := application.Day.SetItemDone(context.Background(), sessData.Username, day, req.Kind, req.RefID, req.Done); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось обновить позицию дня"})
 		return
 	}
@@ -537,7 +386,7 @@ func handleSetDayItemSpent(c *httpkit.Context) {
 	ctx := context.Background()
 	// План дня создаём при необходимости (шапку «доступное время» пользователь
 	// задаст сам при формировании).
-	planID, err := dayStore.EnsurePlan(ctx, username, day)
+	planID, err := application.Day.EnsurePlan(ctx, username, day)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
 		return
@@ -546,7 +395,7 @@ func handleSetDayItemSpent(c *httpkit.Context) {
 	// Позиция дня создаётся при необходимости: задача с указанным временем
 	// должна появиться в «Плане дня». Плановые минуты — обычная оценка задачи.
 	minutes, _ := resolveItemMinutes(username, "task", req.RefID)
-	if err := dayStore.SetItemSpent(ctx, planID, req.RefID, req.Minutes, minutes); err != nil {
+	if err := application.Day.SetItemSpent(ctx, planID, req.RefID, req.Minutes, minutes); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
 		return
 	}
@@ -565,7 +414,7 @@ func handleDayHistory(c *httpkit.Context) {
 		c.JSON(http.StatusOK, httpkit.H{"days": []DaySummary{}})
 		return
 	}
-	days, err := dayStore.History(context.Background(), sessData.Username)
+	days, err := application.Day.History(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить историю"})
 		return

@@ -89,10 +89,14 @@ type App struct {
 	Reports   *store.Reports
 	Feed      *store.Feed
 	Books     *store.Books
+	Day       *store.Day
 
 	// NotifDB — SQL уведомлений; Notifications — in-memory кэш поверх NotifDB.
 	NotifDB       *store.Notifications
 	Notifications *NotificationCache
+
+	// Knowledge — in-memory хранилище конспектов знаний.
+	Knowledge *NoteStore
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -107,6 +111,7 @@ func New(db *pgxpool.Pool) *App {
 		a.Reports = store.NewReports(db)
 		a.Feed = store.NewFeed(db)
 		a.Books = store.NewBooks(db)
+		a.Day = store.NewDay(db)
 		a.NotifDB = store.NewNotifications(db)
 	}
 	return a
@@ -124,5 +129,20 @@ func (a *App) InitNotifications() error {
 		return err
 	}
 	a.Notifications = c
+	return nil
+}
+
+// InitKnowledge создаёт in-memory хранилище конспектов и подгружает их из БД.
+// Вызывается после New; без БД создаёт пустое хранилище.
+func (a *App) InitKnowledge() error {
+	var pool *pgxpool.Pool
+	if a.DB != nil {
+		pool = a.DB
+	}
+	ns, err := NewNoteStore(pool)
+	if err != nil {
+		return err
+	}
+	a.Knowledge = ns
 	return nil
 }

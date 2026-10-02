@@ -54,8 +54,6 @@ func main() {
 		log.Fatalf("не удалось подключиться к PostgreSQL: %v", err)
 	}
 	defer database.Close() // пул закроется при выходе из main
-	// Хранилища БД разделов (создаются после подключения, см. stores.go).
-	initStores()
 	// Приложение (домен): пул БД, сессии и хранилища store.
 	application = app.New(db)
 	h := handlers.New(application)
@@ -66,7 +64,7 @@ func main() {
 	if err := initProfiles(); err != nil {
 		log.Fatalf("не удалось инициализировать профиль: %v", err)
 	}
-	if err := initKnowledge(); err != nil {
+	if err := application.InitKnowledge(); err != nil {
 		log.Fatalf("не удалось инициализировать конспекты: %v", err)
 	}
 	if err := initImportant(); err != nil {
@@ -171,12 +169,12 @@ func main() {
 	authed.PUT("/reading/goal", h.SetReadingGoal)
 
 	// Конспекты знаний (создание, генерация, редактирование, удаление).
-	authed.GET("/knowledge", handleListNotes)
-	authed.POST("/knowledge", handleCreateNote)
-	authed.POST("/knowledge/generate", handleGenerateNote)
-	authed.PUT("/knowledge/:id", handleUpdateNote)
-	authed.POST("/knowledge/:id/repeat", handleRepeatNote)
-	authed.DELETE("/knowledge/:id", handleDeleteNote)
+	authed.GET("/knowledge", h.ListNotes)
+	authed.POST("/knowledge", h.CreateNote)
+	authed.POST("/knowledge/generate", h.GenerateNote)
+	authed.PUT("/knowledge/:id", h.UpdateNote)
+	authed.POST("/knowledge/:id/repeat", h.RepeatNote)
+	authed.DELETE("/knowledge/:id", h.DeleteNote)
 
 	// Озвучка конспектов (Yandex SpeechKit).
 	// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.

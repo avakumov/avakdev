@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"testing"
@@ -17,8 +17,8 @@ func TestReadingMinutes(t *testing.T) {
 		strings15(4500): 3,
 	}
 	for in, want := range cases {
-		if got := readingMinutes(in, speed); got != want {
-			t.Fatalf("readingMinutes(len=%d) = %d, want %d", len([]rune(in)), got, want)
+		if got := ReadingMinutes(in, speed); got != want {
+			t.Fatalf("ReadingMinutes(len=%d) = %d, want %d", len([]rune(in)), got, want)
 		}
 	}
 }
@@ -37,12 +37,12 @@ func strings15(n int) string {
 func TestNextRepeatDays(t *testing.T) {
 	want := []int{0, 1, 2, 4, 7, 14, 30, 60}
 	for n, exp := range want {
-		if got := nextRepeatDays(n); got != exp {
-			t.Fatalf("nextRepeatDays(%d) = %d, want %d", n, got, exp)
+		if got := NextRepeatDays(n); got != exp {
+			t.Fatalf("NextRepeatDays(%d) = %d, want %d", n, got, exp)
 		}
 	}
-	if got := nextRepeatDays(100); got != 60 {
-		t.Fatalf("nextRepeatDays(100) = %d, want 60", got)
+	if got := NextRepeatDays(100); got != 60 {
+		t.Fatalf("NextRepeatDays(100) = %d, want 60", got)
 	}
 }
 
@@ -50,18 +50,23 @@ func TestNextRepeatDays(t *testing.T) {
 // даже если её created в БД оказался позже формируемого дня (уход часов БД
 // вперёд / пересечение полуночи).
 func TestDueKnowledgeFreshNote(t *testing.T) {
-	notes = newNoteStore()
-	n, err := notes.create("тема", "заголовок", strings15(30))
+	ns, err := NewNoteStore(nil)
 	if err != nil {
-		t.Fatalf("notes.create: %v", err)
+		t.Fatalf("NewNoteStore: %v", err)
+	}
+	a := &App{Knowledge: ns}
+
+	n, err := ns.Create("тема", "заголовок", strings15(30))
+	if err != nil {
+		t.Fatalf("notes.Create: %v", err)
 	}
 	// Имитируем «убежавшие» часы БД: created в будущем относительно дня.
 	n.Created = time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
-	notes.data[n.ID] = n
+	ns.data[n.ID] = n
 
 	day := time.Now().Format("2006-01-02")
 	found := false
-	for _, d := range dueKnowledgeNotes(day) {
+	for _, d := range a.DueKnowledgeNotes(day) {
 		if d.ID == n.ID {
 			found = true
 			break
@@ -93,9 +98,9 @@ func TestNoteDueDate(t *testing.T) {
 		{8, "2026-10-31T10:00:00Z", "2026-12-30T10:00:00Z"},
 	}
 	for _, tc := range cases {
-		due, err := noteDueDate(created, tc.updated, tc.reps)
+		due, err := NoteDueDate(created, tc.updated, tc.reps)
 		if err != nil {
-			t.Fatalf("noteDueDate(%d): %v", tc.reps, err)
+			t.Fatalf("NoteDueDate(%d): %v", tc.reps, err)
 		}
 		want, err := time.Parse(time.RFC3339, tc.want)
 		if err != nil {
