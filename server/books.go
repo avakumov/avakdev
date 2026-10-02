@@ -20,6 +20,8 @@ import (
 	"strings"
 
 	"avakumov/server/internal/httpkit"
+	"avakumov/server/internal/store"
+
 	xhtml "golang.org/x/net/html"
 	"golang.org/x/text/encoding/charmap"
 )
@@ -28,37 +30,14 @@ import (
 // сервер преобразует её в HTML (с картинками внутри), хранит в таблице books
 // и отдаёт готовый HTML для чтения.
 
-// Book — книга пользователя (HTML-версия текста).
-type Book struct {
-	ID      int    `json:"id"`
-	Title   string `json:"title"`
-	Author  string `json:"author"`
-	Format  string `json:"format"`
-	Created string `json:"created"`
-	// FinishedAt — когда книга отмечена прочитанной (пусто — не прочитана).
-	FinishedAt string `json:"finished_at"`
-	// StartedAt — начало чтения: время первой закладки (пусто — закладок нет).
-	StartedAt string `json:"started_at,omitempty"`
-	// ReadPercent — сколько книги прочитано (0–100) по последней закладке;
-	// считается только в списке книг (omitempty — чтобы не отдавать ложный 0).
-	ReadPercent int `json:"read_percent,omitempty"`
-	// HTML — сконвертированный текст; в списке не отдаётся (omitempty).
-	HTML string `json:"html,omitempty"`
-}
+// Book — книга пользователя (определение живёт в store).
+type Book = store.Book
 
 // maxBookBytes — предельный размер загружаемого файла книги.
 const maxBookBytes = 40 << 20
 
-// bookCreatedExpr — единый формат времени создания (RFC3339, UTC).
-const bookCreatedExpr = `to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
-
-// bookFinishedExpr — отметка о прочтении (RFC3339, UTC; пусто — не прочитана).
-const bookFinishedExpr = `COALESCE(to_char(finished_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')`
-
-// bookStartedExpr — начало чтения книги: время первой закладки (RFC3339, UTC;
-// пусто — закладок ещё не было). Требует алиас таблицы books как `b`.
-const bookStartedExpr = `COALESCE(to_char((SELECT MIN(bm.created) FROM book_bookmarks bm
-				WHERE bm.book_id = b.id AND bm.username = b.username) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')`
+// Форматы времени и процент прочтения книги живут в store.Books
+// (см. internal/store/books.go).
 
 // handleListBooks возвращает книги текущего пользователя (без текста).
 // Непрочитанные идут первыми, прочитанные — в конце списка. У каждой книги
@@ -66,50 +45,12 @@ const bookStartedExpr = `COALESCE(to_char((SELECT MIN(bm.created) FROM book_book
 // (дошедшая до конца книги — это максимум по закладкам).
 func handleListBooks(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	rows, err := db.Query(context.Background(),
-		`SELECT b.id, b.title, b.author, b.format, `+bookCreatedExpr+`, `+bookFinishedExpr+`, `+bookStartedExpr+`,
-		        b.text_len,
-		        COALESCE((SELECT MAX(bm.anchor) FROM book_bookmarks bm
-		                  WHERE bm.book_id = b.id AND bm.username = b.username), 0)
-		 FROM books b
-		 WHERE b.username = $1
-		 ORDER BY (b.finished_at IS NOT NULL), b.id DESC`,
-		sessData.username)
+	out, err := booksStore.List(context.Background(), sessData.username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить книги"})
 		return
 	}
-	defer rows.Close()
-
-	out := make([]Book, 0)
-	for rows.Next() {
-		var b Book
-		var textLen, lastAnchor int
-		err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.Created, &b.FinishedAt,
-			&b.StartedAt, &textLen, &lastAnchor)
-		if err != nil {
-			continue
-		}
-		b.ReadPercent = bookReadPercent(textLen, lastAnchor, b.FinishedAt != "")
-		out = append(out, b)
-	}
 	c.JSON(http.StatusOK, out)
-}
-
-// bookReadPercent — процент прочтения книги: позиция последней закладки
-// относительно длины текста. Отмеченная прочитанной книга — 100%.
-func bookReadPercent(textLen, anchor int, finished bool) int {
-	if finished {
-		return 100
-	}
-	if textLen <= 0 || anchor <= 0 {
-		return 0
-	}
-	percent := (anchor*100 + textLen/2) / textLen // с округлением
-	if percent > 100 {
-		return 100
-	}
-	return percent
 }
 
 // handleGetBook возвращает книгу вместе с HTML-текстом.
@@ -121,13 +62,8 @@ func handleGetBook(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	var b Book
-	err = db.QueryRow(context.Background(),
-		`SELECT id, title, author, format, html, `+bookCreatedExpr+`, `+bookFinishedExpr+`
-		 FROM books WHERE id = $1 AND username = $2`,
-		id, sessData.username).
-		Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.HTML, &b.Created, &b.FinishedAt)
-	if err != nil {
+	b, ok := booksStore.Get(context.Background(), sessData.username, id)
+	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
@@ -170,18 +106,11 @@ func handleUploadBook(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	var b Book
-	err = db.QueryRow(context.Background(),
-		`INSERT INTO books (username, title, author, format, html, text_len)
-		 VALUES ($1, $2, $3, $4, $5, length(regexp_replace($5, '<[^>]*>', '', 'g')))
-		 RETURNING id, `+bookCreatedExpr,
-		sessData.username, title, author, format, bookHTML).
-		Scan(&b.ID, &b.Created)
+	b, err := booksStore.Create(context.Background(), sessData.username, title, author, format, bookHTML)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить книгу"})
 		return
 	}
-	b.Title, b.Author, b.Format = title, author, format
 	c.JSON(http.StatusOK, b)
 }
 
@@ -193,9 +122,8 @@ func handleDeleteBook(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	tag, err := db.Exec(context.Background(),
-		`DELETE FROM books WHERE id = $1 AND username = $2`, id, sessData.username)
-	if err != nil || tag.RowsAffected() == 0 {
+	ok, err := booksStore.Delete(context.Background(), sessData.username, id)
+	if err != nil || !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
@@ -219,14 +147,8 @@ func handleSetBookFinished(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	var finishedAt string
-	err = db.QueryRow(context.Background(),
-		`UPDATE books
-		 SET finished_at = CASE WHEN $3 THEN now() ELSE NULL END
-		 WHERE id = $1 AND username = $2
-		 RETURNING `+bookFinishedExpr,
-		id, sessData.username, req.Finished).Scan(&finishedAt)
-	if err != nil {
+	finishedAt, ok := booksStore.SetFinished(context.Background(), sessData.username, id, req.Finished)
+	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
