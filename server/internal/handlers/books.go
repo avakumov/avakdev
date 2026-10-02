@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"archive/zip"
@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/httpkit"
-	"avakumov/server/internal/store"
 
 	xhtml "golang.org/x/net/html"
 	"golang.org/x/text/encoding/charmap"
@@ -29,9 +29,6 @@ import (
 // Раздел «Чтение»: пользователь загружает книгу в формате FB2 или EPUB,
 // сервер преобразует её в HTML (с картинками внутри), хранит в таблице books
 // и отдаёт готовый HTML для чтения.
-
-// Book — книга пользователя (определение живёт в store).
-type Book = store.Book
 
 // maxBookBytes — предельный размер загружаемого файла книги.
 const maxBookBytes = 40 << 20
@@ -43,9 +40,9 @@ const maxBookBytes = 40 << 20
 // Непрочитанные идут первыми, прочитанные — в конце списка. У каждой книги
 // считается процент прочтения: позиция последней закладки от длины текста
 // (дошедшая до конца книги — это максимум по закладкам).
-func handleListBooks(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(session)
-	out, err := booksStore.List(context.Background(), sessData.Username)
+func (h *Handlers) ListBooks(c *httpkit.Context) {
+	sessData, _ := c.MustGet("session").(app.Session)
+	out, err := h.App.Books.List(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить книги"})
 		return
@@ -54,15 +51,15 @@ func handleListBooks(c *httpkit.Context) {
 }
 
 // handleGetBook возвращает книгу вместе с HTML-текстом.
-func handleGetBook(c *httpkit.Context) {
+func (h *Handlers) GetBook(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
+	sessData, _ := c.MustGet("session").(app.Session)
 
-	b, ok := booksStore.Get(context.Background(), sessData.Username, id)
+	b, ok := h.App.Books.Get(context.Background(), sessData.Username, id)
 	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
@@ -72,7 +69,7 @@ func handleGetBook(c *httpkit.Context) {
 
 // handleUploadBook принимает файл книги (multipart/form-data, поле «file»),
 // конвертирует его в HTML и сохраняет.
-func handleUploadBook(c *httpkit.Context) {
+func (h *Handlers) UploadBook(c *httpkit.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Выберите файл книги (fb2 или epub)"})
@@ -105,8 +102,8 @@ func handleUploadBook(c *httpkit.Context) {
 		return
 	}
 
-	sessData, _ := c.MustGet("session").(session)
-	b, err := booksStore.Create(context.Background(), sessData.Username, title, author, format, bookHTML)
+	sessData, _ := c.MustGet("session").(app.Session)
+	b, err := h.App.Books.Create(context.Background(), sessData.Username, title, author, format, bookHTML)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить книгу"})
 		return
@@ -115,14 +112,14 @@ func handleUploadBook(c *httpkit.Context) {
 }
 
 // handleDeleteBook удаляет книгу пользователя.
-func handleDeleteBook(c *httpkit.Context) {
+func (h *Handlers) DeleteBook(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
-	ok, err := booksStore.Delete(context.Background(), sessData.Username, id)
+	sessData, _ := c.MustGet("session").(app.Session)
+	ok, err := h.App.Books.Delete(context.Background(), sessData.Username, id)
 	if err != nil || !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
@@ -132,7 +129,7 @@ func handleDeleteBook(c *httpkit.Context) {
 
 // handleSetBookFinished отмечает книгу прочитанной (finished=true) или
 // возвращает её в чтение (finished=false).
-func handleSetBookFinished(c *httpkit.Context) {
+func (h *Handlers) SetBookFinished(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
@@ -145,9 +142,9 @@ func handleSetBookFinished(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
+	sessData, _ := c.MustGet("session").(app.Session)
 
-	finishedAt, ok := booksStore.SetFinished(context.Background(), sessData.Username, id, req.Finished)
+	finishedAt, ok := h.App.Books.SetFinished(context.Background(), sessData.Username, id, req.Finished)
 	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return

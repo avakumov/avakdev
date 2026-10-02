@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 // Конвертация тестовых книг из папки ../books (если она есть).
 // Проверяет, что FB2 и EPUB дают непустой HTML и метаданные.
 func TestConvertLocalBooks(t *testing.T) {
-	files, err := filepath.Glob("../books/*")
+	files, err := filepath.Glob("../../../books/*")
 	if err != nil || len(files) == 0 {
 		t.Skip("нет папки ../books с книгами для теста")
 	}

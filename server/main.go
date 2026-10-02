@@ -154,12 +154,12 @@ func main() {
 	authed.PUT("/reports/:date", h.UpsertReport)
 
 	// Раздел «Чтение»: книги (fb2/epub → HTML).
-	authed.GET("/books", handleListBooks)
-	authed.POST("/books", handleUploadBook)
+	authed.GET("/books", h.ListBooks)
+	authed.POST("/books", h.UploadBook)
 	authed.GET("/books/last-bookmark", h.LastBookmark)
-	authed.GET("/books/:id", handleGetBook)
-	authed.DELETE("/books/:id", handleDeleteBook)
-	authed.PUT("/books/:id/finished", handleSetBookFinished)
+	authed.GET("/books/:id", h.GetBook)
+	authed.DELETE("/books/:id", h.DeleteBook)
+	authed.PUT("/books/:id/finished", h.SetBookFinished)
 	authed.GET("/books/:id/bookmarks", h.ListBookmarks)
 	authed.POST("/books/:id/bookmarks", h.CreateBookmark)
 	authed.DELETE("/books/:id/bookmarks/:bookmarkId", h.DeleteBookmark)

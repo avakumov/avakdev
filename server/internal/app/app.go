@@ -88,6 +88,7 @@ type App struct {
 	Bookmarks *store.Bookmarks
 	Reports   *store.Reports
 	Feed      *store.Feed
+	Books     *store.Books
 
 	// NotifDB — SQL уведомлений; Notifications — in-memory кэш поверх NotifDB.
 	NotifDB       *store.Notifications
@@ -105,6 +106,7 @@ func New(db *pgxpool.Pool) *App {
 		a.Bookmarks = store.NewBookmarks(db)
 		a.Reports = store.NewReports(db)
 		a.Feed = store.NewFeed(db)
+		a.Books = store.NewBooks(db)
 		a.NotifDB = store.NewNotifications(db)
 	}
 	return a
