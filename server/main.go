@@ -157,8 +157,6 @@ func main() {
 		// Отчёты за дни (создание, редактирование, список).
 		authed.GET("/reports", handleListReports)
 		authed.PUT("/reports/:date", handleUpsertReport)
-		// Черновик отчёта — сохраняется автоматически при вводе.
-		authed.PUT("/reports/:date/draft", handleSaveReportDraft)
 
 		// Раздел «Чтение»: книги (fb2/epub → HTML).
 		authed.GET("/books", handleListBooks)

@@ -573,7 +573,8 @@ export function useReports(enabled = true) {
   });
 }
 
-// Создать или обновить отчёт за конкретный день (PUT /api/reports/:date)
+// Создать или обновить отчёт за конкретный день (PUT /api/reports/:date).
+// Вызывается автоматически при вводе текста отчёта в «Дне».
 export async function updateReport(date, content) {
   const res = await fetch(`${BASE}/api/reports/${date}`, {
     method: "PUT",
@@ -582,19 +583,6 @@ export async function updateReport(date, content) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Не удалось сохранить отчёт");
-  return data;
-}
-
-// PUT /api/reports/:date/draft — черновик отчёта. Пишется автоматически при
-// вводе в «Дне», чтобы текст не терялся при обновлении или с другого устройства.
-export async function saveReportDraft(date, content) {
-  const res = await fetch(`${BASE}/api/reports/${date}/draft`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Не удалось сохранить черновик");
   return data;
 }
 

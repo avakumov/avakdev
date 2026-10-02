@@ -64,10 +64,9 @@ type dayBody struct {
 	BudgetMinutes int       `json:"budget_minutes"`
 	TotalMinutes  int       `json:"total_minutes"`
 	Items         []DayItem `json:"items"`
-	// Report — сохранённый текст отчёта за день; ReportDraft — черновик,
-	// который пишется автоматически при вводе (см. «День»).
-	Report      string `json:"report"`
-	ReportDraft string `json:"report_draft"`
+	// Report — сохранённый текст отчёта за день (пишется автоматически при
+	// вводе в «Дне»).
+	Report string `json:"report"`
 	// CompletedTasks — все задачи, отмеченные выполненными в этот день, даже
 	// если их не было в плане. Показываются в отчёте за день.
 	CompletedTasks []completedTask `json:"completed_tasks"`
@@ -401,10 +400,10 @@ func loadDayItems(username, day string) (dayBody, bool) {
 
 	var planID int
 	err := db.QueryRow(ctx,
-		`SELECT id, budget_minutes, COALESCE(report, ''), COALESCE(report_draft, '')
+		`SELECT id, budget_minutes, COALESCE(report, '')
 		 FROM day_plans
 		 WHERE username = $1 AND day = $2`, username, day).
-		Scan(&planID, &body.BudgetMinutes, &body.Report, &body.ReportDraft)
+		Scan(&planID, &body.BudgetMinutes, &body.Report)
 	if err != nil {
 		return body, false
 	}
