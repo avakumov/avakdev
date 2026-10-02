@@ -61,7 +61,7 @@ func main() {
 	application = app.New(db)
 	h := handlers.New(application)
 	// Применяем версионированные миграции БД (goose), встроенные в бинарник.
-	if err := runMigrations(); err != nil {
+	if err := database.Migrate(); err != nil {
 		log.Fatalf("не удалось применить миграции БД: %v", err)
 	}
 	if err := application.InitProfile(); err != nil {
