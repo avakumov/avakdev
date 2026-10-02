@@ -100,163 +100,157 @@ func main() {
 	api := r.Group("/api")
 
 	// Публичные маршруты (без авторизации).
-	{
-		api.POST("/login", handleLogin)
-	}
+	api.POST("/login", handleLogin)
 
 	// Маршруты, требующие активной сессии.
 	authed := api.Group("")
 	authed.Use(authRequired)
-	{
-		authed.GET("/me", handleMe)
-		authed.PUT("/me", handleUpdateMe)
-		authed.PUT("/me/avatar", handleUpdateAvatar)
-		authed.POST("/me/telegram/link", handleLinkTelegram)
-		authed.POST("/me/telegram/unlink", handleUnlinkTelegram)
-		authed.POST("/logout", handleLogout)
+	authed.GET("/me", handleMe)
+	authed.PUT("/me", handleUpdateMe)
+	authed.PUT("/me/avatar", handleUpdateAvatar)
+	authed.POST("/me/telegram/link", handleLinkTelegram)
+	authed.POST("/me/telegram/unlink", handleUnlinkTelegram)
+	authed.POST("/logout", handleLogout)
 
-		// Маршруты, требующие прав администратора.
-		admin := authed.Group("")
-		admin.Use(adminRequired)
-		{
-			admin.GET("/health", func(c *httpkit.Context) {
-				c.JSON(http.StatusOK, httpkit.H{
-					"status": "ok",
-					"time":   time.Now().Format(time.RFC3339),
-				})
-			})
+	// Маршруты, требующие прав администратора.
+	admin := authed.Group("")
+	admin.Use(adminRequired)
+	admin.GET("/health", func(c *httpkit.Context) {
+		c.JSON(http.StatusOK, httpkit.H{
+			"status": "ok",
+			"time":   time.Now().Format(time.RFC3339),
+		})
+	})
 
-			admin.GET("/message", func(c *httpkit.Context) {
-				c.JSON(http.StatusOK, httpkit.H{
-					"message": "Привет! Это ответ от Go (net/http) сервера 🚀",
-					"server":  "net/http",
-				})
-			})
+	admin.GET("/message", func(c *httpkit.Context) {
+		c.JSON(http.StatusOK, httpkit.H{
+			"message": "Привет! Это ответ от Go (net/http) сервера 🚀",
+			"server":  "net/http",
+		})
+	})
 
-			// Системные метрики сервера (CPU, память, диск, сеть).
-			admin.GET("/metrics", func(c *httpkit.Context) {
-				c.JSON(http.StatusOK, collectMetrics())
-			})
+	// Системные метрики сервера (CPU, память, диск, сеть).
+	admin.GET("/metrics", func(c *httpkit.Context) {
+		c.JSON(http.StatusOK, collectMetrics())
+	})
 
-			// Схема БД (DDL) для раздела «База данных».
-			admin.GET("/db-schema", handleDBSchema)
+	// Схема БД (DDL) для раздела «База данных».
+	admin.GET("/db-schema", handleDBSchema)
 
-			// Задачи по модификации приложения (раздел «Приложение») —
-			// только для администраторов (запрос деплоя/отката изменений).
-			admin.GET("/app-tasks", handleListAppTasks)
-			admin.POST("/app-tasks", handleCreateAppTask)
-			admin.PUT("/app-tasks/:id", handleUpdateAppTask)
-			admin.DELETE("/app-tasks/:id", handleDeleteAppTask)
-		}
+	// Задачи по модификации приложения (раздел «Приложение») —
+	// только для администраторов (запрос деплоя/отката изменений).
+	admin.GET("/app-tasks", handleListAppTasks)
+	admin.POST("/app-tasks", handleCreateAppTask)
+	admin.PUT("/app-tasks/:id", handleUpdateAppTask)
+	admin.DELETE("/app-tasks/:id", handleDeleteAppTask)
 
-		// Отчёты за дни (создание, редактирование, список).
-		authed.GET("/reports", handleListReports)
-		authed.PUT("/reports/:date", handleUpsertReport)
+	// Отчёты за дни (создание, редактирование, список).
+	authed.GET("/reports", handleListReports)
+	authed.PUT("/reports/:date", handleUpsertReport)
 
-		// Раздел «Чтение»: книги (fb2/epub → HTML).
-		authed.GET("/books", handleListBooks)
-		authed.POST("/books", handleUploadBook)
-		authed.GET("/books/last-bookmark", handleLastBookmark)
-		authed.GET("/books/:id", handleGetBook)
-		authed.DELETE("/books/:id", handleDeleteBook)
-		authed.PUT("/books/:id/finished", handleSetBookFinished)
-		authed.GET("/books/:id/bookmarks", handleListBookmarks)
-		authed.POST("/books/:id/bookmarks", handleCreateBookmark)
-		authed.DELETE("/books/:id/bookmarks/:bookmarkId", handleDeleteBookmark)
+	// Раздел «Чтение»: книги (fb2/epub → HTML).
+	authed.GET("/books", handleListBooks)
+	authed.POST("/books", handleUploadBook)
+	authed.GET("/books/last-bookmark", handleLastBookmark)
+	authed.GET("/books/:id", handleGetBook)
+	authed.DELETE("/books/:id", handleDeleteBook)
+	authed.PUT("/books/:id/finished", handleSetBookFinished)
+	authed.GET("/books/:id/bookmarks", handleListBookmarks)
+	authed.POST("/books/:id/bookmarks", handleCreateBookmark)
+	authed.DELETE("/books/:id/bookmarks/:bookmarkId", handleDeleteBookmark)
 
-		// Время чтения по дням и цель чтения на день.
-		authed.GET("/reading/time", handleGetReadingTime)
-		authed.GET("/reading/history", handleReadingHistory)
-		authed.POST("/reading/time", handleAddReadingTime)
-		authed.PUT("/reading/goal", handleSetReadingGoal)
+	// Время чтения по дням и цель чтения на день.
+	authed.GET("/reading/time", handleGetReadingTime)
+	authed.GET("/reading/history", handleReadingHistory)
+	authed.POST("/reading/time", handleAddReadingTime)
+	authed.PUT("/reading/goal", handleSetReadingGoal)
 
-		// Конспекты знаний (создание, генерация, редактирование, удаление).
-		authed.GET("/knowledge", handleListNotes)
-		authed.POST("/knowledge", handleCreateNote)
-		authed.POST("/knowledge/generate", handleGenerateNote)
-		authed.PUT("/knowledge/:id", handleUpdateNote)
-		authed.POST("/knowledge/:id/repeat", handleRepeatNote)
-		authed.DELETE("/knowledge/:id", handleDeleteNote)
+	// Конспекты знаний (создание, генерация, редактирование, удаление).
+	authed.GET("/knowledge", handleListNotes)
+	authed.POST("/knowledge", handleCreateNote)
+	authed.POST("/knowledge/generate", handleGenerateNote)
+	authed.PUT("/knowledge/:id", handleUpdateNote)
+	authed.POST("/knowledge/:id/repeat", handleRepeatNote)
+	authed.DELETE("/knowledge/:id", handleDeleteNote)
 
-		// Озвучка конспектов (Yandex SpeechKit).
-		// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.
-		authed.POST("/knowledge/:id/tts", handleSynthesizeNote)
-		authed.GET("/knowledge/:id/tts", handleGetNoteAudio)
+	// Озвучка конспектов (Yandex SpeechKit).
+	// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.
+	authed.POST("/knowledge/:id/tts", handleSynthesizeNote)
+	authed.GET("/knowledge/:id/tts", handleGetNoteAudio)
 
-		// «Важное» сообщение: у каждого пользователя своё — просмотр, сохранение
-		// и отметка о прочтении доступны всем авторизованным.
-		authed.GET("/important", handleGetImportant)
-		authed.PUT("/important", handleSaveImportant)
-		authed.POST("/important/seen", handleMarkImportantSeen)
+	// «Важное» сообщение: у каждого пользователя своё — просмотр, сохранение
+	// и отметка о прочтении доступны всем авторизованным.
+	authed.GET("/important", handleGetImportant)
+	authed.PUT("/important", handleSaveImportant)
+	authed.POST("/important/seen", handleMarkImportantSeen)
 
-		// Раздел «Заметки»: быстрые записи-черновики.
-		authed.GET("/drafts", handleListDrafts)
-		authed.POST("/drafts", handleCreateDraft)
-		authed.PUT("/drafts/:id", handleUpdateDraft)
-		authed.DELETE("/drafts/:id", handleDeleteDraft)
+	// Раздел «Заметки»: быстрые записи-черновики.
+	authed.GET("/drafts", handleListDrafts)
+	authed.POST("/drafts", handleCreateDraft)
+	authed.PUT("/drafts/:id", handleUpdateDraft)
+	authed.DELETE("/drafts/:id", handleDeleteDraft)
 
-		// Раздел «Лента»: элементы ленты (пока тип контента — «вопрос-ответ»).
-		// /view — счётчик показов, растёт когда элемент показан в ленте.
-		// /generate — черновики от ИИ (в БД не пишутся), /bulk — сохранить пачку.
-		authed.GET("/feed", handleListFeed)
-		authed.POST("/feed", handleCreateFeedItem)
-		authed.POST("/feed/generate", handleGenerateFeedItems)
-		authed.POST("/feed/bulk", handleBulkCreateFeedItems)
-		authed.PUT("/feed/:id", handleUpdateFeedItem)
-		authed.DELETE("/feed/:id", handleDeleteFeedItem)
-		authed.POST("/feed/:id/view", handleFeedItemView)
-		authed.POST("/feed/:id/reaction", handleFeedItemReaction)
+	// Раздел «Лента»: элементы ленты (пока тип контента — «вопрос-ответ»).
+	// /view — счётчик показов, растёт когда элемент показан в ленте.
+	// /generate — черновики от ИИ (в БД не пишутся), /bulk — сохранить пачку.
+	authed.GET("/feed", handleListFeed)
+	authed.POST("/feed", handleCreateFeedItem)
+	authed.POST("/feed/generate", handleGenerateFeedItems)
+	authed.POST("/feed/bulk", handleBulkCreateFeedItems)
+	authed.PUT("/feed/:id", handleUpdateFeedItem)
+	authed.DELETE("/feed/:id", handleDeleteFeedItem)
+	authed.POST("/feed/:id/view", handleFeedItemView)
+	authed.POST("/feed/:id/reaction", handleFeedItemReaction)
 
-		// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
-		// и значения — одно на (метрика, день).
-		authed.GET("/user-metrics", handleListUserMetrics)
-		authed.POST("/user-metrics", handleCreateUserMetric)
-		authed.PUT("/user-metrics/:id", handleUpdateUserMetric)
-		authed.DELETE("/user-metrics/:id", handleDeleteUserMetric)
-		authed.PUT("/user-metrics/:id/:date", handleSetUserMetricValue)
-		authed.DELETE("/user-metrics/:id/:date", handleDeleteUserMetricValue)
+	// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
+	// и значения — одно на (метрика, день).
+	authed.GET("/user-metrics", handleListUserMetrics)
+	authed.POST("/user-metrics", handleCreateUserMetric)
+	authed.PUT("/user-metrics/:id", handleUpdateUserMetric)
+	authed.DELETE("/user-metrics/:id", handleDeleteUserMetric)
+	authed.PUT("/user-metrics/:id/:date", handleSetUserMetricValue)
+	authed.DELETE("/user-metrics/:id/:date", handleDeleteUserMetricValue)
 
-		// Цели (первый раздел, главная страница).
-		authed.GET("/goals", handleListGoals)
-		authed.POST("/goals", handleCreateGoal)
-		authed.POST("/goals/generate-tasks", handleGenerateGoalTasks)
-		authed.PUT("/goals/:id", handleUpdateGoal)
-		authed.PUT("/goals/:id/tasks-order", handleReorderGoalTasks)
-		authed.DELETE("/goals/:id", handleDeleteGoal)
+	// Цели (первый раздел, главная страница).
+	authed.GET("/goals", handleListGoals)
+	authed.POST("/goals", handleCreateGoal)
+	authed.POST("/goals/generate-tasks", handleGenerateGoalTasks)
+	authed.PUT("/goals/:id", handleUpdateGoal)
+	authed.PUT("/goals/:id/tasks-order", handleReorderGoalTasks)
+	authed.DELETE("/goals/:id", handleDeleteGoal)
 
-		// Задачи раздела «Задачи» (категории, время, дедлайн, статус).
-		authed.GET("/tasks", handleListTasks)
-		authed.POST("/tasks", handleCreateTask)
-		authed.PUT("/tasks/:id", handleUpdateTask)
-		authed.DELETE("/tasks/:id", handleDeleteTask)
+	// Задачи раздела «Задачи» (категории, время, дедлайн, статус).
+	authed.GET("/tasks", handleListTasks)
+	authed.POST("/tasks", handleCreateTask)
+	authed.PUT("/tasks/:id", handleUpdateTask)
+	authed.DELETE("/tasks/:id", handleDeleteTask)
 
-		// Раздел «День»: ежедневный план (задачи + повторение знаний, метрики).
-		authed.GET("/day", handleGetDay)
-		authed.POST("/day/suggest", handleDaySuggest)
-		authed.PUT("/day", handleSaveDay)
-		authed.PUT("/day/done", handleSetDayItemDone)
-		authed.PUT("/day/spent", handleSetDayItemSpent)
-		authed.GET("/day/history", handleDayHistory)
+	// Раздел «День»: ежедневный план (задачи + повторение знаний, метрики).
+	authed.GET("/day", handleGetDay)
+	authed.POST("/day/suggest", handleDaySuggest)
+	authed.PUT("/day", handleSaveDay)
+	authed.PUT("/day/done", handleSetDayItemDone)
+	authed.PUT("/day/spent", handleSetDayItemSpent)
+	authed.GET("/day/history", handleDayHistory)
 
-		// Уведомления пользователя (колокольчик на странице профиля).
-		authed.GET("/notifications", handleListNotifications)
-		authed.POST("/notifications", handleCreateNotification)
-		authed.DELETE("/notifications/:id", handleDeleteNotification)
-		// «Входящие»: наступившие по расписанию (колокольчик).
-		authed.GET("/notifications/inbox", handleListNotificationInbox)
-		authed.DELETE("/notifications/inbox/:id", handleDismissNotification)
+	// Уведомления пользователя (колокольчик на странице профиля).
+	authed.GET("/notifications", handleListNotifications)
+	authed.POST("/notifications", handleCreateNotification)
+	authed.DELETE("/notifications/:id", handleDeleteNotification)
+	// «Входящие»: наступившие по расписанию (колокольчик).
+	authed.GET("/notifications/inbox", handleListNotificationInbox)
+	authed.DELETE("/notifications/inbox/:id", handleDismissNotification)
 
-		// Профиль и генерация резюме.
-		authed.GET("/profile", handleGetProfile)
-		authed.PUT("/profile", handleSaveProfile)
-		authed.POST("/profile/generate", handleGenerateResume)
-		authed.PUT("/profile/resume", handleSaveResume)
-		authed.GET("/profile/resume", handleResumePage)
+	// Профиль и генерация резюме.
+	authed.GET("/profile", handleGetProfile)
+	authed.PUT("/profile", handleSaveProfile)
+	authed.POST("/profile/generate", handleGenerateResume)
+	authed.PUT("/profile/resume", handleSaveResume)
+	authed.GET("/profile/resume", handleResumePage)
 
-		// Фото для резюме.
-		authed.POST("/profile/photo", handleUploadPhoto)
-		authed.DELETE("/profile/photo", handleDeletePhoto)
-	}
+	// Фото для резюме.
+	authed.POST("/profile/photo", handleUploadPhoto)
+	authed.DELETE("/profile/photo", handleDeletePhoto)
 
 	// ---- Статика React ----
 	// В собранном бинарнике фронтенд встроен (embed).
