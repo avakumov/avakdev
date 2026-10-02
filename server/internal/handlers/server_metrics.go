@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"bufio"
@@ -47,9 +47,9 @@ type NetworkStats struct {
 	TxBytes uint64 `json:"tx_bytes"`
 }
 
-// collectMetrics снимает все системные метрики. Для точности загрузки CPU
+// CollectServerMetrics снимает все системные метрики. Для точности загрузки CPU
 // делаются два замера /proc/stat с небольшим интервалом.
-func collectMetrics() ServerMetrics {
+func CollectServerMetrics() ServerMetrics {
 	cpu, cpuUsedCores, cpuCores := cpuUsage(time.Millisecond * 250)
 	memUsed, memTotal, memPct := memoryInfo()
 	diskUsed, diskTotal, diskPct := diskInfo("/")

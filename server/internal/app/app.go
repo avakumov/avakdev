@@ -104,6 +104,9 @@ type App struct {
 
 	// Important — in-memory хранилище «важных» сообщений.
 	Important *ImportantStore
+
+	// UserMetrics — in-memory хранилище метрик пользователей.
+	UserMetrics *MetricStore
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -182,5 +185,20 @@ func (a *App) InitImportant() error {
 		return err
 	}
 	a.Important = s
+	return nil
+}
+
+// InitUserMetrics создаёт in-memory хранилище метрик и подгружает их из БД.
+// Вызывается после New; без БД создаёт пустое хранилище.
+func (a *App) InitUserMetrics() error {
+	var pool *pgxpool.Pool
+	if a.DB != nil {
+		pool = a.DB
+	}
+	s, err := NewMetricStore(pool)
+	if err != nil {
+		return err
+	}
+	a.UserMetrics = s
 	return nil
 }

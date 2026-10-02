@@ -70,7 +70,7 @@ func main() {
 	if err := application.InitImportant(); err != nil {
 		log.Fatalf("не удалось инициализировать важное сообщение: %v", err)
 	}
-	if err := initMetrics(); err != nil {
+	if err := application.InitUserMetrics(); err != nil {
 		log.Fatalf("не удалось инициализировать метрики: %v", err)
 	}
 	if err := initAppTasks(); err != nil {
@@ -131,7 +131,7 @@ func main() {
 
 	// Системные метрики сервера (CPU, память, диск, сеть).
 	admin.GET("/metrics", func(c *httpkit.Context) {
-		c.JSON(http.StatusOK, collectMetrics())
+		c.JSON(http.StatusOK, handlers.CollectServerMetrics())
 	})
 
 	// Схема БД (DDL) для раздела «База данных».
@@ -204,12 +204,12 @@ func main() {
 
 	// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
 	// и значения — одно на (метрика, день).
-	authed.GET("/user-metrics", handleListUserMetrics)
-	authed.POST("/user-metrics", handleCreateUserMetric)
-	authed.PUT("/user-metrics/:id", handleUpdateUserMetric)
-	authed.DELETE("/user-metrics/:id", handleDeleteUserMetric)
-	authed.PUT("/user-metrics/:id/:date", handleSetUserMetricValue)
-	authed.DELETE("/user-metrics/:id/:date", handleDeleteUserMetricValue)
+	authed.GET("/user-metrics", h.ListUserMetrics)
+	authed.POST("/user-metrics", h.CreateUserMetric)
+	authed.PUT("/user-metrics/:id", h.UpdateUserMetric)
+	authed.DELETE("/user-metrics/:id", h.DeleteUserMetric)
+	authed.PUT("/user-metrics/:id/:date", h.SetUserMetricValue)
+	authed.DELETE("/user-metrics/:id/:date", h.DeleteUserMetricValue)
 
 	// Цели (первый раздел, главная страница).
 	authed.GET("/goals", h.ListGoals)
