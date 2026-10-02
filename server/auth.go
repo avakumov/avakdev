@@ -16,35 +16,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"avakumov/server/internal/database"
+	"avakumov/server/internal/store"
 )
 
-// User — представление записи в таблице users.
-type User struct {
-	ID       int    `json:"id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	IsAdmin  bool   `json:"is_admin"`
-	// Phone — необязательный телефон пользователя.
-	Phone string `json:"phone"`
-	// Telegram — необязательное имя пользователя в Telegram (без @).
-	Telegram string `json:"telegram"`
-	// ReadingSpeed — скорость чтения (символов в минуту); 0 = «не задано»
-	// (при сохранении приводится к среднему значению 1500).
-	ReadingSpeed int `json:"reading_speed"`
-	// CodeTheme — тема оформления блоков кода (id семейства, напр. night-owl).
-	// Светлый/тёмный вариант выбирается по теме сайта.
-	CodeTheme string `json:"code_theme"`
-	// AvatarPreset — выбранный готовый вариант аватара (id) или пусто.
-	AvatarPreset string `json:"avatar_preset"`
-	// AvatarData — своё фото аватара в base64 (без data URI префикса).
-	AvatarData string `json:"avatar_data"`
-	// AvatarMime — MIME-тип фото аватара (например image/jpeg).
-	AvatarMime string `json:"avatar_mime"`
-	// TelegramChatID — chat_id привязанного Telegram (не показываем наружу).
-	TelegramChatID string `json:"-"`
-	// Password хранится ТОЛЬКО внутри структуры, наружу никогда не уходит.
-	Password string `json:"-"`
-}
+// User — запись таблицы users. Определение живёт в store, здесь — алиас,
+// чтобы существующий код продолжал ссылаться на User.
+type User = store.User
 
 // userPayload — безопасное представление пользователя для JSON-ответов
 // (пароль не включается никогда).
@@ -210,21 +187,9 @@ func adminRequired(next http.Handler) http.Handler {
 }
 
 // loadUser возвращает пользователя по имени (без пароля — он не заполняется
-// в этой выборке). Ошибка "no rows" возвращается как nil-структура + false.
+// в этой выборке). Ошибка "no rows" возвращается как нулевая структура + false.
 func loadUser(username string) (User, bool) {
-	var u User
-	err := db.QueryRow(context.Background(),
-		`SELECT id, username, email, is_admin, phone, telegram,
-		        reading_speed, code_theme,
-		        avatar_preset, avatar_data, avatar_mime, telegram_chat_id
-		 FROM users WHERE username = $1`,
-		username).Scan(&u.ID, &u.Username, &u.Email, &u.IsAdmin, &u.Phone,
-		&u.Telegram, &u.ReadingSpeed, &u.CodeTheme, &u.AvatarPreset, &u.AvatarData,
-		&u.AvatarMime, &u.TelegramChatID)
-	if err != nil {
-		return User{}, false
-	}
-	return u, true
+	return usersStore.ByUsername(context.Background(), username)
 }
 
 // handleLogin аутентифицирует пользователя по username/password.
@@ -248,11 +213,8 @@ func handleLogin(c *httpkit.Context) {
 		return
 	}
 
-	var u User
-	err := db.QueryRow(context.Background(),
-		`SELECT id, username, password, email, is_admin FROM users WHERE username = $1`,
-		req.Username).Scan(&u.ID, &u.Username, &u.Password, &u.Email, &u.IsAdmin)
-	if err != nil || u.Password != req.Password {
+	u, ok := usersStore.Credentials(context.Background(), req.Username)
+	if !ok || u.Password != req.Password {
 		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Неверный логин или пароль"})
 		return
 	}
@@ -369,21 +331,9 @@ func handleUpdateMe(c *httpkit.Context) {
 	}
 
 	// Необязательные поля (reading_speed, code_theme) приходят как nil, если их
-	// не трогали — COALESCE оставляет текущее значение в БД.
-	var speedArg, themeArg interface{}
-	if req.ReadingSpeed != nil {
-		speedArg = *req.ReadingSpeed
-	}
-	if req.CodeTheme != nil {
-		themeArg = *req.CodeTheme
-	}
-	if _, err := db.Exec(context.Background(),
-		`UPDATE users
-		    SET phone = $1, telegram = $2,
-		        reading_speed = COALESCE($3::int, reading_speed),
-		        code_theme = COALESCE($4::text, code_theme)
-		  WHERE username = $5`,
-		req.Phone, req.Telegram, speedArg, themeArg, sessData.username); err != nil {
+	// не трогали — COALESCE в store оставляет текущее значение в БД.
+	if err := usersStore.UpdateContacts(context.Background(), sessData.username,
+		req.Phone, req.Telegram, req.ReadingSpeed, req.CodeTheme); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить профиль"})
 		return
 	}

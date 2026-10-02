@@ -91,11 +91,7 @@ func handleUpdateAvatar(c *httpkit.Context) {
 		mime = ""
 	}
 
-	if _, err := db.Exec(context.Background(),
-		`UPDATE users
-		 SET avatar_preset = $1, avatar_data = $2, avatar_mime = $3
-		 WHERE username = $4`,
-		preset, photo, mime, sessData.username); err != nil {
+	if err := usersStore.SetAvatar(context.Background(), sessData.username, preset, photo, mime); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аватар"})
 		return
 	}
