@@ -15,6 +15,7 @@ import (
 	"avakumov/server/internal/database"
 	"avakumov/server/internal/env"
 	"avakumov/server/internal/handlers"
+	"avakumov/server/internal/notifier"
 )
 
 // indexData читает index.html из переданной FS.
@@ -86,7 +87,7 @@ func main() {
 	}
 
 	// Фоновая доставка уведомлений в Telegram и обработка привязки бота.
-	startNotificationScheduler()
+	notifier.Start(application)
 	application.StartTelegramLinkWatcher()
 	logAuthConfig()
 
