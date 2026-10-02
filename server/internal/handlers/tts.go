@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"fmt"
@@ -138,17 +138,17 @@ func yandexTTS(text string) ([]byte, string, error) {
 	return audio, ttsMIME(format), nil
 }
 
-// handleSynthesizeNote генерирует аудио для конспекта по его полному тексту
+// SynthesizeNote генерирует аудио для конспекта по его полному тексту
 // и сохраняет его в БД. Если аудио уже есть — возвращает его без повторного
 // обращения к Yandex SpeechKit (экономия токенов/квоты).
-func handleSynthesizeNote(c *httpkit.Context) {
+func (h *Handlers) SynthesizeNote(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
 		return
 	}
 
-	n, ok := application.Knowledge.Get(id)
+	n, ok := h.App.Knowledge.Get(id)
 	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Конспект не найден"})
 		return
@@ -167,8 +167,8 @@ func handleSynthesizeNote(c *httpkit.Context) {
 	}
 
 	// Если уже есть сохранённое аудио — отдаём его, не тратя квоту.
-	if application.Knowledge.HasAudio(id) {
-		data, mime := application.Knowledge.GetAudio(id)
+	if h.App.Knowledge.HasAudio(id) {
+		data, mime := h.App.Knowledge.GetAudio(id)
 		c.Data(http.StatusOK, mime, data)
 		return
 	}
@@ -182,7 +182,7 @@ func handleSynthesizeNote(c *httpkit.Context) {
 		return
 	}
 
-	if err := application.Knowledge.SaveAudio(id, audio, mime); err != nil {
+	if err := h.App.Knowledge.SaveAudio(id, audio, mime); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аудио"})
 		return
 	}
@@ -190,22 +190,22 @@ func handleSynthesizeNote(c *httpkit.Context) {
 	c.Data(http.StatusOK, mime, audio)
 }
 
-// handleGetNoteAudio возвращает ранее сгенерированное аудио конспекта.
+// GetNoteAudio возвращает ранее сгенерированное аудио конспекта.
 // Если аудио ещё нет, возвращает 404 — фронтенд может вызвать
 // POST /api/knowledge/:id/tts для генерации.
-func handleGetNoteAudio(c *httpkit.Context) {
+func (h *Handlers) GetNoteAudio(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
 		return
 	}
 
-	if !application.Knowledge.HasAudio(id) {
+	if !h.App.Knowledge.HasAudio(id) {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Аудио ещё не сгенерировано"})
 		return
 	}
 
-	data, mime := application.Knowledge.GetAudio(id)
+	data, mime := h.App.Knowledge.GetAudio(id)
 	c.Data(http.StatusOK, mime, data)
 }
 

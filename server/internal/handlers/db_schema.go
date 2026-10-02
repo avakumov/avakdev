@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"context"
@@ -16,12 +16,12 @@ import (
 // pgDumpTimeout — сколько ждём pg_dump, прежде чем прервать.
 const pgDumpTimeout = 20 * time.Second
 
-// handleDBSchema отдаёт схему БД (DDL) для админ-раздела «База данных».
+// DBSchema отдаёт схему БД (DDL) для админ-раздела «База данных».
 // Источник — `pg_dump --schema-only` против DATABASE_URL.
 //
 // Пароль передаём через переменные окружения libpq (PG*), а не аргументом
 // командной строки — чтобы он не светился в списке процессов сервера.
-func handleDBSchema(c *httpkit.Context) {
+func (h *Handlers) DBSchema(c *httpkit.Context) {
 	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if dsn == "" {
 		c.JSON(http.StatusServiceUnavailable, httpkit.H{"error": "DATABASE_URL не задан"})

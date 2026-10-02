@@ -11,9 +11,6 @@ import (
 	"avakumov/server/internal/database"
 )
 
-// session — активная сессия пользователя (определение живёт в app).
-type session = app.Session
-
 var (
 	db          *pgxpool.Pool
 	application *app.App

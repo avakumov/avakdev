@@ -135,7 +135,7 @@ func main() {
 	})
 
 	// Схема БД (DDL) для раздела «База данных».
-	admin.GET("/db-schema", handleDBSchema)
+	admin.GET("/db-schema", h.DBSchema)
 
 	// Задачи по модификации приложения (раздел «Приложение») —
 	// только для администраторов (запрос деплоя/отката изменений).
@@ -175,8 +175,8 @@ func main() {
 
 	// Озвучка конспектов (Yandex SpeechKit).
 	// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.
-	authed.POST("/knowledge/:id/tts", handleSynthesizeNote)
-	authed.GET("/knowledge/:id/tts", handleGetNoteAudio)
+	authed.POST("/knowledge/:id/tts", h.SynthesizeNote)
+	authed.GET("/knowledge/:id/tts", h.GetNoteAudio)
 
 	// «Важное» сообщение: у каждого пользователя своё — просмотр, сохранение
 	// и отметка о прочтении доступны всем авторизованным.
