@@ -97,6 +97,10 @@ type App struct {
 
 	// Knowledge — in-memory хранилище конспектов знаний.
 	Knowledge *NoteStore
+
+	// Tasks и Goals — in-memory хранилища задач и целей (ссылаются друг на друга).
+	Tasks *TaskStore
+	Goals *GoalStore
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -145,4 +149,20 @@ func (a *App) InitKnowledge() error {
 	}
 	a.Knowledge = ns
 	return nil
+}
+
+// InitTasksGoals создаёт in-memory хранилища задач и целей, связывает их
+// взаимными ссылками и подгружает данные из БД. Вызывается после New.
+func (a *App) InitTasksGoals() error {
+	if a.DB == nil {
+		return nil
+	}
+	a.Tasks = NewTaskStore(a.DB)
+	a.Goals = NewGoalStore(a.DB)
+	a.Tasks.goals = a.Goals
+	a.Goals.tasks = a.Tasks
+	if err := a.Tasks.Load(); err != nil {
+		return err
+	}
+	return a.Goals.Load()
 }

@@ -76,11 +76,8 @@ func main() {
 	if err := initAppTasks(); err != nil {
 		log.Fatalf("не удалось инициализировать задачи: %v", err)
 	}
-	if err := initTasks(); err != nil {
-		log.Fatalf("не удалось инициализировать раздел «Задачи»: %v", err)
-	}
-	if err := initGoals(); err != nil {
-		log.Fatalf("не удалось инициализировать раздел «Цели»: %v", err)
+	if err := application.InitTasksGoals(); err != nil {
+		log.Fatalf("не удалось инициализировать задачи и цели: %v", err)
 	}
 	if err := application.InitNotifications(); err != nil {
 		log.Fatalf("не удалось инициализировать уведомления: %v", err)
@@ -215,18 +212,18 @@ func main() {
 	authed.DELETE("/user-metrics/:id/:date", handleDeleteUserMetricValue)
 
 	// Цели (первый раздел, главная страница).
-	authed.GET("/goals", handleListGoals)
-	authed.POST("/goals", handleCreateGoal)
-	authed.POST("/goals/generate-tasks", handleGenerateGoalTasks)
-	authed.PUT("/goals/:id", handleUpdateGoal)
-	authed.PUT("/goals/:id/tasks-order", handleReorderGoalTasks)
-	authed.DELETE("/goals/:id", handleDeleteGoal)
+	authed.GET("/goals", h.ListGoals)
+	authed.POST("/goals", h.CreateGoal)
+	authed.POST("/goals/generate-tasks", h.GenerateGoalTasks)
+	authed.PUT("/goals/:id", h.UpdateGoal)
+	authed.PUT("/goals/:id/tasks-order", h.ReorderGoalTasks)
+	authed.DELETE("/goals/:id", h.DeleteGoal)
 
 	// Задачи раздела «Задачи» (категории, время, дедлайн, статус).
-	authed.GET("/tasks", handleListTasks)
-	authed.POST("/tasks", handleCreateTask)
-	authed.PUT("/tasks/:id", handleUpdateTask)
-	authed.DELETE("/tasks/:id", handleDeleteTask)
+	authed.GET("/tasks", h.ListTasks)
+	authed.POST("/tasks", h.CreateTask)
+	authed.PUT("/tasks/:id", h.UpdateTask)
+	authed.DELETE("/tasks/:id", h.DeleteTask)
 
 	// Раздел «День»: ежедневный план (задачи + повторение знаний, метрики).
 	authed.GET("/day", handleGetDay)

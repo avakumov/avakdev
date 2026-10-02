@@ -1,44 +1,22 @@
-package main
+package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/httpkit"
 )
-
-// Статусы целей.
-const (
-	goalActive    = "active"
-	goalPaused    = "paused"
-	goalAchieved  = "achieved"
-	goalCancelled = "cancelled"
-)
-
-// errGoalNotFound — цели нет или она принадлежит другому пользователю.
-// Отдельная ошибка, чтобы обработчики отличали её от ошибок валидации.
-var errGoalNotFound = errors.New("цель не найдена")
-
-var validGoalStatuses = map[string]bool{
-	goalActive:    true,
-	goalPaused:    true,
-	goalAchieved:  true,
-	goalCancelled: true,
-}
 
 // goalTaskDraft — черновик задачи, который пользователь получил от ИИ или
 // добавил при создании цели. Сохраняется вместе с целью в момент создания.
@@ -55,7 +33,7 @@ func normalizeGoalTaskDraft(d goalTaskDraft) goalTaskDraft {
 	d.Title = strings.TrimSpace(d.Title)
 	d.Description = strings.TrimSpace(d.Description)
 	d.Category = strings.TrimSpace(d.Category)
-	if !slices.Contains(TaskCategories, d.Category) {
+	if !slices.Contains(app.TaskCategories, d.Category) {
 		d.Category = "Прочее"
 	}
 	if d.PlannedHours < 0 {
@@ -64,339 +42,19 @@ func normalizeGoalTaskDraft(d goalTaskDraft) goalTaskDraft {
 	return d
 }
 
-// Goal — цель раздела «Цели»: результат с дедлайном и статусом.
-// Progress в БД не хранится и вычисляется на лету из привязанных задач:
-// доля выполненных задач среди неотменённых.
-type Goal struct {
-	ID          int    `json:"id"`
-	Username    string `json:"-"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	TargetDate  string `json:"target_date"` // YYYY-MM-DD или пусто
-	Status      string `json:"status"`
-	Progress    int    `json:"progress"` // 0..100, вычисляется при ответе
-	Created     string `json:"created"`
-	Updated     string `json:"updated"`
-}
-
-// goalStore — хранилище целей.
-type goalStore struct {
-	mu     sync.Mutex
-	data   map[int]Goal
-	nextID int
-	hasDB  bool
-}
-
-var goals *goalStore
-
-// initGoals инициализирует хранилище целей и подгружает их из БД.
-func initGoals() error {
-	goals = &goalStore{
-		data:   make(map[int]Goal),
-		nextID: 1,
-		hasDB:  db != nil,
-	}
-	if !goals.hasDB {
-		return nil
-	}
-
-	rows, err := db.Query(context.Background(),
-		`SELECT id,
-		        username,
-		        title,
-		        description,
-		        COALESCE(to_char(target_date,'YYYY-MM-DD'),''),
-		        status,
-		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM goals`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var g Goal
-		if err := rows.Scan(&g.ID, &g.Username, &g.Title, &g.Description,
-			&g.TargetDate, &g.Status, &g.Created, &g.Updated); err != nil {
-			return err
-		}
-		goals.data[g.ID] = g
-		if g.ID >= goals.nextID {
-			goals.nextID = g.ID + 1
-		}
-	}
-	return rows.Err()
-}
-
-// list возвращает цели пользователя, новые сверху.
-func (s *goalStore) list(username string) []Goal {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	out := make([]Goal, 0)
-	for _, g := range s.data {
-		if g.Username == username {
-			out = append(out, g)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
-	return out
-}
-
-// getOwned возвращает цель, если она принадлежит пользователю.
-func (s *goalStore) getOwned(username string, id int) (Goal, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	g, ok := s.data[id]
-	if !ok || g.Username != username {
-		return Goal{}, false
-	}
-	return g, true
-}
-
-// validateGoalInput проверяет название и статус цели, возвращает подрезанное
-// название (используется и при создании, и при обновлении).
-func validateGoalInput(title, status string) (string, error) {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return "", errors.New("укажите название цели")
-	}
-	if !validGoalStatuses[status] {
-		return "", errors.New("некорректный статус цели")
-	}
-	return title, nil
-}
-
-// create добавляет новую цель.
-func (s *goalStore) create(username, title, description, targetDate, status string) (Goal, error) {
-	title, err := validateGoalInput(title, status)
-	if err != nil {
-		return Goal{}, err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	g := Goal{
-		Username:    username,
-		Title:       title,
-		Description: description,
-		TargetDate:  targetDate,
-		Status:      status,
-		Created:     now,
-		Updated:     now,
-	}
-
-	if s.hasDB {
-		err := db.QueryRow(context.Background(),
-			`INSERT INTO goals (username, title, description, target_date, status)
-			 VALUES ($1, $2, $3, $4, $5)
-			 RETURNING id,
-			           to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-			           to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
-			username, title, description, nullableDate(targetDate), status).
-			Scan(&g.ID, &g.Created, &g.Updated)
-		if err != nil {
-			return Goal{}, err
-		}
-		if g.ID >= s.nextID {
-			s.nextID = g.ID + 1
-		}
-	} else {
-		g.ID = s.nextID
-		s.nextID++
-	}
-
-	s.data[g.ID] = g
-	return g, nil
-}
-
-// update обновляет цель.
-func (s *goalStore) update(username string, id int, title, description, targetDate, status string) (Goal, error) {
-	title, err := validateGoalInput(title, status)
-	if err != nil {
-		return Goal{}, err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	g, ok := s.data[id]
-	if !ok || g.Username != username {
-		return Goal{}, errGoalNotFound
-	}
-
-	g.Title = title
-	g.Description = description
-	g.TargetDate = targetDate
-	g.Status = status
-	g.Updated = time.Now().UTC().Format(time.RFC3339)
-
-	if s.hasDB {
-		if _, err := db.Exec(context.Background(),
-			`UPDATE goals
-			 SET title = $2, description = $3, target_date = $4,
-			     status = $5, updated = now()
-			 WHERE id = $1`,
-			id, g.Title, g.Description, nullableDate(targetDate), g.Status); err != nil {
-			return Goal{}, err
-		}
-	}
-
-	s.data[id] = g
-	return g, nil
-}
-
-// completionStats возвращает, сколько задач, привязанных к цели, выполнено
-// (done) и сколько «активны» — участвуют в расчёте прогресса. Отменённые
-// (cancelled) задачи не учитываются вовсе.
-func (s *taskStore) completionStats(username string, goalID int) (done, active int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, t := range s.data {
-		if t.Username != username || t.GoalID == nil || *t.GoalID != goalID {
-			continue
-		}
-		if t.Status == taskCancelled {
-			continue
-		}
-		active++
-		if t.Status == taskDone {
-			done++
-		}
-	}
-	return done, active
-}
-
-// clearGoalLinks убирает у задач пользователя ссылку на удаляемую цель.
-// В БД это делает внешний ключ (ON DELETE SET NULL), здесь — в памяти сервера.
-func (s *taskStore) clearGoalLinks(username string, goalID int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, t := range s.data {
-		if t.Username == username && t.GoalID != nil && *t.GoalID == goalID {
-			t.GoalID = nil
-			s.data[id] = t
-		}
-	}
-}
-
-// removeByGoal удаляет все задачи пользователя, привязанные к цели
-// (и из БД, и из памяти). Используется при удалении цели с опцией
-// «удалить привязанные задачи». Возвращает количество удалённых задач.
-func (s *taskStore) removeByGoal(username string, goalID int) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ids := make([]int, 0)
-	for id, t := range s.data {
-		if t.Username == username && t.GoalID != nil && *t.GoalID == goalID {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		return 0, nil
-	}
-
-	if s.hasDB {
-		if _, err := db.Exec(context.Background(),
-			`DELETE FROM tasks WHERE username = $1 AND goal_id = $2`,
-			username, goalID); err != nil {
-			return 0, err
-		}
-	}
-	for _, id := range ids {
-		delete(s.data, id)
-	}
-	return len(ids), nil
-}
-
-// nullableDate — дедлайн для SQL: пустая строка значит «без даты» (NULL).
-func nullableDate(targetDate string) any {
-	if targetDate == "" {
-		return nil
-	}
-	return targetDate
-}
-
-// delete удаляет цель пользователя. При deleteTasks=true привязанные задачи
-// удаляются вместе с целью; иначе задачи остаются, но ссылка на цель
-// сбрасывается (в БД — внешним ключом ON DELETE SET NULL, в памяти — вручную).
-func (s *goalStore) delete(username string, id int, deleteTasks bool) error {
-	s.mu.Lock()
-	g, ok := s.data[id]
-	if !ok || g.Username != username {
-		s.mu.Unlock()
-		return errGoalNotFound
-	}
-	// Не держим блокировку целей во время обращения к задачам: задачи сначала
-	// удаляются (пока ссылка ещё стоит), затем цель.
-	s.mu.Unlock()
-
-	if tasks != nil {
-		if deleteTasks {
-			if _, err := tasks.removeByGoal(username, id); err != nil {
-				return err
-			}
-		} else {
-			tasks.clearGoalLinks(username, id)
-		}
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.data[id]; !ok || s.data[id].Username != username {
-		return errGoalNotFound
-	}
-	if s.hasDB {
-		if _, err := db.Exec(context.Background(),
-			`DELETE FROM goals WHERE id = $1`, id); err != nil {
-			return err
-		}
-	}
-	delete(s.data, id)
-	return nil
-}
-
-// computeProgress заполняет Progress цели на лету по привязанным задачам:
-// процент выполненных задач среди неотменённых. Значение не хранится в БД.
-// 100% достижимо только при статусе «достигнута» (achieved): даже если все
-// задачи выполнены, пока цель официально не завершена, показывается 99%.
-func (g *Goal) computeProgress() {
-	if g.Status == goalAchieved {
-		g.Progress = 100
-		return
-	}
-	if tasks == nil {
-		g.Progress = 0
-		return
-	}
-	done, active := tasks.completionStats(g.Username, g.ID)
-	if active <= 0 {
-		g.Progress = 0
-		return
-	}
-	p := int(math.Round(float64(done) * 100 / float64(active)))
-	if p >= 100 {
-		p = 99
-	}
-	g.Progress = p
-}
-
-// handleListGoals отдаёт цели пользователя с прогрессом, вычисленным из задач.
-func handleListGoals(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(session)
-	list := goals.list(sessData.Username)
+// ListGoals отдаёт цели пользователя с прогрессом, вычисленным из задач.
+func (h *Handlers) ListGoals(c *httpkit.Context) {
+	sessData, _ := c.MustGet("session").(app.Session)
+	list := h.App.Goals.List(sessData.Username)
 	for i := range list {
-		list[i].computeProgress()
+		h.App.Goals.ComputeProgress(&list[i])
 	}
 	c.JSON(http.StatusOK, httpkit.H{"goals": list})
 }
 
-// handleCreateGoal создаёт новую цель и, если переданы черновики задач
+// CreateGoal создаёт новую цель и, если переданы черновики задач
 // (поле tasks, например из ИИ-генерации), сразу сохраняет их, привязав к цели.
-func handleCreateGoal(c *httpkit.Context) {
+func (h *Handlers) CreateGoal(c *httpkit.Context) {
 	var req struct {
 		Title       string          `json:"title"`
 		Description string          `json:"description"`
@@ -409,7 +67,7 @@ func handleCreateGoal(c *httpkit.Context) {
 		return
 	}
 	if req.Status == "" {
-		req.Status = goalActive
+		req.Status = app.GoalActive
 	}
 	// Валидация черновиков до создания цели: заголовки задач не должны быть пустыми.
 	// Отдельного предела на число задач нет — сколько пользователь оставил,
@@ -421,8 +79,8 @@ func handleCreateGoal(c *httpkit.Context) {
 		}
 	}
 
-	sessData, _ := c.MustGet("session").(session)
-	g, err := goals.create(sessData.Username, req.Title, req.Description, req.TargetDate, req.Status)
+	sessData, _ := c.MustGet("session").(app.Session)
+	g, err := h.App.Goals.Create(sessData.Username, req.Title, req.Description, req.TargetDate, req.Status)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
@@ -430,8 +88,8 @@ func handleCreateGoal(c *httpkit.Context) {
 
 	for _, draft := range req.Tasks {
 		d := normalizeGoalTaskDraft(draft)
-		if _, err := tasks.create(sessData.Username, d.Category, d.Title, d.Description,
-			d.PlannedHours, "", taskTodo, &g.ID); err != nil {
+		if _, err := h.App.Tasks.Create(sessData.Username, d.Category, d.Title, d.Description,
+			d.PlannedHours, "", app.TaskTodo, &g.ID); err != nil {
 			c.JSON(http.StatusBadRequest, httpkit.H{
 				"error": "Не удалось создать задачу «" + d.Title + "»: " + err.Error(),
 			})
@@ -439,14 +97,14 @@ func handleCreateGoal(c *httpkit.Context) {
 		}
 	}
 
-	g.computeProgress()
+	h.App.Goals.ComputeProgress(&g)
 	c.JSON(http.StatusOK, g)
 }
 
-// handleGenerateGoalTasks генерирует черновики задач для новой цели через
+// GenerateGoalTasks генерирует черновики задач для новой цели через
 // DeepSeek. Ничего не сохраняет — только предлагает список, который показывается
 // в форме создания цели до её сохранения.
-func handleGenerateGoalTasks(c *httpkit.Context) {
+func (h *Handlers) GenerateGoalTasks(c *httpkit.Context) {
 	var req struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
@@ -461,7 +119,7 @@ func handleGenerateGoalTasks(c *httpkit.Context) {
 		return
 	}
 
-	apiKey := deepseekAPIKey()
+	apiKey := app.DeepSeekAPIKey()
 	if apiKey == "" {
 		c.JSON(http.StatusServiceUnavailable, httpkit.H{
 			"error": "Ключ DeepSeek не настроен (DEEPSEEK_API_KEY в .env)",
@@ -499,7 +157,7 @@ func requestedTaskCount(title, description string) int {
 // Возвращает черновики задач; на БД они не сохраняются. Признак truncated —
 // ответ модели обрезан по лимиту вывода, то есть задач может не хватать.
 func aiGenerateGoalTasks(title, description, apiKey string) (drafts []goalTaskDraft, truncated bool, err error) {
-	allowed := strings.Join(TaskCategories, ", ")
+	allowed := strings.Join(app.TaskCategories, ", ")
 	goalText := "Цель: " + title
 	if trimmed := strings.TrimSpace(description); trimmed != "" {
 		goalText += "\nОписание: " + trimmed
@@ -640,8 +298,8 @@ func parseGoalTaskDrafts(content string) ([]goalTaskDraft, error) {
 	return out, nil
 }
 
-// handleUpdateGoal обновляет цель.
-func handleUpdateGoal(c *httpkit.Context) {
+// UpdateGoal обновляет цель.
+func (h *Handlers) UpdateGoal(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID цели"})
@@ -657,23 +315,23 @@ func handleUpdateGoal(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
-	g, err := goals.update(sessData.Username, id, req.Title, req.Description, req.TargetDate, req.Status)
+	sessData, _ := c.MustGet("session").(app.Session)
+	g, err := h.App.Goals.Update(sessData.Username, id, req.Title, req.Description, req.TargetDate, req.Status)
 	if err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, errGoalNotFound) {
+		if errors.Is(err, app.ErrGoalNotFound) {
 			status = http.StatusNotFound
 		}
 		c.JSON(status, httpkit.H{"error": err.Error()})
 		return
 	}
-	g.computeProgress()
+	h.App.Goals.ComputeProgress(&g)
 	c.JSON(http.StatusOK, g)
 }
 
-// handleReorderGoalTasks задаёт последовательность задач цели.
+// ReorderGoalTasks задаёт последовательность задач цели.
 // Тело: {"task_ids": [3, 1, 2]} — полный список задач цели в нужном порядке.
-func handleReorderGoalTasks(c *httpkit.Context) {
+func (h *Handlers) ReorderGoalTasks(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID цели"})
@@ -691,21 +349,21 @@ func handleReorderGoalTasks(c *httpkit.Context) {
 		return
 	}
 
-	sessData, _ := c.MustGet("session").(session)
-	if _, ok := goals.getOwned(sessData.Username, id); !ok {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": errGoalNotFound.Error()})
+	sessData, _ := c.MustGet("session").(app.Session)
+	if _, ok := h.App.Goals.GetOwned(sessData.Username, id); !ok {
+		c.JSON(http.StatusNotFound, httpkit.H{"error": app.ErrGoalNotFound.Error()})
 		return
 	}
-	if err := tasks.setGoalOrder(sessData.Username, id, req.TaskIDs); err != nil {
+	if err := h.App.Tasks.SetGoalOrder(sessData.Username, id, req.TaskIDs); err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
-// handleDeleteGoal удаляет цель. Параметр ?delete_tasks=1 удаляет также
+// DeleteGoal удаляет цель. Параметр ?delete_tasks=1 удаляет также
 // привязанные к цели задачи.
-func handleDeleteGoal(c *httpkit.Context) {
+func (h *Handlers) DeleteGoal(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID цели"})
@@ -714,8 +372,8 @@ func handleDeleteGoal(c *httpkit.Context) {
 	q := c.Query("delete_tasks")
 	deleteTasks := q == "1" || strings.EqualFold(q, "true")
 
-	sessData, _ := c.MustGet("session").(session)
-	if err := goals.delete(sessData.Username, id, deleteTasks); err != nil {
+	sessData, _ := c.MustGet("session").(app.Session)
+	if err := h.App.Goals.Delete(sessData.Username, id, deleteTasks); err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}

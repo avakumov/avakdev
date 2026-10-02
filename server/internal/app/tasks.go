@@ -1,33 +1,31 @@
-package main
+package app
 
 import (
 	"context"
 	"errors"
-	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"avakumov/server/internal/httpkit"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Статусы задач раздела «Задачи».
 const (
-	taskTodo       = "todo"
-	taskInProgress = "in_progress"
-	taskDone       = "done"
-	taskCancelled  = "cancelled"
+	TaskTodo       = "todo"
+	TaskInProgress = "in_progress"
+	TaskDone       = "done"
+	TaskCancelled  = "cancelled"
 )
 
 // validTodoStatuses — допустимые значения статуса задач раздела «Задачи».
 // Имя не пересекается с validTaskStatuses из app_tasks.go (раздел «Приложение»).
 var validTodoStatuses = map[string]bool{
-	taskTodo:       true,
-	taskInProgress: true,
-	taskDone:       true,
-	taskCancelled:  true,
+	TaskTodo:       true,
+	TaskInProgress: true,
+	TaskDone:       true,
+	TaskCancelled:  true,
 }
 
 // TaskCategories — предопределённые категории задач.
@@ -71,30 +69,30 @@ type Task struct {
 	Updated       string `json:"updated"`
 }
 
-// taskStore — хранилище задач раздела «Задачи».
-type taskStore struct {
+// TaskStore — хранилище задач раздела «Задачи».
+type TaskStore struct {
 	mu     sync.Mutex
 	data   map[int]Task
 	nextID int
-	hasDB  bool
+	pool   *pgxpool.Pool
+	goals  *GoalStore
 }
 
-// tasks — глобальное хранилище задач.
-var tasks *taskStore
-
-// initTasks инициализирует глобальное хранилище задач.
-// При наличии БД подгружает сохранённые задачи в память.
-func initTasks() error {
-	tasks = &taskStore{
+// NewTaskStore создаёт хранилище задач (pool == nil — работаем без БД).
+func NewTaskStore(pool *pgxpool.Pool) *TaskStore {
+	return &TaskStore{
 		data:   make(map[int]Task),
 		nextID: 1,
-		hasDB:  db != nil,
+		pool:   pool,
 	}
-	if !tasks.hasDB {
+}
+
+// Load подгружает сохранённые задачи из БД (pool == nil — ничего не делает).
+func (s *TaskStore) Load() error {
+	if s.pool == nil {
 		return nil
 	}
-
-	rows, err := db.Query(context.Background(),
+	rows, err := s.pool.Query(context.Background(),
 		`SELECT id,
 		        username,
 		        category,
@@ -122,9 +120,9 @@ func initTasks() error {
 			&t.Status, &t.CompletedAt, &t.CompletedDate, &t.GoalID, &t.Position, &t.Created, &t.Updated); err != nil {
 			return err
 		}
-		tasks.data[t.ID] = t
-		if t.ID >= tasks.nextID {
-			tasks.nextID = t.ID + 1
+		s.data[t.ID] = t
+		if t.ID >= s.nextID {
+			s.nextID = t.ID + 1
 		}
 	}
 	return rows.Err()
@@ -133,12 +131,12 @@ func initTasks() error {
 // taskSpentByDay возвращает разбивку фактически потраченного времени по дням
 // для задач пользователя: id задачи → список дней с минутами. Без БД — пустая
 // карта. Источник — day_items.actual_minutes (ввод в разделе «День»).
-func taskSpentByDay(username string) map[int][]TaskDaySpent {
+func (s *TaskStore) taskSpentByDay(username string) map[int][]TaskDaySpent {
 	byDay := make(map[int][]TaskDaySpent)
-	if db == nil {
+	if s.pool == nil {
 		return byDay
 	}
-	rows, err := db.Query(context.Background(),
+	rows, err := s.pool.Query(context.Background(),
 		`SELECT i.ref_id, to_char(p.day, 'YYYY-MM-DD'), i.actual_minutes
 		   FROM day_items i
 		   JOIN day_plans p ON p.id = i.plan_id
@@ -159,12 +157,12 @@ func taskSpentByDay(username string) map[int][]TaskDaySpent {
 	return byDay
 }
 
-// withSpent заполняет у копий задач потраченное время: ActualHours — сумма
+// WithSpent заполняет у копий задач потраченное время: ActualHours — сумма
 // фактического времени по дням плюс «база» (остаток tasks.actual_hours у задач
 // вне планов), SpentByDay — разбивка по дням. Вызывать нужно один раз на срез:
 // повторный вызов примет уже посчитанную сумму за «базу».
-func withSpent(username string, ts []Task) []Task {
-	byDay := taskSpentByDay(username)
+func (s *TaskStore) WithSpent(username string, ts []Task) []Task {
+	byDay := s.taskSpentByDay(username)
 	for i := range ts {
 		t := &ts[i]
 		days := byDay[t.ID]
@@ -181,8 +179,8 @@ func withSpent(username string, ts []Task) []Task {
 	return ts
 }
 
-// list возвращает задачи пользователя, новые сверху (по дате создания).
-func (s *taskStore) list(username string) []Task {
+// List возвращает задачи пользователя, новые сверху (по дате создания).
+func (s *TaskStore) List(username string) []Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -198,7 +196,7 @@ func (s *taskStore) list(username string) []Task {
 
 // maxPositionLocked возвращает максимальный position среди задач цели.
 // Вызывается только при удержании s.mu.
-func (s *taskStore) maxPositionLocked(goalID int) int {
+func (s *TaskStore) maxPositionLocked(goalID int) int {
 	best := 0
 	for _, x := range s.data {
 		if x.GoalID != nil && *x.GoalID == goalID && x.Position > best {
@@ -208,9 +206,9 @@ func (s *taskStore) maxPositionLocked(goalID int) int {
 	return best
 }
 
-// setGoalOrder задаёт последовательность задач цели: ids — полный список
+// SetGoalOrder задаёт последовательность задач цели: ids — полный список
 // id задач пользователя, привязанных к цели, в нужном порядке (позиции 1..N).
-func (s *taskStore) setGoalOrder(username string, goalID int, ids []int) error {
+func (s *TaskStore) SetGoalOrder(username string, goalID int, ids []int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -236,8 +234,8 @@ func (s *taskStore) setGoalOrder(username string, goalID int, ids []int) error {
 		if t.Position != pos {
 			t.Position = pos
 			s.data[id] = t
-			if s.hasDB {
-				if _, err := db.Exec(context.Background(),
+			if s.pool != nil {
+				if _, err := s.pool.Exec(context.Background(),
 					`UPDATE tasks SET position = $2 WHERE id = $1 AND username = $3 AND goal_id = $4`,
 					id, pos, username, goalID); err != nil {
 					return err
@@ -248,8 +246,8 @@ func (s *taskStore) setGoalOrder(username string, goalID int, ids []int) error {
 	return nil
 }
 
-// getOwned возвращает задачу, если она принадлежит пользователю.
-func (s *taskStore) getOwned(username string, id int) (Task, bool) {
+// GetOwned возвращает задачу, если она принадлежит пользователю.
+func (s *TaskStore) GetOwned(username string, id int) (Task, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.data[id]
@@ -271,13 +269,13 @@ func explicitDate(dates []string) string {
 	return strings.TrimSpace(dates[0])
 }
 
-// create добавляет новую задачу.
+// Create добавляет новую задачу.
 // goalID — ссылка на цель пользователя; nil означает «без цели».
 // Необязательный completedDate (ГГГГ-ММ-ДД) — за какой день задача выполнена:
 // нужен, когда задачу создают сразу закрытой задним числом.
 // Потраченное время (ActualHours) не задаётся здесь: оно складывается из
 // фактического времени по дням (см. раздел «День»).
-func (s *taskStore) create(username, category, title, description string, plannedHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
+func (s *TaskStore) Create(username, category, title, description string, plannedHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Task{}, errors.New("укажите заголовок задачи")
@@ -292,7 +290,10 @@ func (s *taskStore) create(username, category, title, description string, planne
 		return Task{}, errors.New("время не может быть отрицательным")
 	}
 	if goalID != nil {
-		if _, ok := goals.getOwned(username, *goalID); !ok {
+		if s.goals == nil {
+			return Task{}, errors.New("цель не найдена или недоступна")
+		}
+		if _, ok := s.goals.GetOwned(username, *goalID); !ok {
 			return Task{}, errors.New("цель не найдена или недоступна")
 		}
 	}
@@ -311,7 +312,7 @@ func (s *taskStore) create(username, category, title, description string, planne
 	// закрытия. Дата выполнения определяет, в какой день задача попадёт в
 	// план/отчёты: указанная пользователем либо сегодняшняя.
 	completedAt, doneDate := "", ""
-	if status == taskDone {
+	if status == TaskDone {
 		completedAt = now
 		doneDate = nowTime.Format(dateOnlyLayout)
 		if d := explicitDate(completedDate); d != "" {
@@ -334,7 +335,7 @@ func (s *taskStore) create(username, category, title, description string, planne
 		Updated:       now,
 	}
 
-	if s.hasDB {
+	if s.pool != nil {
 		var dl interface{}
 		if deadline != "" {
 			dl = deadline
@@ -343,7 +344,7 @@ func (s *taskStore) create(username, category, title, description string, planne
 		if goalID != nil {
 			gid = *goalID
 		}
-		err := db.QueryRow(context.Background(),
+		err := s.pool.QueryRow(context.Background(),
 			`INSERT INTO tasks (username, category, title, description, planned_hours, deadline, status, completed_at, completed_date, goal_id, position)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9::text::date, $10, $11)
 			 RETURNING id,
@@ -367,12 +368,12 @@ func (s *taskStore) create(username, category, title, description string, planne
 	return t, nil
 }
 
-// update обновляет задачу.
+// Update обновляет задачу.
 // goalID — новая ссылка на цель пользователя; nil означает «без цели».
 // Необязательный completedDate (ГГГГ-ММ-ДД) — за какой день задача выполнена
 // (позволяет отметить забытую задачу задним числом).
 // Потраченное время здесь не меняется: оно складывается из фактов по дням.
-func (s *taskStore) update(username string, id int, category, title, description string, plannedHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
+func (s *TaskStore) Update(username string, id int, category, title, description string, plannedHours float64, deadline, status string, goalID *int, completedDate ...string) (Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Task{}, errors.New("укажите заголовок задачи")
@@ -387,7 +388,10 @@ func (s *taskStore) update(username string, id int, category, title, description
 		return Task{}, errors.New("время не может быть отрицательным")
 	}
 	if goalID != nil {
-		if _, ok := goals.getOwned(username, *goalID); !ok {
+		if s.goals == nil {
+			return Task{}, errors.New("цель не найдена или недоступна")
+		}
+		if _, ok := s.goals.GetOwned(username, *goalID); !ok {
 			return Task{}, errors.New("цель не найдена или недоступна")
 		}
 	}
@@ -421,7 +425,7 @@ func (s *taskStore) update(username string, id int, category, title, description
 	// показывает закрытые задачи.
 	now := time.Now().UTC()
 	switch {
-	case status != taskDone:
+	case status != TaskDone:
 		t.CompletedAt = ""
 		t.CompletedDate = ""
 	default:
@@ -438,7 +442,7 @@ func (s *taskStore) update(username string, id int, category, title, description
 	t.GoalID = goalID
 	t.Updated = now.Format(time.RFC3339)
 
-	if s.hasDB {
+	if s.pool != nil {
 		var dl interface{}
 		if deadline != "" {
 			dl = deadline
@@ -447,7 +451,7 @@ func (s *taskStore) update(username string, id int, category, title, description
 		if goalID != nil {
 			gid = *goalID
 		}
-		if _, err := db.Exec(context.Background(),
+		if _, err := s.pool.Exec(context.Background(),
 			`UPDATE tasks
 			 SET category = $2, title = $3, description = $4,
 			     planned_hours = $5, deadline = $6,
@@ -473,9 +477,9 @@ func (s *taskStore) update(username string, id int, category, title, description
 	return t, nil
 }
 
-// delete удаляет задачу пользователя. Если задача была привязана к цели,
+// Delete удаляет задачу пользователя. Если задача была привязана к цели,
 // оставшиеся задачи цели перенумеровываются подряд (1..N) — без «дырок».
-func (s *taskStore) delete(username string, id int) error {
+func (s *TaskStore) Delete(username string, id int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -483,8 +487,8 @@ func (s *taskStore) delete(username string, id int) error {
 	if !ok || t.Username != username {
 		return errors.New("задача не найдена")
 	}
-	if s.hasDB {
-		if _, err := db.Exec(context.Background(),
+	if s.pool != nil {
+		if _, err := s.pool.Exec(context.Background(),
 			`DELETE FROM tasks WHERE id = $1`, id); err != nil {
 			return err
 		}
@@ -499,7 +503,7 @@ func (s *taskStore) delete(username string, id int) error {
 
 // compactGoalPositionsLocked перенумеровывает задачи цели подряд (1..N),
 // сохраняя их относительный порядок. Вызывается при удержании s.mu.
-func (s *taskStore) compactGoalPositionsLocked(username string, goalID int) error {
+func (s *TaskStore) compactGoalPositionsLocked(username string, goalID int) error {
 	ids := make([]int, 0)
 	for id, x := range s.data {
 		if x.Username == username && x.GoalID != nil && *x.GoalID == goalID {
@@ -521,8 +525,8 @@ func (s *taskStore) compactGoalPositionsLocked(username string, goalID int) erro
 		}
 		x.Position = pos
 		s.data[id] = x
-		if s.hasDB {
-			if _, err := db.Exec(context.Background(),
+		if s.pool != nil {
+			if _, err := s.pool.Exec(context.Background(),
 				`UPDATE tasks SET position = $2 WHERE id = $1`,
 				id, pos); err != nil {
 				return err
@@ -532,129 +536,66 @@ func (s *taskStore) compactGoalPositionsLocked(username string, goalID int) erro
 	return nil
 }
 
-// handleListTasks отдаёт задачи пользователя, категории и цели
-// (для выбора/отображения привязки задачи к цели).
-func handleListTasks(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(session)
-
-	// Лёгкое представление целей пользователя: только id, название, статус.
-	allGoals := goals.list(sessData.Username)
-	brief := make([]struct {
-		ID     int    `json:"id"`
-		Title  string `json:"title"`
-		Status string `json:"status"`
-	}, 0, len(allGoals))
-	for _, g := range allGoals {
-		brief = append(brief, struct {
-			ID     int    `json:"id"`
-			Title  string `json:"title"`
-			Status string `json:"status"`
-		}{g.ID, g.Title, g.Status})
-	}
-
-	c.JSON(http.StatusOK, httpkit.H{
-		"tasks":      withSpent(sessData.Username, tasks.list(sessData.Username)),
-		"categories": TaskCategories,
-		"goals":      brief,
-	})
-}
-
-// handleCreateTask создаёт новую задачу.
-func handleCreateTask(c *httpkit.Context) {
-	var req struct {
-		Category      string  `json:"category"`
-		Title         string  `json:"title"`
-		Description   string  `json:"description"`
-		PlannedHours  float64 `json:"planned_hours"`
-		Deadline      string  `json:"deadline"`
-		Status        string  `json:"status"`
-		GoalID        *int    `json:"goal_id"`
-		CompletedDate string  `json:"completed_date"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
-		return
-	}
-	if req.Status == "" {
-		req.Status = taskTodo
-	}
-	doneDate, ok := optionalDay(c, req.CompletedDate)
-	if !ok {
-		return
-	}
-	sessData, _ := c.MustGet("session").(session)
-	t, err := tasks.create(sessData.Username, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, withSpent(sessData.Username, []Task{t})[0])
-}
-
-// optionalDay проверяет необязательную дату из запроса (ГГГГ-ММ-ДД).
-// Пустая строка — допустима и означает «не указана». При ошибке форматирования
-// отвечает 400 и возвращает ok=false.
-func optionalDay(c *httpkit.Context, raw string) (string, bool) {
-	if raw == "" {
-		return "", true
-	}
-	day, err := parseDay(raw)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
-		return "", false
-	}
-	return day, true
-}
-
-// handleUpdateTask обновляет задачу.
-func handleUpdateTask(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
-		return
-	}
-	var req struct {
-		Category      string  `json:"category"`
-		Title         string  `json:"title"`
-		Description   string  `json:"description"`
-		PlannedHours  float64 `json:"planned_hours"`
-		Deadline      string  `json:"deadline"`
-		Status        string  `json:"status"`
-		GoalID        *int    `json:"goal_id"`
-		CompletedDate string  `json:"completed_date"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
-		return
-	}
-	sessData, _ := c.MustGet("session").(session)
-	doneDate, ok := optionalDay(c, req.CompletedDate)
-	if !ok {
-		return
-	}
-	t, err := tasks.update(sessData.Username, id, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
-	if err != nil {
-		status := http.StatusBadRequest
-		if err.Error() == "задача не найдена" {
-			status = http.StatusNotFound
+// completionStats возвращает, сколько задач, привязанных к цели, выполнено
+// (done) и сколько «активны» — участвуют в расчёте прогресса. Отменённые
+// (cancelled) задачи не учитываются вовсе.
+func (s *TaskStore) completionStats(username string, goalID int) (done, active int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.data {
+		if t.Username != username || t.GoalID == nil || *t.GoalID != goalID {
+			continue
 		}
-		c.JSON(status, httpkit.H{"error": err.Error()})
-		return
+		if t.Status == TaskCancelled {
+			continue
+		}
+		active++
+		if t.Status == TaskDone {
+			done++
+		}
 	}
-	c.JSON(http.StatusOK, withSpent(sessData.Username, []Task{t})[0])
+	return done, active
 }
 
-// handleDeleteTask удаляет задачу.
-func handleDeleteTask(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
-		return
+// ClearGoalLinks убирает у задач пользователя ссылку на удаляемую цель.
+// В БД это делает внешний ключ (ON DELETE SET NULL), здесь — в памяти сервера.
+func (s *TaskStore) ClearGoalLinks(username string, goalID int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, t := range s.data {
+		if t.Username == username && t.GoalID != nil && *t.GoalID == goalID {
+			t.GoalID = nil
+			s.data[id] = t
+		}
 	}
-	sessData, _ := c.MustGet("session").(session)
-	if err := tasks.delete(sessData.Username, id); err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
-		return
+}
+
+// RemoveByGoal удаляет все задачи пользователя, привязанные к цели
+// (и из БД, и из памяти). Используется при удалении цели с опцией
+// «удалить привязанные задачи». Возвращает количество удалённых задач.
+func (s *TaskStore) RemoveByGoal(username string, goalID int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ids := make([]int, 0)
+	for id, t := range s.data {
+		if t.Username == username && t.GoalID != nil && *t.GoalID == goalID {
+			ids = append(ids, id)
+		}
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	if s.pool != nil {
+		if _, err := s.pool.Exec(context.Background(),
+			`DELETE FROM tasks WHERE username = $1 AND goal_id = $2`,
+			username, goalID); err != nil {
+			return 0, err
+		}
+	}
+	for _, id := range ids {
+		delete(s.data, id)
+	}
+	return len(ids), nil
 }

@@ -66,12 +66,12 @@ func handleDaySuggest(c *httpkit.Context) {
 
 	// Активные задачи: по дедлайну (без дедлайна — в конец), затем старые.
 	type tc struct {
-		task Task
+		task app.Task
 		cand DayCandidate
 	}
 	rows := make([]tc, 0)
-	for _, t := range tasks.list(sessData.Username) {
-		if t.Status != taskTodo && t.Status != taskInProgress {
+	for _, t := range application.Tasks.List(sessData.Username) {
+		if t.Status != app.TaskTodo && t.Status != app.TaskInProgress {
 			continue
 		}
 		rows = append(rows, tc{task: t, cand: DayCandidate{
@@ -157,7 +157,7 @@ func handleDaySuggest(c *httpkit.Context) {
 func dayItemTitle(username, kind string, refID int) (title, meta string, ok bool) {
 	switch kind {
 	case "task":
-		t, found := tasks.getOwned(username, refID)
+		t, found := application.Tasks.GetOwned(username, refID)
 		if !found {
 			return "", "", false
 		}
@@ -177,7 +177,7 @@ func dayItemTitle(username, kind string, refID int) (title, meta string, ok bool
 func resolveItemMinutes(username, kind string, refID int) (int, bool) {
 	switch kind {
 	case "task":
-		t, found := tasks.getOwned(username, refID)
+		t, found := application.Tasks.GetOwned(username, refID)
 		if !found {
 			return 0, false
 		}
@@ -225,7 +225,7 @@ func loadDayItems(username, day string) (dayBody, bool) {
 		// позицией дня: иначе строка не подсвечивалась бы зелёным, а из списка
 		// «выполнено вне плана» она исключена (она уже есть в плане).
 		if it.Kind == "task" && !it.Done {
-			if t, found := tasks.getOwned(username, it.RefID); found && t.Status == taskDone {
+			if t, found := application.Tasks.GetOwned(username, it.RefID); found && t.Status == app.TaskDone {
 				it.Done = true
 			}
 		}
@@ -378,7 +378,7 @@ func handleSetDayItemSpent(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	username := sessData.Username
 	// Чужая/несуществующая задача в день не добавляется.
-	if _, ok := tasks.getOwned(username, req.RefID); !ok {
+	if _, ok := application.Tasks.GetOwned(username, req.RefID); !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Задача не найдена"})
 		return
 	}
