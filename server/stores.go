@@ -10,6 +10,7 @@ var (
 	reportsStore       *store.Reports
 	usersStore         *store.Users
 	notificationsStore *store.Notifications
+	feedStore          *store.Feed
 )
 
 // initStores готовит хранилища разделов. Вызывается после initDB.
@@ -25,4 +26,5 @@ func initStores() {
 	reportsStore = store.NewReports(db)
 	usersStore = store.NewUsers(db)
 	notificationsStore = store.NewNotifications(db)
+	feedStore = store.NewFeed(db)
 }

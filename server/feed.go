@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"avakumov/server/internal/httpkit"
+	"avakumov/server/internal/store"
 )
 
 // Раздел «Лента»: элементы ленты пользователя. Первый тип контента —
@@ -21,23 +22,8 @@ import (
 // Наполняют ленту в разделе меню «Лента» (FeedEdit), читают — свайпом
 // на мобильных (Feed): сначала вопрос, ответ — после касания.
 
-// FeedItem — элемент ленты.
-type FeedItem struct {
-	ID   int    `json:"id"`
-	Kind string `json:"kind"`
-	// Topic — раздел (область) элемента: короткое слово вроде «golang».
-	Topic    string `json:"topic"`
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
-	// Details — объяснение и примеры (Markdown, может быть пустым).
-	Details string `json:"details"`
-	Views   int    `json:"views"`
-	// KnowCount/UnknownCount — сколько раз отмечено «знаю» / «не знаю».
-	KnowCount    int    `json:"know_count"`
-	UnknownCount int    `json:"unknown_count"`
-	Created      string `json:"created"`
-	Updated      string `json:"updated"`
-}
+// FeedItem — элемент ленты (определение живёт в store).
+type FeedItem = store.FeedItem
 
 // Типы контента ленты. Пока единственный — «вопрос-ответ».
 const feedKindQA = "qa"
@@ -64,13 +50,7 @@ const (
 	maxFeedDetailsRunes  = 20000
 )
 
-// Единый формат времени элемента (RFC3339, UTC).
-const (
-	feedCreatedExpr = `to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
-	feedUpdatedExpr = `to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
-	feedSelectCols  = `id, kind, topic, question, answer, details, views, know_count, unknown_count, ` +
-		feedCreatedExpr + `, ` + feedUpdatedExpr
-)
+// Единый формат времени элемента — в store (feedSelectCols и экспры).
 
 // feedPayload проверяет и нормализует поля элемента ленты.
 // Раздел (topic), вопрос и ответ обязательны; объяснение (details) — нет.
@@ -110,33 +90,15 @@ func feedPayload(kind, topic, question, answer, details string) (string, string,
 	return kind, t, q, a, d, nil
 }
 
-// feedScan собирает FeedItem из строки результата.
-// Порядок полей — как в feedSelectCols.
-func feedScan(row interface{ Scan(...any) error }) (FeedItem, error) {
-	var it FeedItem
-	err := row.Scan(&it.ID, &it.Kind, &it.Topic, &it.Question, &it.Answer, &it.Details,
-		&it.Views, &it.KnowCount, &it.UnknownCount, &it.Created, &it.Updated)
-	return it, err
-}
+// feedScan — в store (см. internal/store/feed.go).
 
 // handleListFeed возвращает элементы ленты пользователя (свежие сверху).
 func handleListFeed(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	rows, err := db.Query(context.Background(),
-		`SELECT `+feedSelectCols+`
-		 FROM feed_items WHERE username = $1
-		 ORDER BY id DESC`, sessData.username)
+	out, err := feedStore.List(context.Background(), sessData.username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить ленту"})
 		return
-	}
-	defer rows.Close()
-
-	out := make([]FeedItem, 0)
-	for rows.Next() {
-		if it, err := feedScan(rows); err == nil {
-			out = append(out, it)
-		}
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -164,11 +126,7 @@ func handleCreateFeedItem(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	it, err := feedScan(db.QueryRow(context.Background(),
-		`INSERT INTO feed_items (username, kind, topic, question, answer, details)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING `+feedSelectCols,
-		sessData.username, kind, topic, question, answer, details))
+	it, err := feedStore.Create(context.Background(), sessData.username, kind, topic, question, answer, details)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элемент ленты"})
 		return
@@ -201,12 +159,7 @@ func handleUpdateFeedItem(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	it, err := feedScan(db.QueryRow(context.Background(),
-		`UPDATE feed_items
-		 SET kind = $3, topic = $4, question = $5, answer = $6, details = $7, updated = now()
-		 WHERE id = $1 AND username = $2
-		 RETURNING `+feedSelectCols,
-		id, sessData.username, kind, topic, question, answer, details))
+	it, err := feedStore.Update(context.Background(), sessData.username, id, kind, topic, question, answer, details)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -222,9 +175,8 @@ func handleDeleteFeedItem(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	tag, err := db.Exec(context.Background(),
-		`DELETE FROM feed_items WHERE id = $1 AND username = $2`, id, sessData.username)
-	if err != nil || tag.RowsAffected() == 0 {
+	ok, err := feedStore.Delete(context.Background(), sessData.username, id)
+	if err != nil || !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
 	}
@@ -277,23 +229,10 @@ func handleBulkCreateFeedItems(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	rows, err := db.Query(context.Background(),
-		`INSERT INTO feed_items (username, kind, topic, question, answer, details)
-		 SELECT $1, $2, t, q, a, d
-		 FROM unnest($3::text[], $4::text[], $5::text[], $6::text[]) AS x(t, q, a, d)
-		 RETURNING `+feedSelectCols,
-		sessData.username, feedKindQA, topics, questions, answers, details)
+	out, err := feedStore.BulkCreate(context.Background(), sessData.username, feedKindQA, topics, questions, answers, details)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элементы ленты"})
 		return
-	}
-	defer rows.Close()
-
-	out := make([]FeedItem, 0, len(req.Items))
-	for rows.Next() {
-		if it, err := feedScan(rows); err == nil {
-			out = append(out, it)
-		}
 	}
 	c.JSON(http.StatusOK, httpkit.H{"items": out})
 }
@@ -518,24 +457,19 @@ func handleFeedItemReaction(c *httpkit.Context) {
 		return
 	}
 
-	// Две готовые ветки вместо подстановки имени колонки: без динамического SQL.
-	increment := `UPDATE feed_items SET unknown_count = unknown_count + 1
-		WHERE id = $1 AND username = $2
-		RETURNING ` + feedSelectCols
+	var know bool
 	switch strings.TrimSpace(req.Value) {
 	case "know":
-		increment = `UPDATE feed_items SET know_count = know_count + 1
-		WHERE id = $1 AND username = $2
-		RETURNING ` + feedSelectCols
+		know = true
 	case "unknown":
-		// остаётся ветка по умолчанию выше
+		know = false
 	default:
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректная реакция"})
 		return
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	it, err := feedScan(db.QueryRow(context.Background(), increment, id, sessData.username))
+	it, err := feedStore.React(context.Background(), sessData.username, id, know)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -552,11 +486,7 @@ func handleFeedItemView(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	it, err := feedScan(db.QueryRow(context.Background(),
-		`UPDATE feed_items SET views = views + 1
-		 WHERE id = $1 AND username = $2
-		 RETURNING `+feedSelectCols,
-		id, sessData.username))
+	it, err := feedStore.View(context.Background(), sessData.username, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
