@@ -2,21 +2,91 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+const BASE =
+  "w-full min-w-0 resize-none overflow-hidden rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+
+// Свойства, влияющие на перенос строк и высоту. Копируем их с реального поля
+// на скрытое «зеркало», чтобы замер высоты совпадал один в один.
+const MIRROR_PROPS = [
+  "box-sizing",
+  "width",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "letter-spacing",
+  "line-height",
+  "text-transform",
+  "text-indent",
+  "word-spacing",
+  "tab-size",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "border-top-width",
+  "border-right-width",
+  "border-bottom-width",
+  "border-left-width",
+  "overflow-wrap",
+  "word-break",
+  "white-space",
+]
+
+// Высота одной строки (px): line-height, с запасным вариантом, если он "normal".
+function linePx(cs) {
+  const v = parseFloat(cs.lineHeight)
+  return Number.isFinite(v) ? v : parseFloat(cs.fontSize) * 1.625
+}
+
+function borderPx(cs) {
+  return (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0)
+}
+
+// Скрытое «зеркало» для замера. Одно на всё приложение: замер синхронный,
+// поэтому делить его между компонентами безопасно.
+let mirrorEl = null
+function getMirror() {
+  if (typeof document === "undefined") return null
+  if (mirrorEl && mirrorEl.isConnected) return mirrorEl
+  const m = document.createElement("textarea")
+  m.setAttribute("aria-hidden", "true")
+  m.tabIndex = -1
+  m.rows = 1
+  m.wrap = "soft"
+  Object.assign(m.style, {
+    position: "absolute",
+    top: "0",
+    left: "-9999px",
+    height: "auto",
+    visibility: "hidden",
+    overflow: "hidden",
+    resize: "none",
+    margin: "0",
+    pointerEvents: "none",
+    zIndex: "-1",
+  })
+  document.body.appendChild(m)
+  mirrorEl = m
+  return m
+}
+
 // Textarea с авто-ростом по ФАКТИЧЕСКОМУ содержимому.
 //
-// Высота считается не по числу «логических» строк (переводов строк), а по
-// реальной высоте текста: длинные строки браузер переносит сам, и такие
-// переносы тоже учитываются. Снизу всегда остаётся одна пустая строка запаса.
+// Высота = высота текста (с учётом переносов длинных строк, которые делает
+// браузер) + рамка + одна дополнительная строка снизу.
 //
-// box-sizing: border-box (задан глобально в Tailwind), поэтому к scrollHeight
-// добавляем толщину рамки и высоту одной строки.
+// Замер идёт на скрытом offscreen-«зеркале», а не на самом поле: реальное поле
+// НЕ схлопывается перед замером. Иначе при печати документ на миг становится
+// короче, прокрученная страница «перескакивает» вверх и строка уезжает вниз
+// экрана (заметно на длинных страницах).
 const Textarea = React.forwardRef(function Textarea(
   { className, value, ...props },
   ref
 ) {
   const innerRef = React.useRef(null)
 
-  // Внутренний ref нужен для измерений; внешний (если передан) пробрасываем.
+  // Внешний ref (если передан) + внутренний, нужный для замеров.
   const setRef = React.useCallback(
     (node) => {
       innerRef.current = node
@@ -29,19 +99,20 @@ const Textarea = React.forwardRef(function Textarea(
   const resize = React.useCallback(() => {
     const el = innerRef.current
     if (!el) return
-    // Сбрасываем высоту, чтобы scrollHeight показал высоту самого контента
-    // (с учётом переносов длинных строк).
-    el.style.height = "auto"
     const cs = window.getComputedStyle(el)
-    const parsed = parseFloat(cs.lineHeight)
-    const line = Number.isFinite(parsed)
-      ? parsed
-      : parseFloat(cs.fontSize) * 1.625
-    const border =
-      (parseFloat(cs.borderTopWidth) || 0) +
-      (parseFloat(cs.borderBottomWidth) || 0)
-    // Контент + рамка + одна дополнительная строка.
-    el.style.height = `${el.scrollHeight + border + line}px`
+    const extra = borderPx(cs) + linePx(cs)
+    const mirror = getMirror()
+    if (mirror) {
+      for (const p of MIRROR_PROPS) {
+        mirror.style.setProperty(p, cs.getPropertyValue(p))
+      }
+      mirror.value = el.value
+      el.style.height = `${mirror.scrollHeight + extra}px`
+    } else {
+      // Фолбэк без DOM-замера.
+      el.style.height = "auto"
+      el.style.height = `${el.scrollHeight + extra}px`
+    }
   }, [])
 
   // Пересчёт после монтирования и при каждом изменении значения.
@@ -64,15 +135,26 @@ const Textarea = React.forwardRef(function Textarea(
     return () => ro.disconnect()
   }, [resize])
 
+  // Веб-шрифт может догрузиться после первого замера — пересчитываем высоту.
+  React.useEffect(() => {
+    if (typeof document === "undefined" || !document.fonts || !document.fonts.ready) {
+      return
+    }
+    let alive = true
+    document.fonts.ready.then(() => {
+      if (alive) resize()
+    })
+    return () => {
+      alive = false
+    }
+  }, [resize])
+
   return (
     <textarea
       ref={setRef}
       data-slot="textarea"
       value={value}
-      className={cn(
-        "w-full min-w-0 resize-none overflow-hidden rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30",
-        className
-      )}
+      className={cn(BASE, className)}
       {...props}
       // rows=1 — базовый минимум до JS-замера; точную высоту задаёт resize().
       rows={1}
