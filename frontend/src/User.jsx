@@ -106,7 +106,7 @@ function fileToAvatarDataUrl(file) {
       const img = new Image();
       img.onerror = () => reject(new Error("Файл не является изображением"));
       img.onload = () => {
-        const MAX = 256;
+        const MAX = 512;
         let { width, height } = img;
         if (width > MAX || height > MAX) {
           const k = MAX / Math.max(width, height);
@@ -137,6 +137,8 @@ function AvatarModal({ user, onClose, onSaved }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Просмотр фото на всю модалку (клик по превью). Крестик возвращает к выбору.
+  const [zoom, setZoom] = useState(false);
 
   const username = user?.username || "";
   const initials = username.slice(0, 2).toUpperCase() || "?";
@@ -149,8 +151,8 @@ function AvatarModal({ user, onClose, onSaved }) {
       setError("Выберите файл изображения");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setError("Фото слишком большое (макс. 5 МБ)");
+    if (file.size > 8 * 1024 * 1024) {
+      setError("Фото слишком большое (макс. 8 МБ)");
       return;
     }
     setBusy(true);
@@ -187,23 +189,63 @@ function AvatarModal({ user, onClose, onSaved }) {
   // Превью текущего выбора.
   let preview;
   if (photo) {
+    // Клик по фото — увеличенный просмотр (см. zoom ниже).
     preview = (
-      <Avatar className="size-16">
-        <AvatarImage
-          src={avatarDataSrc(photo, photoMime)}
-          alt={username}
-        />
-        <AvatarFallback>{initials}</AvatarFallback>
-      </Avatar>
+      <button
+        type="button"
+        onClick={() => setZoom(true)}
+        title="Открыть фото"
+        aria-label="Открыть фото"
+        className="cursor-pointer rounded-full transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Avatar className="size-24">
+          <AvatarImage
+            src={avatarDataSrc(photo, photoMime)}
+            alt={username}
+          />
+          <AvatarFallback className="text-3xl">{initials}</AvatarFallback>
+        </Avatar>
+      </button>
     );
   } else {
     const p = AVATAR_PRESETS.find((x) => x.id === preset);
     preview = (
-      <Avatar className="size-16">
-        <AvatarFallback className={cn("text-3xl", p?.bg)}>
+      <Avatar className="size-24">
+        <AvatarFallback className={cn("text-5xl", p?.bg)}>
           {p?.emoji ?? initials}
         </AvatarFallback>
       </Avatar>
+    );
+  }
+
+  // Увеличенный просмотр фото: на всю модалку. Крестик (и клик по фону)
+  // возвращают к исходной модалке выбора аватара.
+  if (zoom && photo) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        onClick={() => setZoom(false)}
+      >
+        <div
+          className="relative w-full max-w-md overflow-hidden border bg-card"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <img
+            src={avatarDataSrc(photo, photoMime)}
+            alt={username}
+            className="block h-auto max-h-[80vh] w-full bg-black object-contain"
+          />
+          <button
+            type="button"
+            onClick={() => setZoom(false)}
+            aria-label="Вернуться к выбору аватара"
+            title="Вернуться"
+            className="absolute top-2 right-2 z-10 flex size-8 cursor-pointer items-center justify-center bg-background/80 text-foreground backdrop-blur transition-colors hover:bg-background"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      </div>
     );
   }
 

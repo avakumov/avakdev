@@ -23,8 +23,10 @@ var validAvatarPresets = map[string]bool{
 	"sun":    true,
 }
 
-// maxAvatarBytes — максимальный размер фото аватара в base64 (~300 КБ).
-const maxAvatarBytes = 300 << 10
+// maxAvatarBytes — максимальный размер фото аватара в base64 (~512 КБ).
+// С запасом покрывает 512×512 JPEG (клиент сжимает фото до 512 px по длинной
+// стороне), включая «тяжёлые» кадры.
+const maxAvatarBytes = 512 << 10
 
 // handleUpdateAvatar сохраняет аватар текущего пользователя (PUT /api/me/avatar).
 // Тело JSON: { preset?, photo_data?, photo_mime? }.
