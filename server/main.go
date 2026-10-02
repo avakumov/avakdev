@@ -198,14 +198,14 @@ func main() {
 	// Раздел «Лента»: элементы ленты (пока тип контента — «вопрос-ответ»).
 	// /view — счётчик показов, растёт когда элемент показан в ленте.
 	// /generate — черновики от ИИ (в БД не пишутся), /bulk — сохранить пачку.
-	authed.GET("/feed", handleListFeed)
-	authed.POST("/feed", handleCreateFeedItem)
-	authed.POST("/feed/generate", handleGenerateFeedItems)
-	authed.POST("/feed/bulk", handleBulkCreateFeedItems)
-	authed.PUT("/feed/:id", handleUpdateFeedItem)
-	authed.DELETE("/feed/:id", handleDeleteFeedItem)
-	authed.POST("/feed/:id/view", handleFeedItemView)
-	authed.POST("/feed/:id/reaction", handleFeedItemReaction)
+	authed.GET("/feed", h.ListFeed)
+	authed.POST("/feed", h.CreateFeedItem)
+	authed.POST("/feed/generate", h.GenerateFeedItems)
+	authed.POST("/feed/bulk", h.BulkCreateFeedItems)
+	authed.PUT("/feed/:id", h.UpdateFeedItem)
+	authed.DELETE("/feed/:id", h.DeleteFeedItem)
+	authed.POST("/feed/:id/view", h.FeedItemView)
+	authed.POST("/feed/:id/reaction", h.FeedItemReaction)
 
 	// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
 	// и значения — одно на (метрика, день).

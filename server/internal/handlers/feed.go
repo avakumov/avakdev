@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"bytes"
@@ -13,17 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/httpkit"
-	"avakumov/server/internal/store"
 )
 
 // Раздел «Лента»: элементы ленты пользователя. Первый тип контента —
 // «вопрос-ответ» (kind = qa): вопрос, ответ и счётчик показов.
 // Наполняют ленту в разделе меню «Лента» (FeedEdit), читают — свайпом
 // на мобильных (Feed): сначала вопрос, ответ — после касания.
-
-// FeedItem — элемент ленты (определение живёт в store).
-type FeedItem = store.FeedItem
 
 // Типы контента ленты. Пока единственный — «вопрос-ответ».
 const feedKindQA = "qa"
@@ -49,8 +46,6 @@ const (
 	maxFeedAnswerRunes   = 20000
 	maxFeedDetailsRunes  = 20000
 )
-
-// Единый формат времени элемента — в store (feedSelectCols и экспры).
 
 // feedPayload проверяет и нормализует поля элемента ленты.
 // Раздел (topic), вопрос и ответ обязательны; объяснение (details) — нет.
@@ -90,12 +85,10 @@ func feedPayload(kind, topic, question, answer, details string) (string, string,
 	return kind, t, q, a, d, nil
 }
 
-// feedScan — в store (см. internal/store/feed.go).
-
-// handleListFeed возвращает элементы ленты пользователя (свежие сверху).
-func handleListFeed(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(session)
-	out, err := feedStore.List(context.Background(), sessData.Username)
+// ListFeed возвращает элементы ленты пользователя (свежие сверху).
+func (h *Handlers) ListFeed(c *httpkit.Context) {
+	sessData, _ := c.MustGet("session").(app.Session)
+	out, err := h.App.Feed.List(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить ленту"})
 		return
@@ -103,11 +96,11 @@ func handleListFeed(c *httpkit.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// handleCreateFeedItem добавляет элемент ленты.
+// CreateFeedItem добавляет элемент ленты.
 // Тело: {"kind": "qa", "topic": "golang", "question": "...", "answer": "...",
 //
 //	"details": "..."}
-func handleCreateFeedItem(c *httpkit.Context) {
+func (h *Handlers) CreateFeedItem(c *httpkit.Context) {
 	var req struct {
 		Kind     string `json:"kind"`
 		Topic    string `json:"topic"`
@@ -124,9 +117,9 @@ func handleCreateFeedItem(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
+	sessData, _ := c.MustGet("session").(app.Session)
 
-	it, err := feedStore.Create(context.Background(), sessData.Username, kind, topic, question, answer, details)
+	it, err := h.App.Feed.Create(context.Background(), sessData.Username, kind, topic, question, answer, details)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элемент ленты"})
 		return
@@ -134,8 +127,8 @@ func handleCreateFeedItem(c *httpkit.Context) {
 	c.JSON(http.StatusOK, it)
 }
 
-// handleUpdateFeedItem меняет раздел, вопрос, ответ и объяснение (показы не трогаем).
-func handleUpdateFeedItem(c *httpkit.Context) {
+// UpdateFeedItem меняет раздел, вопрос, ответ и объяснение (показы не трогаем).
+func (h *Handlers) UpdateFeedItem(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
@@ -157,9 +150,9 @@ func handleUpdateFeedItem(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
+	sessData, _ := c.MustGet("session").(app.Session)
 
-	it, err := feedStore.Update(context.Background(), sessData.Username, id, kind, topic, question, answer, details)
+	it, err := h.App.Feed.Update(context.Background(), sessData.Username, id, kind, topic, question, answer, details)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -167,15 +160,15 @@ func handleUpdateFeedItem(c *httpkit.Context) {
 	c.JSON(http.StatusOK, it)
 }
 
-// handleDeleteFeedItem удаляет элемент ленты (счётчик показов уходит с ним).
-func handleDeleteFeedItem(c *httpkit.Context) {
+// DeleteFeedItem удаляет элемент ленты (счётчик показов уходит с ним).
+func (h *Handlers) DeleteFeedItem(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
-	ok, err := feedStore.Delete(context.Background(), sessData.Username, id)
+	sessData, _ := c.MustGet("session").(app.Session)
+	ok, err := h.App.Feed.Delete(context.Background(), sessData.Username, id)
 	if err != nil || !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -183,12 +176,12 @@ func handleDeleteFeedItem(c *httpkit.Context) {
 	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
-// handleBulkCreateFeedItems сохраняет сразу несколько элементов ленты одним
+// BulkCreateFeedItems сохраняет сразу несколько элементов ленты одним
 // запросом (кнопка «Сохранить» после ИИ-генерации).
 // Тело: {"items": [{"topic": "golang", "question": "...", "answer": "...",
 //
 //	"details": "..."}]}
-func handleBulkCreateFeedItems(c *httpkit.Context) {
+func (h *Handlers) BulkCreateFeedItems(c *httpkit.Context) {
 	var req struct {
 		Items []struct {
 			Kind     string `json:"kind"`
@@ -228,8 +221,8 @@ func handleBulkCreateFeedItems(c *httpkit.Context) {
 		details = append(details, extra)
 	}
 
-	sessData, _ := c.MustGet("session").(session)
-	out, err := feedStore.BulkCreate(context.Background(), sessData.Username, feedKindQA, topics, questions, answers, details)
+	sessData, _ := c.MustGet("session").(app.Session)
+	out, err := h.App.Feed.BulkCreate(context.Background(), sessData.Username, feedKindQA, topics, questions, answers, details)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элементы ленты"})
 		return
@@ -237,11 +230,11 @@ func handleBulkCreateFeedItems(c *httpkit.Context) {
 	c.JSON(http.StatusOK, httpkit.H{"items": out})
 }
 
-// handleGenerateFeedItems генерирует черновики элементов ленты через DeepSeek.
+// GenerateFeedItems генерирует черновики элементов ленты через DeepSeek.
 // Ничего не сохраняет — возвращает список, который пользователь чистит и
 // сохраняет отдельно (как черновики задач цели).
 // Тело: {"topic": "...", "description": "...", "count": 5}
-func handleGenerateFeedItems(c *httpkit.Context) {
+func (h *Handlers) GenerateFeedItems(c *httpkit.Context) {
 	var req struct {
 		Topic       string `json:"topic"`
 		Description string `json:"description"`
@@ -266,7 +259,7 @@ func handleGenerateFeedItems(c *httpkit.Context) {
 		return
 	}
 
-	apiKey := deepseekAPIKey()
+	apiKey := app.DeepSeekAPIKey()
 	if apiKey == "" {
 		c.JSON(http.StatusServiceUnavailable, httpkit.H{
 			"error": "Ключ DeepSeek не настроен (DEEPSEEK_API_KEY в .env)",
@@ -440,10 +433,10 @@ func parseFeedDrafts(content string) ([]feedDraft, error) {
 	return out, nil
 }
 
-// handleFeedItemReaction фиксирует реакцию на элемент ленты: «знаю» (know)
+// FeedItemReaction фиксирует реакцию на элемент ленты: «знаю» (know)
 // или «не знаю» (unknown) — соответствующий счётчик +1.
 // Тело: {"value": "know" | "unknown"}
-func handleFeedItemReaction(c *httpkit.Context) {
+func (h *Handlers) FeedItemReaction(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
@@ -468,8 +461,8 @@ func handleFeedItemReaction(c *httpkit.Context) {
 		return
 	}
 
-	sessData, _ := c.MustGet("session").(session)
-	it, err := feedStore.React(context.Background(), sessData.Username, id, know)
+	sessData, _ := c.MustGet("session").(app.Session)
+	it, err := h.App.Feed.React(context.Background(), sessData.Username, id, know)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -477,16 +470,16 @@ func handleFeedItemReaction(c *httpkit.Context) {
 	c.JSON(http.StatusOK, it)
 }
 
-// handleFeedItemView отмечает показ элемента в ленте: views = views + 1.
+// FeedItemView отмечает показ элемента в ленте: views = views + 1.
 // Вызывается, когда элемент показан в ленте; текст при этом не меняется.
-func handleFeedItemView(c *httpkit.Context) {
+func (h *Handlers) FeedItemView(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
-	it, err := feedStore.View(context.Background(), sessData.Username, id)
+	sessData, _ := c.MustGet("session").(app.Session)
+	it, err := h.App.Feed.View(context.Background(), sessData.Username, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
