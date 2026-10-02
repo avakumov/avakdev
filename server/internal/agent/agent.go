@@ -1,4 +1,6 @@
-package main
+// Package agent — фоновый агент по задачам приложения (только dev): опрашивает
+// сервер задач, выполняет правки через DeepSeek и обновляет статусы.
+package agent
 
 import (
 	"bytes"
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"avakumov/server/internal/app"
+	"avakumov/server/internal/env"
 )
 
 // Агент по задачам приложения. Работает ТОЛЬКО в dev-режиме (в production
@@ -39,16 +42,16 @@ type agent struct {
 	sessionTok string // cookie сессии на продакшен-сервере
 }
 
-// startAgent запускает агент в фоне, если это dev-режим и настроены учётные
+// Start запускает агент в фоне, если это dev-режим и настроены учётные
 // данные для сервера задач. Возвращает true, если агент запущен; в остальных
 // случаях пишет причину отключения и возвращает false.
-func startAgent() bool {
+func Start() bool {
 	if os.Getenv("APP_ENV") == "production" {
 		log.Println("AGENT: отключён — в production агент не запускается")
 		return false
 	}
-	username := getenvOrEnvFile("AGENT_USERNAME", "")
-	password := getenvOrEnvFile("AGENT_PASSWORD", "")
+	username := env.GetenvOrEnvFile("AGENT_USERNAME", "")
+	password := env.GetenvOrEnvFile("AGENT_PASSWORD", "")
 	if username == "" || password == "" {
 		log.Println("AGENT: отключён — задайте AGENT_USERNAME и AGENT_PASSWORD (учётка на сервере задач)")
 		return false
@@ -58,13 +61,13 @@ func startAgent() bool {
 		return false
 	}
 
-	pollSec, err := strconv.Atoi(getenvOrEnvFile("AGENT_POLL_INTERVAL", "120"))
+	pollSec, err := strconv.Atoi(env.GetenvOrEnvFile("AGENT_POLL_INTERVAL", "120"))
 	if err != nil || pollSec <= 0 {
 		pollSec = 120
 	}
 
 	a := &agent{
-		serverURL: strings.TrimRight(getenvOrEnvFile("AGENT_SERVER_URL", "https://avakumov.ru"), "/"),
+		serverURL: strings.TrimRight(env.GetenvOrEnvFile("AGENT_SERVER_URL", "https://avakumov.ru"), "/"),
 		username:  username,
 		password:  password,
 		apiKey:    os.Getenv("DEEPSEEK_API_KEY"),

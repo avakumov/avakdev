@@ -1,4 +1,6 @@
-package main
+// Package env загружает переменные окружения из .env и даёт доступ к ним.
+// Используется main (загрузка при старте) и agent (чтение настроек).
+package env
 
 import (
 	"bufio"
@@ -7,16 +9,14 @@ import (
 	"strings"
 )
 
-// loadEnv читает переменные окружения из .env файла (формат KEY=VALUE, по
+// Load читает переменные окружения из .env файла (формат KEY=VALUE, по
 // одной на строку, пустые строки и строки с # в начале игнорируются), если
-// эти переменные ещё не заданы в системном окружении. Возвращает переменные,
-// которых не оказалось ни в окружении, ни в .env файле.
+// эти переменные ещё не заданы в системном окружении.
 //
 // Поиск файла выполняется в текущей рабочей директории и на один уровень выше
 // (для запуска из подкаталога server/). Реально существующие переменные
 // окружения имеют приоритет и не перезаписываются.
-func loadEnv() map[string]string {
-	missing := map[string]string{}
+func Load() {
 	found := map[string]string{}
 
 	candidates := []string{".env", filepath.Join("..", ".env")}
@@ -26,7 +26,7 @@ func loadEnv() map[string]string {
 			continue
 		}
 		seen[p] = true
-		parseEnvFile(p, found)
+		parseFile(p, found)
 	}
 
 	for k, v := range found {
@@ -34,12 +34,11 @@ func loadEnv() map[string]string {
 			os.Setenv(k, v)
 		}
 	}
-	return missing
 }
 
-// parseEnvFile разбирает файл .env и складывает прочитанные пары в out.
+// parseFile разбирает файл .env и складывает прочитанные пары в out.
 // Существующие в out ключи не перезаписываются (приоритет первого файла).
-func parseEnvFile(path string, out map[string]string) {
+func parseFile(path string, out map[string]string) {
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -68,21 +67,21 @@ func parseEnvFile(path string, out map[string]string) {
 	}
 }
 
-// getenvOrEnvFile возвращает значение переменной окружения name, либо берёт его
+// GetenvOrEnvFile возвращает значение переменной окружения name, либо берёт его
 // из файла .env (если окружение не установлено), либо возвращает значение по
 // умолчанию def, если нигде не нашлось.
 //
 // Удобно для опциональных настроек, когда файл .env подхватывается автоматически.
-func getenvOrEnvFile(name, def string) string {
+func GetenvOrEnvFile(name, def string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
 	}
 	vals := map[string]string{}
-	parseEnvFile(".env", vals)
+	parseFile(".env", vals)
 	if v, ok := vals[name]; ok {
 		return v
 	}
-	parseEnvFile(filepath.Join("..", ".env"), vals)
+	parseFile(filepath.Join("..", ".env"), vals)
 	if v, ok := vals[name]; ok {
 		return v
 	}

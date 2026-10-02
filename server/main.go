@@ -10,8 +10,10 @@ import (
 
 	"avakumov/server/internal/httpkit"
 
+	"avakumov/server/internal/agent"
 	"avakumov/server/internal/app"
 	"avakumov/server/internal/database"
+	"avakumov/server/internal/env"
 	"avakumov/server/internal/handlers"
 )
 
@@ -36,14 +38,14 @@ func indexData(fsys fs.FS) ([]byte, bool) {
 
 func main() {
 	// Подхватываем переменные из .env (ключ DeepSeek, DATABASE_URL и т.п.).
-	loadEnv()
+	env.Load()
 
 	// Режим «только агент»: отдельный процесс, который air не перезапускает.
 	// Агент сам редактирует файлы (правит код, создаёт миграции) — если он
 	// живёт внутри сервера, air при каждом изменении файла убивает его посреди
 	// задачи. Поэтому агент запускается своим процессом (make dev / make dev-agent).
 	if os.Getenv("AVAKUMOV_AGENT") == "1" {
-		if startAgent() {
+		if agent.Start() {
 			select {} // агент-процесс работает вечно, HTTP-сервер не поднимает
 		}
 		return
@@ -91,7 +93,7 @@ func main() {
 	// Агент по задачам приложения — только в dev-режиме, отдельным процессом
 	// (AVAKUMOV_AGENT=1). Встроенный режим — лишь по явному AGENT_INPROCESS=1.
 	if os.Getenv("AGENT_INPROCESS") == "1" {
-		startAgent()
+		agent.Start()
 	}
 
 	r := httpkit.Default()
