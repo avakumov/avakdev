@@ -158,8 +158,6 @@ run: dev-check-db
 
 # Бинарник со встроенным фронтендом — server/server. Сначала собирает фронтенд
 # (эта же цель — то, что нужно для деплоя).
-# nomsgpack — убирает из gin binding поддержку msgpack (тянет ugorji/go/codec,
-# ~6 МБ бинарника); само приложение msgpack не использует.
 build-binary: build-frontend
 	rm -rf server/frontend-dist/assets server/frontend-dist/index.html
 	@if [ -f frontend/dist/index.html ]; then \
@@ -168,7 +166,7 @@ build-binary: build-frontend
 	else \
 		echo "Фронтенд не собран. Сначала: make build-frontend"; exit 1; \
 	fi
-	cd server && CGO_ENABLED=0 go build -trimpath -tags 'embed nomsgpack' -ldflags '-s -w' -o server .
+	cd server && CGO_ENABLED=0 go build -trimpath -tags 'embed' -ldflags '-s -w' -o server .
 
 # Полная сборка (для деплоя) — фронтенд + бинарник со встроенной статикой.
 build: build-binary
