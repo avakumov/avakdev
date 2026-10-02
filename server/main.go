@@ -58,7 +58,7 @@ func main() {
 	}
 	defer database.Close() // пул закроется при выходе из main
 	// Приложение (домен): пул БД, сессии и хранилища store.
-	application = app.New(db)
+	application := app.New(database.Pool())
 	h := handlers.New(application)
 	// Применяем версионированные миграции БД (goose), встроенные в бинарник.
 	if err := database.Migrate(); err != nil {
@@ -324,4 +324,13 @@ func serveFrontend(r *httpkit.Engine) {
 func hasIndex(fsys fs.FS) bool {
 	_, err := fs.Stat(fsys, "index.html")
 	return err == nil
+}
+
+// logAuthConfig печатает состояние подключения к БД при старте.
+func logAuthConfig() {
+	if database.Pool() == nil {
+		log.Println("AUTH: база данных не настроена (DATABASE_URL пуст). Авторизация отключена.")
+		return
+	}
+	log.Println("AUTH: подключение к PostgreSQL установлено. Авторизация включена.")
 }
