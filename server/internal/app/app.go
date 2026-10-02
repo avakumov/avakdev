@@ -101,6 +101,9 @@ type App struct {
 	// Tasks и Goals — in-memory хранилища задач и целей (ссылаются друг на друга).
 	Tasks *TaskStore
 	Goals *GoalStore
+
+	// Important — in-memory хранилище «важных» сообщений.
+	Important *ImportantStore
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -165,4 +168,19 @@ func (a *App) InitTasksGoals() error {
 		return err
 	}
 	return a.Goals.Load()
+}
+
+// InitImportant создаёт in-memory хранилище «важных» сообщений и подгружает их
+// из БД. Вызывается после New; без БД создаёт пустое хранилище.
+func (a *App) InitImportant() error {
+	var pool *pgxpool.Pool
+	if a.DB != nil {
+		pool = a.DB
+	}
+	s, err := NewImportantStore(pool)
+	if err != nil {
+		return err
+	}
+	a.Important = s
+	return nil
 }

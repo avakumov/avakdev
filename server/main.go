@@ -67,7 +67,7 @@ func main() {
 	if err := application.InitKnowledge(); err != nil {
 		log.Fatalf("не удалось инициализировать конспекты: %v", err)
 	}
-	if err := initImportant(); err != nil {
+	if err := application.InitImportant(); err != nil {
 		log.Fatalf("не удалось инициализировать важное сообщение: %v", err)
 	}
 	if err := initMetrics(); err != nil {
@@ -180,9 +180,9 @@ func main() {
 
 	// «Важное» сообщение: у каждого пользователя своё — просмотр, сохранение
 	// и отметка о прочтении доступны всем авторизованным.
-	authed.GET("/important", handleGetImportant)
-	authed.PUT("/important", handleSaveImportant)
-	authed.POST("/important/seen", handleMarkImportantSeen)
+	authed.GET("/important", h.GetImportant)
+	authed.PUT("/important", h.SaveImportant)
+	authed.POST("/important/seen", h.MarkImportantSeen)
 
 	// Раздел «Заметки»: быстрые записи-черновики.
 	authed.GET("/drafts", h.ListDrafts)
