@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 
 	"avakumov/server/internal/database"
 )
@@ -35,7 +35,7 @@ func indexData(fsys fs.FS) ([]byte, bool) {
 func main() {
 	// В продакшене (собранный бинарник) включаем release-режим.
 	if os.Getenv("GIN_MODE") == "release" {
-		gin.SetMode(gin.ReleaseMode)
+		httpkit.SetMode(httpkit.ReleaseMode)
 	}
 
 	// Подхватываем переменные из .env (ключ DeepSeek, DATABASE_URL и т.п.).
@@ -99,7 +99,7 @@ func main() {
 		startAgent()
 	}
 
-	r := gin.Default()
+	r := httpkit.Default()
 
 	// ---- API ----
 	api := r.Group("/api")
@@ -124,22 +124,22 @@ func main() {
 		admin := authed.Group("")
 		admin.Use(adminRequired)
 		{
-			admin.GET("/health", func(c *gin.Context) {
-				c.JSON(http.StatusOK, gin.H{
+			admin.GET("/health", func(c *httpkit.Context) {
+				c.JSON(http.StatusOK, httpkit.H{
 					"status": "ok",
 					"time":   time.Now().Format(time.RFC3339),
 				})
 			})
 
-			admin.GET("/message", func(c *gin.Context) {
-				c.JSON(http.StatusOK, gin.H{
-					"message": "Привет! Это ответ от Go (Gin) сервера 🚀",
-					"server":  "gin",
+			admin.GET("/message", func(c *httpkit.Context) {
+				c.JSON(http.StatusOK, httpkit.H{
+					"message": "Привет! Это ответ от Go (net/http) сервера 🚀",
+					"server":  "net/http",
 				})
 			})
 
 			// Системные метрики сервера (CPU, память, диск, сеть).
-			admin.GET("/metrics", func(c *gin.Context) {
+			admin.GET("/metrics", func(c *httpkit.Context) {
 				c.JSON(http.StatusOK, collectMetrics())
 			})
 
@@ -281,7 +281,7 @@ func main() {
 
 // serveFrontend отдаёт React-статистику: сначала из встроенного
 // бинарника (release), при его отсутствии — из фронтовой папки (dev).
-func serveFrontend(r *gin.Engine) {
+func serveFrontend(r *httpkit.Engine) {
 	// 1) Встроенный фронтенд (собран через deploy-скрипт)
 	if fsys := subFrontendDist(); hasIndex(fsys) {
 		index, ok := indexData(fsys)
@@ -293,7 +293,7 @@ func serveFrontend(r *gin.Engine) {
 				r.StaticFS("/assets", http.FS(assetsFS))
 			}
 
-			r.NoRoute(func(c *gin.Context) {
+			r.NoRoute(func(c *httpkit.Context) {
 				// http.FileServer редиректит прямые запросы /index.html
 				// на ./ (301), поэтому отдаём HTML напрямую.
 				c.Data(http.StatusOK, "text/html; charset=utf-8", index)
@@ -307,10 +307,10 @@ func serveFrontend(r *gin.Engine) {
 	staticDir := filepath.Join("..", "frontend", "dist")
 	if _, err := os.Stat(staticDir); err == nil {
 		r.Static("/assets", filepath.Join(staticDir, "assets"))
-		r.NoRoute(func(c *gin.Context) {
+		r.NoRoute(func(c *httpkit.Context) {
 			index, err := os.ReadFile(filepath.Join(staticDir, "index.html"))
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "no index.html"})
+				c.JSON(http.StatusInternalServerError, httpkit.H{"error": "no index.html"})
 				return
 			}
 			c.Data(http.StatusOK, "text/html; charset=utf-8", index)
@@ -320,8 +320,8 @@ func serveFrontend(r *gin.Engine) {
 	}
 
 	// 3) Совсем нет фронтенда
-	r.NoRoute(func(c *gin.Context) {
-		c.JSON(http.StatusNotFound, gin.H{
+	r.NoRoute(func(c *httpkit.Context) {
+		c.JSON(http.StatusNotFound, httpkit.H{
 			"error": "not found",
 			"hint":  "соберите фронтенд: cd frontend && npm run build",
 		})

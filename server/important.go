@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // importantEnabled — «важное» сообщение показывается только на production.
@@ -158,10 +158,10 @@ func (s *importantStore) markSeen(username string) error {
 // handleGetImportant отдаёт «важное» сообщение текущего пользователя:
 // текст, автора и время последнего обновления, а также флаг enabled
 // (показ только на production) и seen_today (показывается раз в сутки).
-func handleGetImportant(c *gin.Context) {
+func handleGetImportant(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	msg, _ := important.get(sessData.username)
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"enabled":    importantEnabled(),
 		"content":    msg.Content,
 		"updated_by": msg.UpdatedBy,
@@ -172,21 +172,21 @@ func handleGetImportant(c *gin.Context) {
 
 // handleSaveImportant сохраняет «важное» сообщение текущего пользователя.
 // Каждый авторизованный пользователь управляет только своим сообщением.
-func handleSaveImportant(c *gin.Context) {
+func handleSaveImportant(c *httpkit.Context) {
 	var req struct {
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	msg, err := important.save(sessData.username, req.Content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить сообщение"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить сообщение"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"content":    msg.Content,
 		"updated_by": msg.UpdatedBy,
 		"updated_at": msg.UpdatedAt,
@@ -195,11 +195,11 @@ func handleSaveImportant(c *gin.Context) {
 
 // handleMarkImportantSeen отмечает, что текущий пользователь прочитал
 // сообщение сегодня — до следующего дня оно ему больше не покажется.
-func handleMarkImportantSeen(c *gin.Context) {
+func handleMarkImportantSeen(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	if err := important.markSeen(sessData.username); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось отметить сообщение прочитанным"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось отметить сообщение прочитанным"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

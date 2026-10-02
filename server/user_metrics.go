@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -364,7 +364,7 @@ func normalizeMetricValue(metricType, value string) (string, error) {
 }
 
 // handleListUserMetrics отдаёт определения метрик пользователя и все их значения.
-func handleListUserMetrics(c *gin.Context) {
+func handleListUserMetrics(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	defs := userMetrics.list(sessData.username)
 
@@ -374,34 +374,34 @@ func handleListUserMetrics(c *gin.Context) {
 			values = append(values, metricValue{MetricID: d.ID, Date: date, Value: value})
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"definitions": defs, "values": values})
+	c.JSON(http.StatusOK, httpkit.H{"definitions": defs, "values": values})
 }
 
 // handleCreateUserMetric создаёт новую метрику пользователя.
-func handleCreateUserMetric(c *gin.Context) {
+func handleCreateUserMetric(c *httpkit.Context) {
 	var req struct {
 		Name string `json:"name"`
 		Type string `json:"type"`
 		Unit string `json:"unit"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	d, err := userMetrics.create(sessData.username, req.Name, req.Type, req.Unit)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, d)
 }
 
 // handleUpdateUserMetric переименовывает метрику и меняет её единицу измерения.
-func handleUpdateUserMetric(c *gin.Context) {
+func handleUpdateUserMetric(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID метрики"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID метрики"})
 		return
 	}
 	var req struct {
@@ -409,7 +409,7 @@ func handleUpdateUserMetric(c *gin.Context) {
 		Unit string `json:"unit"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -419,32 +419,32 @@ func handleUpdateUserMetric(c *gin.Context) {
 		if err.Error() == "метрика не найдена" {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, d)
 }
 
 // handleDeleteUserMetric удаляет метрику пользователя (со значениями).
-func handleDeleteUserMetric(c *gin.Context) {
+func handleDeleteUserMetric(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID метрики"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID метрики"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	if err := userMetrics.delete(sessData.username, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
 // handleSetUserMetricValue сохраняет показатель метрики за день.
-func handleSetUserMetricValue(c *gin.Context) {
+func handleSetUserMetricValue(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID метрики"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID метрики"})
 		return
 	}
 	date := c.Param("date")
@@ -453,7 +453,7 @@ func handleSetUserMetricValue(c *gin.Context) {
 		Value string `json:"value"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -462,17 +462,17 @@ func handleSetUserMetricValue(c *gin.Context) {
 		if err.Error() == "метрика не найдена" {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"metric_id": id, "date": date, "value": req.Value})
+	c.JSON(http.StatusOK, httpkit.H{"metric_id": id, "date": date, "value": req.Value})
 }
 
 // handleDeleteUserMetricValue удаляет показатель метрики за день.
-func handleDeleteUserMetricValue(c *gin.Context) {
+func handleDeleteUserMetricValue(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID метрики"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID метрики"})
 		return
 	}
 	date := c.Param("date")
@@ -482,8 +482,8 @@ func handleDeleteUserMetricValue(c *gin.Context) {
 		if err.Error() == "метрика не найдена" {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

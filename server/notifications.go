@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Типы уведомлений: однократное или периодическое.
@@ -231,13 +231,13 @@ func (s *notificationStore) patchDue(id int, dueAt string) {
 }
 
 // handleListNotifications отдаёт уведомления пользователя.
-func handleListNotifications(c *gin.Context) {
+func handleListNotifications(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	c.JSON(http.StatusOK, gin.H{"notifications": notifications.list(sessData.username)})
+	c.JSON(http.StatusOK, httpkit.H{"notifications": notifications.list(sessData.username)})
 }
 
 // handleCreateNotification создаёт уведомление.
-func handleCreateNotification(c *gin.Context) {
+func handleCreateNotification(c *httpkit.Context) {
 	var req struct {
 		Text        string `json:"text"`
 		Type        string `json:"type"`
@@ -247,7 +247,7 @@ func handleCreateNotification(c *gin.Context) {
 		Channel     string `json:"channel"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	if req.Type == "" {
@@ -262,23 +262,23 @@ func handleCreateNotification(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	n, err := notifications.create(sessData.username, req.Text, req.Type, req.DueAt, req.PeriodUnit, req.PeriodValue, req.Channel)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, n)
 }
 
 // handleDeleteNotification удаляет уведомление.
-func handleDeleteNotification(c *gin.Context) {
+func handleDeleteNotification(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID уведомления"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID уведомления"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	if err := notifications.delete(sessData.username, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

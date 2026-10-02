@@ -11,7 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"avakumov/server/internal/database"
@@ -47,8 +48,8 @@ type User struct {
 
 // userPayload — безопасное представление пользователя для JSON-ответов
 // (пароль не включается никогда).
-func userPayload(u User) gin.H {
-	return gin.H{
+func userPayload(u User) httpkit.H {
+	return httpkit.H{
 		"username":        u.Username,
 		"email":           u.Email,
 		"is_admin":        u.IsAdmin,
@@ -171,37 +172,41 @@ func initDB() error {
 	return nil
 }
 
-// authRequired — middleware, требующий активной сессии.
-func authRequired(c *gin.Context) {
-	if db == nil {
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-			"error": "Авторизация отключена: база данных не настроена.",
-		})
-		return
-	}
-	token, err := c.Cookie(cookieName)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Требуется вход"})
-		return
-	}
-	sessData, ok := sess.get(token)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Сессия истекла. Войдите снова."})
-		return
-	}
-	// Кладём информацию о пользователе в контекст для нижележащих обработчиков.
-	c.Set("session", sessData)
-	c.Next()
+// authRequired — middleware, требующий активной сессии. Кладёт session
+// в контекст запроса, чтобы её видели нижележащие middleware и обработчики.
+func authRequired(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if db == nil {
+			httpkit.WriteJSON(w, http.StatusServiceUnavailable, httpkit.H{
+				"error": "Авторизация отключена: база данных не настроена.",
+			})
+			return
+		}
+		token, err := r.Cookie(cookieName)
+		if err != nil {
+			httpkit.WriteJSON(w, http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
+			return
+		}
+		sessData, ok := sess.get(token.Value)
+		if !ok {
+			httpkit.WriteJSON(w, http.StatusUnauthorized, httpkit.H{"error": "Сессия истекла. Войдите снова."})
+			return
+		}
+		next.ServeHTTP(w, httpkit.SetRequestValue(r, "session", sessData))
+	})
 }
 
 // adminRequired — middleware, требующий прав администратора.
-func adminRequired(c *gin.Context) {
-	sessData, ok := c.MustGet("session").(session)
-	if !ok || !sessData.isAdmin {
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Доступ только для администраторов"})
-		return
-	}
-	c.Next()
+func adminRequired(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v, _ := httpkit.NewContext(w, r).Get("session")
+		sessData, ok := v.(session)
+		if !ok || !sessData.isAdmin {
+			httpkit.WriteJSON(w, http.StatusForbidden, httpkit.H{"error": "Доступ только для администраторов"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // loadUser возвращает пользователя по имени (без пароля — он не заполняется
@@ -223,23 +228,23 @@ func loadUser(username string) (User, bool) {
 }
 
 // handleLogin аутентифицирует пользователя по username/password.
-func handleLogin(c *gin.Context) {
+func handleLogin(c *httpkit.Context) {
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" || req.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Логин и пароль обязательны"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Логин и пароль обязательны"})
 		return
 	}
 
 	if db == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Авторизация временно недоступна"})
+		c.JSON(http.StatusServiceUnavailable, httpkit.H{"error": "Авторизация временно недоступна"})
 		return
 	}
 
@@ -248,19 +253,19 @@ func handleLogin(c *gin.Context) {
 		`SELECT id, username, password, email, is_admin FROM users WHERE username = $1`,
 		req.Username).Scan(&u.ID, &u.Username, &u.Password, &u.Email, &u.IsAdmin)
 	if err != nil || u.Password != req.Password {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный логин или пароль"})
+		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Неверный логин или пароль"})
 		return
 	}
 
 	token, err := sess.create(&u, sessionTTL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать сессию"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось создать сессию"})
 		return
 	}
 	// HttpOnly + SameSite — защита от XSS/CSRF; cookie отдаётся только на api.
 	c.SetCookie(cookieName, token, int(sessionTTL.Seconds()), "/api", "", false, true)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"username": u.Username,
 		"email":    u.Email,
 		"is_admin": u.IsAdmin,
@@ -268,28 +273,28 @@ func handleLogin(c *gin.Context) {
 }
 
 // handleLogout завершает сессию и удаляет cookie.
-func handleLogout(c *gin.Context) {
+func handleLogout(c *httpkit.Context) {
 	if sess != nil {
 		if token, err := c.Cookie(cookieName); err == nil {
 			sess.delete(token)
 		}
 	}
 	c.SetCookie(cookieName, "", -1, "/api", "", false, true)
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
 // handleMe возвращает данные текущего пользователя (или 401).
-func handleMe(c *gin.Context) {
+func handleMe(c *httpkit.Context) {
 	sessVal, ok := c.Get("session")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Требуется вход"})
+		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
 		return
 	}
 	sessData, _ := sessVal.(session)
 	u, found := loadUser(sessData.username)
 	if !found {
 		// Пользователь удалён при живой сессии — считаем сессию недействительной.
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Сессия истекла. Войдите снова."})
+		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Сессия истекла. Войдите снова."})
 		return
 	}
 	c.JSON(http.StatusOK, userPayload(u))
@@ -311,10 +316,10 @@ var validCodeThemes = map[string]bool{
 
 // handleUpdateMe сохраняет контактные данные текущего пользователя
 // (необязательные поля phone и telegram).
-func handleUpdateMe(c *gin.Context) {
+func handleUpdateMe(c *httpkit.Context) {
 	sessVal, ok := c.Get("session")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Требуется вход"})
+		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
 		return
 	}
 	sessData, _ := sessVal.(session)
@@ -326,13 +331,13 @@ func handleUpdateMe(c *gin.Context) {
 		CodeTheme    *string `json:"code_theme"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	req.Phone = strings.TrimSpace(req.Phone)
 	req.Telegram = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(req.Telegram), "@"))
 	if len(req.Phone) > 32 || len(req.Telegram) > 64 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Значение слишком длинное"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Значение слишком длинное"})
 		return
 	}
 	if req.ReadingSpeed != nil {
@@ -357,7 +362,7 @@ func handleUpdateMe(c *gin.Context) {
 			theme = defaultCodeTheme
 		}
 		if !validCodeThemes[theme] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Неизвестная тема кода"})
+			c.JSON(http.StatusBadRequest, httpkit.H{"error": "Неизвестная тема кода"})
 			return
 		}
 		req.CodeTheme = &theme
@@ -379,13 +384,13 @@ func handleUpdateMe(c *gin.Context) {
 		        code_theme = COALESCE($4::text, code_theme)
 		  WHERE username = $5`,
 		req.Phone, req.Telegram, speedArg, themeArg, sessData.username); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить профиль"})
 		return
 	}
 
 	u, found := loadUser(sessData.username)
 	if !found {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Пользователь не найден"})
 		return
 	}
 	c.JSON(http.StatusOK, userPayload(u))

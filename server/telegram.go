@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Telegram-интеграция: отправка уведомлений и привязка пользователя.
@@ -104,16 +104,16 @@ const tgLinkCodeTTL = 30 * time.Minute
 
 // handleLinkTelegram создаёт одноразовый код привязки и возвращает ссылку
 // вида https://t.me/<bot>?start=<code> (POST /api/me/telegram/link).
-func handleLinkTelegram(c *gin.Context) {
+func handleLinkTelegram(c *httpkit.Context) {
 	if tgToken() == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Telegram-бот не настроен (нет TELEGRAM_BOT_TOKEN)"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Telegram-бот не настроен (нет TELEGRAM_BOT_TOKEN)"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось создать код привязки"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось создать код привязки"})
 		return
 	}
 	code := hex.EncodeToString(buf)
@@ -122,33 +122,33 @@ func handleLinkTelegram(c *gin.Context) {
 		`UPDATE users SET telegram_link_code = $1, telegram_link_at = now()
 		 WHERE username = $2`,
 		code, sessData.username); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить код привязки"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить код привязки"})
 		return
 	}
 
 	botName, err := tgBotUsername()
 	if err != nil || botName == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось получить имя бота"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось получить имя бота"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"url": fmt.Sprintf("https://t.me/%s?start=%s", botName, code),
 	})
 }
 
 // handleUnlinkTelegram отвязывает Telegram от пользователя
 // (POST /api/me/telegram/unlink).
-func handleUnlinkTelegram(c *gin.Context) {
+func handleUnlinkTelegram(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	if _, err := db.Exec(context.Background(),
 		`UPDATE users
 		 SET telegram_chat_id = '', telegram_link_code = '', telegram_link_at = NULL
 		 WHERE username = $1`,
 		sessData.username); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось отключить Telegram"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось отключить Telegram"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
 // startTelegramLinkWatcher запускает long polling getUpdates: обрабатывает

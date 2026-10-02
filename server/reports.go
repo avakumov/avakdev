@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Report — текстовый отчёт за день пользователя.
@@ -22,7 +22,7 @@ type Report struct {
 
 // handleListReports возвращает текстовые отчёты текущего пользователя
 // (только даты с непустым текстом), новые сверху.
-func handleListReports(c *gin.Context) {
+func handleListReports(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
 		`SELECT to_char(day,'YYYY-MM-DD'),
@@ -33,7 +33,7 @@ func handleListReports(c *gin.Context) {
 		 ORDER BY day DESC`,
 		sessData.username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить отчёты"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить отчёты"})
 		return
 	}
 	defer rows.Close()
@@ -51,10 +51,10 @@ func handleListReports(c *gin.Context) {
 // handleUpsertReport создаёт или обновляет текстовый отчёт за конкретный день.
 // Отчёт хранится в строке дня (day_plans): если дня ещё нет — строка
 // создаётся с пустым планом. Параметр :date — день в формате YYYY-MM-DD.
-func handleUpsertReport(c *gin.Context) {
+func handleUpsertReport(c *httpkit.Context) {
 	day, err := parseDay(c.Param("date"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 
@@ -62,7 +62,7 @@ func handleUpsertReport(c *gin.Context) {
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 
@@ -75,7 +75,7 @@ func handleUpsertReport(c *gin.Context) {
 		 VALUES ($1, $2, 0)
 		 ON CONFLICT (username, day) DO NOTHING`,
 		sessData.username, day); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить отчёт"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить отчёт"})
 		return
 	}
 
@@ -83,7 +83,7 @@ func handleUpsertReport(c *gin.Context) {
 		`UPDATE day_plans SET report = $3, updated = now()
 		 WHERE username = $1 AND day = $2`,
 		sessData.username, day, req.Content); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить отчёт"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить отчёт"})
 		return
 	}
 

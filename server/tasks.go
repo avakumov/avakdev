@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Статусы задач раздела «Задачи».
@@ -534,7 +534,7 @@ func (s *taskStore) compactGoalPositionsLocked(username string, goalID int) erro
 
 // handleListTasks отдаёт задачи пользователя, категории и цели
 // (для выбора/отображения привязки задачи к цели).
-func handleListTasks(c *gin.Context) {
+func handleListTasks(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
 	// Лёгкое представление целей пользователя: только id, название, статус.
@@ -552,7 +552,7 @@ func handleListTasks(c *gin.Context) {
 		}{g.ID, g.Title, g.Status})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"tasks":      withSpent(sessData.username, tasks.list(sessData.username)),
 		"categories": TaskCategories,
 		"goals":      brief,
@@ -560,7 +560,7 @@ func handleListTasks(c *gin.Context) {
 }
 
 // handleCreateTask создаёт новую задачу.
-func handleCreateTask(c *gin.Context) {
+func handleCreateTask(c *httpkit.Context) {
 	var req struct {
 		Category      string  `json:"category"`
 		Title         string  `json:"title"`
@@ -572,7 +572,7 @@ func handleCreateTask(c *gin.Context) {
 		CompletedDate string  `json:"completed_date"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	if req.Status == "" {
@@ -585,7 +585,7 @@ func handleCreateTask(c *gin.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	t, err := tasks.create(sessData.username, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, withSpent(sessData.username, []Task{t})[0])
@@ -594,23 +594,23 @@ func handleCreateTask(c *gin.Context) {
 // optionalDay проверяет необязательную дату из запроса (ГГГГ-ММ-ДД).
 // Пустая строка — допустима и означает «не указана». При ошибке форматирования
 // отвечает 400 и возвращает ok=false.
-func optionalDay(c *gin.Context, raw string) (string, bool) {
+func optionalDay(c *httpkit.Context, raw string) (string, bool) {
 	if raw == "" {
 		return "", true
 	}
 	day, err := parseDay(raw)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return "", false
 	}
 	return day, true
 }
 
 // handleUpdateTask обновляет задачу.
-func handleUpdateTask(c *gin.Context) {
+func handleUpdateTask(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID задачи"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
 		return
 	}
 	var req struct {
@@ -624,7 +624,7 @@ func handleUpdateTask(c *gin.Context) {
 		CompletedDate string  `json:"completed_date"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -638,23 +638,23 @@ func handleUpdateTask(c *gin.Context) {
 		if err.Error() == "задача не найдена" {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, withSpent(sessData.username, []Task{t})[0])
 }
 
 // handleDeleteTask удаляет задачу.
-func handleDeleteTask(c *gin.Context) {
+func handleDeleteTask(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID задачи"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	if err := tasks.delete(sessData.username, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

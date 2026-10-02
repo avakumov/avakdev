@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 	xhtml "golang.org/x/net/html"
 	"golang.org/x/text/encoding/charmap"
 )
@@ -64,7 +64,7 @@ const bookStartedExpr = `COALESCE(to_char((SELECT MIN(bm.created) FROM book_book
 // Непрочитанные идут первыми, прочитанные — в конце списка. У каждой книги
 // считается процент прочтения: позиция последней закладки от длины текста
 // (дошедшая до конца книги — это максимум по закладкам).
-func handleListBooks(c *gin.Context) {
+func handleListBooks(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
 		`SELECT b.id, b.title, b.author, b.format, `+bookCreatedExpr+`, `+bookFinishedExpr+`, `+bookStartedExpr+`,
@@ -76,7 +76,7 @@ func handleListBooks(c *gin.Context) {
 		 ORDER BY (b.finished_at IS NOT NULL), b.id DESC`,
 		sessData.username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить книги"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить книги"})
 		return
 	}
 	defer rows.Close()
@@ -113,10 +113,10 @@ func bookReadPercent(textLen, anchor int, finished bool) int {
 }
 
 // handleGetBook возвращает книгу вместе с HTML-текстом.
-func handleGetBook(c *gin.Context) {
+func handleGetBook(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID книги"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -128,7 +128,7 @@ func handleGetBook(c *gin.Context) {
 		id, sessData.username).
 		Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.HTML, &b.Created, &b.FinishedAt)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Книга не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
 	c.JSON(http.StatusOK, b)
@@ -136,36 +136,36 @@ func handleGetBook(c *gin.Context) {
 
 // handleUploadBook принимает файл книги (multipart/form-data, поле «file»),
 // конвертирует его в HTML и сохраняет.
-func handleUploadBook(c *gin.Context) {
+func handleUploadBook(c *httpkit.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Выберите файл книги (fb2 или epub)"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Выберите файл книги (fb2 или epub)"})
 		return
 	}
 	f, err := fileHeader.Open()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Не удалось открыть файл"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось открыть файл"})
 		return
 	}
 	defer f.Close()
 
 	data, err := io.ReadAll(io.LimitReader(f, maxBookBytes+1))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Не удалось прочитать файл"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось прочитать файл"})
 		return
 	}
 	if len(data) > maxBookBytes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Файл слишком большой (макс. 40 МБ)"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Файл слишком большой (макс. 40 МБ)"})
 		return
 	}
 
 	format, title, author, bookHTML, err := convertBook(fileHeader.Filename, data)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	if strings.TrimSpace(bookHTML) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Не удалось извлечь текст книги"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось извлечь текст книги"})
 		return
 	}
 
@@ -178,7 +178,7 @@ func handleUploadBook(c *gin.Context) {
 		sessData.username, title, author, format, bookHTML).
 		Scan(&b.ID, &b.Created)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить книгу"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить книгу"})
 		return
 	}
 	b.Title, b.Author, b.Format = title, author, format
@@ -186,35 +186,35 @@ func handleUploadBook(c *gin.Context) {
 }
 
 // handleDeleteBook удаляет книгу пользователя.
-func handleDeleteBook(c *gin.Context) {
+func handleDeleteBook(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID книги"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	tag, err := db.Exec(context.Background(),
 		`DELETE FROM books WHERE id = $1 AND username = $2`, id, sessData.username)
 	if err != nil || tag.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Книга не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
 // handleSetBookFinished отмечает книгу прочитанной (finished=true) или
 // возвращает её в чтение (finished=false).
-func handleSetBookFinished(c *gin.Context) {
+func handleSetBookFinished(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID книги"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
 	var req struct {
 		Finished bool `json:"finished"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -227,10 +227,10 @@ func handleSetBookFinished(c *gin.Context) {
 		 RETURNING `+bookFinishedExpr,
 		id, sessData.username, req.Finished).Scan(&finishedAt)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Книга не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"id": id, "finished_at": finishedAt})
+	c.JSON(http.StatusOK, httpkit.H{"id": id, "finished_at": finishedAt})
 }
 
 // convertBook определяет формат файла и преобразует книгу в HTML.

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -41,7 +41,7 @@ func bookmarkBookAccess(bookID int, username string) bool {
 // handleLastBookmark возвращает последнюю добавленную закладку пользователя
 // (по всем книгам) — с неё продолжается чтение. Прочитанные книги не берём:
 // в «Дне» они больше не предлагаются. Если закладок нет, отдаёт null.
-func handleLastBookmark(c *gin.Context) {
+func handleLastBookmark(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
 	var out struct {
@@ -64,22 +64,22 @@ func handleLastBookmark(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить последнюю закладку"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить последнюю закладку"})
 		return
 	}
 	c.JSON(http.StatusOK, out)
 }
 
 // handleListBookmarks возвращает закладки книги в порядке по тексту.
-func handleListBookmarks(c *gin.Context) {
+func handleListBookmarks(c *httpkit.Context) {
 	bookID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID книги"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	if !bookmarkBookAccess(bookID, sessData.username) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Книга не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
 
@@ -90,7 +90,7 @@ func handleListBookmarks(c *gin.Context) {
 		 ORDER BY anchor, id`,
 		sessData.username, bookID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить закладки"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить закладки"})
 		return
 	}
 	defer rows.Close()
@@ -106,15 +106,15 @@ func handleListBookmarks(c *gin.Context) {
 }
 
 // handleCreateBookmark сохраняет закладку на выделенном фрагменте.
-func handleCreateBookmark(c *gin.Context) {
+func handleCreateBookmark(c *httpkit.Context) {
 	bookID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID книги"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	if !bookmarkBookAccess(bookID, sessData.username) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Книга не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
 
@@ -123,12 +123,12 @@ func handleCreateBookmark(c *gin.Context) {
 		Excerpt string `json:"excerpt"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Anchor == nil || *req.Anchor < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректная позиция закладки"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректная позиция закладки"})
 		return
 	}
 	excerpt := req.Excerpt
 	if strings.TrimSpace(excerpt) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Выделите текст для закладки"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Выделите текст для закладки"})
 		return
 	}
 	if runes := []rune(excerpt); len(runes) > maxBookmarkExcerpt {
@@ -143,22 +143,22 @@ func handleCreateBookmark(c *gin.Context) {
 		sessData.username, bookID, *req.Anchor, excerpt).
 		Scan(&b.ID, &b.Anchor, &b.Excerpt, &b.Created)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить закладку"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить закладку"})
 		return
 	}
 	c.JSON(http.StatusOK, b)
 }
 
 // handleDeleteBookmark удаляет закладку книги.
-func handleDeleteBookmark(c *gin.Context) {
+func handleDeleteBookmark(c *httpkit.Context) {
 	bookID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID книги"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID книги"})
 		return
 	}
 	bookmarkID, err := strconv.Atoi(c.Param("bookmarkId"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID закладки"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID закладки"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -166,8 +166,8 @@ func handleDeleteBookmark(c *gin.Context) {
 		`DELETE FROM book_bookmarks WHERE id = $1 AND book_id = $2 AND username = $3`,
 		bookmarkID, bookID, sessData.username)
 	if err != nil || tag.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Закладка не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Закладка не найдена"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

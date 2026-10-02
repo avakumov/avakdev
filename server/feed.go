@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Раздел «Лента»: элементы ленты пользователя. Первый тип контента —
@@ -120,14 +120,14 @@ func feedScan(row interface{ Scan(...any) error }) (FeedItem, error) {
 }
 
 // handleListFeed возвращает элементы ленты пользователя (свежие сверху).
-func handleListFeed(c *gin.Context) {
+func handleListFeed(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
 		`SELECT `+feedSelectCols+`
 		 FROM feed_items WHERE username = $1
 		 ORDER BY id DESC`, sessData.username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить ленту"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить ленту"})
 		return
 	}
 	defer rows.Close()
@@ -145,7 +145,7 @@ func handleListFeed(c *gin.Context) {
 // Тело: {"kind": "qa", "topic": "golang", "question": "...", "answer": "...",
 //
 //	"details": "..."}
-func handleCreateFeedItem(c *gin.Context) {
+func handleCreateFeedItem(c *httpkit.Context) {
 	var req struct {
 		Kind     string `json:"kind"`
 		Topic    string `json:"topic"`
@@ -154,12 +154,12 @@ func handleCreateFeedItem(c *gin.Context) {
 		Details  string `json:"details"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	kind, topic, question, answer, details, err := feedPayload(req.Kind, req.Topic, req.Question, req.Answer, req.Details)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -170,17 +170,17 @@ func handleCreateFeedItem(c *gin.Context) {
 		 RETURNING `+feedSelectCols,
 		sessData.username, kind, topic, question, answer, details))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить элемент ленты"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элемент ленты"})
 		return
 	}
 	c.JSON(http.StatusOK, it)
 }
 
 // handleUpdateFeedItem меняет раздел, вопрос, ответ и объяснение (показы не трогаем).
-func handleUpdateFeedItem(c *gin.Context) {
+func handleUpdateFeedItem(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID элемента"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
 		return
 	}
 	var req struct {
@@ -191,12 +191,12 @@ func handleUpdateFeedItem(c *gin.Context) {
 		Details  string `json:"details"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	kind, topic, question, answer, details, err := feedPayload(req.Kind, req.Topic, req.Question, req.Answer, req.Details)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -208,27 +208,27 @@ func handleUpdateFeedItem(c *gin.Context) {
 		 RETURNING `+feedSelectCols,
 		id, sessData.username, kind, topic, question, answer, details))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Элемент ленты не найден"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
 	}
 	c.JSON(http.StatusOK, it)
 }
 
 // handleDeleteFeedItem удаляет элемент ленты (счётчик показов уходит с ним).
-func handleDeleteFeedItem(c *gin.Context) {
+func handleDeleteFeedItem(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID элемента"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	tag, err := db.Exec(context.Background(),
 		`DELETE FROM feed_items WHERE id = $1 AND username = $2`, id, sessData.username)
 	if err != nil || tag.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Элемент ленты не найден"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
 // handleBulkCreateFeedItems сохраняет сразу несколько элементов ленты одним
@@ -236,7 +236,7 @@ func handleDeleteFeedItem(c *gin.Context) {
 // Тело: {"items": [{"topic": "golang", "question": "...", "answer": "...",
 //
 //	"details": "..."}]}
-func handleBulkCreateFeedItems(c *gin.Context) {
+func handleBulkCreateFeedItems(c *httpkit.Context) {
 	var req struct {
 		Items []struct {
 			Kind     string `json:"kind"`
@@ -247,15 +247,15 @@ func handleBulkCreateFeedItems(c *gin.Context) {
 		} `json:"items"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	if len(req.Items) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Нет элементов для сохранения"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Нет элементов для сохранения"})
 		return
 	}
 	if len(req.Items) > maxFeedGenerateCount {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Слишком много элементов за раз"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Слишком много элементов за раз"})
 		return
 	}
 
@@ -267,7 +267,7 @@ func handleBulkCreateFeedItems(c *gin.Context) {
 	for _, it := range req.Items {
 		_, topic, question, answer, extra, err := feedPayload(it.Kind, it.Topic, it.Question, it.Answer, it.Details)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 			return
 		}
 		topics = append(topics, topic)
@@ -284,7 +284,7 @@ func handleBulkCreateFeedItems(c *gin.Context) {
 		 RETURNING `+feedSelectCols,
 		sessData.username, feedKindQA, topics, questions, answers, details)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить элементы ленты"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элементы ленты"})
 		return
 	}
 	defer rows.Close()
@@ -295,33 +295,33 @@ func handleBulkCreateFeedItems(c *gin.Context) {
 			out = append(out, it)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"items": out})
+	c.JSON(http.StatusOK, httpkit.H{"items": out})
 }
 
 // handleGenerateFeedItems генерирует черновики элементов ленты через DeepSeek.
 // Ничего не сохраняет — возвращает список, который пользователь чистит и
 // сохраняет отдельно (как черновики задач цели).
 // Тело: {"topic": "...", "description": "...", "count": 5}
-func handleGenerateFeedItems(c *gin.Context) {
+func handleGenerateFeedItems(c *httpkit.Context) {
 	var req struct {
 		Topic       string `json:"topic"`
 		Description string `json:"description"`
 		Count       int    `json:"count"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	req.Topic = strings.TrimSpace(req.Topic)
 	if req.Topic == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Сначала укажите тему"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Сначала укажите тему"})
 		return
 	}
 	if req.Count <= 0 {
 		req.Count = feedDefaultGenerateCount
 	}
 	if req.Count > maxFeedGenerateCount {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(http.StatusBadRequest, httpkit.H{
 			"error": fmt.Sprintf("За раз можно создать не больше %d элементов", maxFeedGenerateCount),
 		})
 		return
@@ -329,7 +329,7 @@ func handleGenerateFeedItems(c *gin.Context) {
 
 	apiKey := deepseekAPIKey()
 	if apiKey == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
+		c.JSON(http.StatusServiceUnavailable, httpkit.H{
 			"error": "Ключ DeepSeek не настроен (DEEPSEEK_API_KEY в .env)",
 		})
 		return
@@ -337,10 +337,10 @@ func handleGenerateFeedItems(c *gin.Context) {
 
 	drafts, truncated, err := aiGenerateFeedItems(req.Topic, req.Description, req.Count, apiKey)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadGateway, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": drafts, "truncated": truncated})
+	c.JSON(http.StatusOK, httpkit.H{"items": drafts, "truncated": truncated})
 }
 
 // aiGenerateFeedItems просит модель придумать элементы ленты по теме.
@@ -504,17 +504,17 @@ func parseFeedDrafts(content string) ([]feedDraft, error) {
 // handleFeedItemReaction фиксирует реакцию на элемент ленты: «знаю» (know)
 // или «не знаю» (unknown) — соответствующий счётчик +1.
 // Тело: {"value": "know" | "unknown"}
-func handleFeedItemReaction(c *gin.Context) {
+func handleFeedItemReaction(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID элемента"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
 		return
 	}
 	var req struct {
 		Value string `json:"value"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 
@@ -530,14 +530,14 @@ func handleFeedItemReaction(c *gin.Context) {
 	case "unknown":
 		// остаётся ветка по умолчанию выше
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректная реакция"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректная реакция"})
 		return
 	}
 
 	sessData, _ := c.MustGet("session").(session)
 	it, err := feedScan(db.QueryRow(context.Background(), increment, id, sessData.username))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Элемент ленты не найден"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
 	}
 	c.JSON(http.StatusOK, it)
@@ -545,10 +545,10 @@ func handleFeedItemReaction(c *gin.Context) {
 
 // handleFeedItemView отмечает показ элемента в ленте: views = views + 1.
 // Вызывается, когда элемент показан в ленте; текст при этом не меняется.
-func handleFeedItemView(c *gin.Context) {
+func handleFeedItemView(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID элемента"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID элемента"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -558,7 +558,7 @@ func handleFeedItemView(c *gin.Context) {
 		 RETURNING `+feedSelectCols,
 		id, sessData.username))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Элемент ленты не найден"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
 	}
 	c.JSON(http.StatusOK, it)

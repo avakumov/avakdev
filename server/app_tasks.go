@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Статусы задач по модификации приложения.
@@ -264,35 +264,35 @@ func (s *appTaskStore) delete(username string, id int) error {
 }
 
 // handleListAppTasks отдаёт задачи пользователя.
-func handleListAppTasks(c *gin.Context) {
+func handleListAppTasks(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	c.JSON(http.StatusOK, gin.H{"tasks": appTasks.list(sessData.username)})
+	c.JSON(http.StatusOK, httpkit.H{"tasks": appTasks.list(sessData.username)})
 }
 
 // handleCreateAppTask создаёт новую задачу.
-func handleCreateAppTask(c *gin.Context) {
+func handleCreateAppTask(c *httpkit.Context) {
 	var req struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	t, err := appTasks.create(sessData.username, req.Title, req.Description)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, t)
 }
 
 // handleUpdateAppTask обновляет задачу (заголовок, описание, статус).
-func handleUpdateAppTask(c *gin.Context) {
+func handleUpdateAppTask(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID задачи"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
 		return
 	}
 	var req struct {
@@ -308,7 +308,7 @@ func handleUpdateAppTask(c *gin.Context) {
 		RevertedAt      *string `json:"reverted_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -318,23 +318,23 @@ func handleUpdateAppTask(c *gin.Context) {
 		if err.Error() == "задача не найдена" {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, t)
 }
 
 // handleDeleteAppTask удаляет задачу.
-func handleDeleteAppTask(c *gin.Context) {
+func handleDeleteAppTask(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID задачи"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	if err := appTasks.delete(sessData.username, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // validAvatarPresets — допустимые готовые варианты аватара (id).
@@ -33,10 +33,10 @@ const maxAvatarBytes = 512 << 10
 //   - preset — выбранный готовый вариант (тогда фото очищается);
 //   - photo_data + photo_mime — своё фото (тогда preset очищается);
 //   - если ни preset, ни photo нет — аватар сбрасывается (инициалы).
-func handleUpdateAvatar(c *gin.Context) {
+func handleUpdateAvatar(c *httpkit.Context) {
 	sessVal, ok := c.Get("session")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Требуется вход"})
+		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
 		return
 	}
 	sessData, _ := sessVal.(session)
@@ -47,7 +47,7 @@ func handleUpdateAvatar(c *gin.Context) {
 		PhotoMime string `json:"photo_mime"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 
@@ -65,15 +65,15 @@ func handleUpdateAvatar(c *gin.Context) {
 	req.PhotoData = strings.TrimSpace(req.PhotoData)
 
 	if req.Preset != "" && !validAvatarPresets[req.Preset] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Неизвестный вариант аватара"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Неизвестный вариант аватара"})
 		return
 	}
 	if len(req.Preset) > 32 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Значение слишком длинное"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Значение слишком длинное"})
 		return
 	}
 	if len(req.PhotoData) > maxAvatarBytes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Фото слишком большое"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Фото слишком большое"})
 		return
 	}
 	if req.PhotoData == "" {
@@ -96,13 +96,13 @@ func handleUpdateAvatar(c *gin.Context) {
 		 SET avatar_preset = $1, avatar_data = $2, avatar_mime = $3
 		 WHERE username = $4`,
 		preset, photo, mime, sessData.username); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить аватар"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аватар"})
 		return
 	}
 
 	u, found := loadUser(sessData.username)
 	if !found {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Пользователь не найден"})
 		return
 	}
 	c.JSON(http.StatusOK, userPayload(u))

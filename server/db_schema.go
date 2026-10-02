@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // pgDumpTimeout — сколько ждём pg_dump, прежде чем прервать.
@@ -21,15 +21,15 @@ const pgDumpTimeout = 20 * time.Second
 //
 // Пароль передаём через переменные окружения libpq (PG*), а не аргументом
 // командной строки — чтобы он не светился в списке процессов сервера.
-func handleDBSchema(c *gin.Context) {
+func handleDBSchema(c *httpkit.Context) {
 	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if dsn == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "DATABASE_URL не задан"})
+		c.JSON(http.StatusServiceUnavailable, httpkit.H{"error": "DATABASE_URL не задан"})
 		return
 	}
 	env, err := pgEnvFromDSN(dsn)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Некорректный DATABASE_URL"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Некорректный DATABASE_URL"})
 		return
 	}
 
@@ -39,7 +39,7 @@ func handleDBSchema(c *gin.Context) {
 		bin = "pg_dump"
 	}
 	if _, err := exec.LookPath(bin); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
+		c.JSON(http.StatusServiceUnavailable, httpkit.H{
 			"error": "pg_dump не найден. Установите пакет postgresql-client (Debian/Ubuntu) " +
 				"или postgresql (Arch/Manjaro), либо задайте путь в PG_DUMP_BIN.",
 		})
@@ -58,11 +58,11 @@ func handleDBSchema(c *gin.Context) {
 		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
 			msg += ": " + strings.TrimSpace(string(ee.Stderr))
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": msg})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"schema":       string(out),
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
 	})

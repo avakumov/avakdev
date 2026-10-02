@@ -14,7 +14,7 @@ import (
 
 	"regexp"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // imgWithID — regex, находящий тег <img> с атрибутом id="resume-photo".
@@ -307,55 +307,55 @@ func sanitizeHTMLAnswer(s string) string {
 }
 
 // handleGetProfile возвращает текущий профиль.
-func handleGetProfile(c *gin.Context) {
+func handleGetProfile(c *httpkit.Context) {
 	c.JSON(http.StatusOK, profiles.get())
 }
 
 // handleSaveProfile сохраняет описание профиля.
-func handleSaveProfile(c *gin.Context) {
+func handleSaveProfile(c *httpkit.Context) {
 	var req struct {
 		Description string `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	p, err := profiles.saveDescription(req.Description)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить профиль"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить профиль"})
 		return
 	}
 	c.JSON(http.StatusOK, p)
 }
 
 // handleGenerateResume генерирует резюме на основе описания профиля.
-func handleGenerateResume(c *gin.Context) {
+func handleGenerateResume(c *httpkit.Context) {
 	p := profiles.get()
 	resume, err := generateResume(p.Description)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	updated, err := profiles.saveResume(resume)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить резюме"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить резюме"})
 		return
 	}
 	c.JSON(http.StatusOK, updated)
 }
 
 // handleSaveResume сохраняет вручную отредактированный текст резюме.
-func handleSaveResume(c *gin.Context) {
+func handleSaveResume(c *httpkit.Context) {
 	var req struct {
 		Resume string `json:"resume"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	p, err := profiles.saveResume(req.Resume)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить резюме"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить резюме"})
 		return
 	}
 	c.JSON(http.StatusOK, p)
@@ -373,43 +373,43 @@ var allowedPhotoTypes = map[string]bool{
 }
 
 // handleUploadPhoto загружает фото профиля из multipart-формы (поле "photo").
-func handleUploadPhoto(c *gin.Context) {
+func handleUploadPhoto(c *httpkit.Context) {
 	file, header, err := c.Request.FormFile("photo")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Не удалось прочитать файл"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось прочитать файл"})
 		return
 	}
 	defer file.Close()
 
 	if header.Size > maxPhotoBytes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Фото слишком большое (макс. 5 МБ)"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Фото слишком большое (макс. 5 МБ)"})
 		return
 	}
 	// Читаем файл в буфер для определения MIME.
 	buf := make([]byte, header.Size)
 	if _, err := io.ReadFull(file, buf); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Не удалось прочитать файл"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось прочитать файл"})
 		return
 	}
 	mime := http.DetectContentType(buf)
 	if !allowedPhotoTypes[mime] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Формат фото не поддерживается (JPEG/PNG/WebP/GIF)"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Формат фото не поддерживается (JPEG/PNG/WebP/GIF)"})
 		return
 	}
 	data := base64.StdEncoding.EncodeToString(buf)
 	p, err := profiles.savePhoto(data, mime)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить фото"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить фото"})
 		return
 	}
 	c.JSON(http.StatusOK, p)
 }
 
 // handleDeletePhoto удаляет фото профиля.
-func handleDeletePhoto(c *gin.Context) {
+func handleDeletePhoto(c *httpkit.Context) {
 	p, err := profiles.clearPhoto()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось удалить фото"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось удалить фото"})
 		return
 	}
 	c.JSON(http.StatusOK, p)
@@ -418,10 +418,10 @@ func handleDeletePhoto(c *gin.Context) {
 // handleResumePage отдаёт отдельную HTML-страницу с резюме.
 // Страница содержит только резюме (HTML+CSS), её можно открыть в браузере
 // и распечатать/сохранить в PDF. В HTML подставляется актуальное фото.
-func handleResumePage(c *gin.Context) {
+func handleResumePage(c *httpkit.Context) {
 	p := profiles.get()
 	if strings.TrimSpace(p.Resume) == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Резюме ещё не сгенерировано"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Резюме ещё не сгенерировано"})
 		return
 	}
 	html := applyPhotoToResume(p.Resume, p.PhotoData, p.PhotoMime)

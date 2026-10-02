@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // NotificationInboxItem — запись «входящих»: уведомление, наступившее по
@@ -34,7 +34,7 @@ func deliverDueAppNotifications() {
 }
 
 // handleListNotificationInbox отдаёт «входящие» (наступившие и не закрытые).
-func handleListNotificationInbox(c *gin.Context) {
+func handleListNotificationInbox(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
 	rows, err := db.Query(context.Background(),
@@ -46,7 +46,7 @@ func handleListNotificationInbox(c *gin.Context) {
 		 ORDER BY created DESC`,
 		sessData.username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить уведомления"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
 		return
 	}
 	defer rows.Close()
@@ -55,24 +55,24 @@ func handleListNotificationInbox(c *gin.Context) {
 	for rows.Next() {
 		var it NotificationInboxItem
 		if err := rows.Scan(&it.ID, &it.Text, &it.Created); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить уведомления"})
+			c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
 			return
 		}
 		out = append(out, it)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить уведомления"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"inbox": out})
+	c.JSON(http.StatusOK, httpkit.H{"inbox": out})
 }
 
 // handleDismissNotification закрывает «входящее» уведомление. Если это было
 // одноразовое — оно удаляется; периодическое — сдвигается на следующий период.
-func handleDismissNotification(c *gin.Context) {
+func handleDismissNotification(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID уведомления"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID уведомления"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -83,7 +83,7 @@ func handleDismissNotification(c *gin.Context) {
 		 RETURNING notif_id`,
 		id, sessData.username).Scan(&notifID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Уведомление не найдено"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Уведомление не найдено"})
 		return
 	}
 
@@ -98,7 +98,7 @@ func handleDismissNotification(c *gin.Context) {
 		notifID, sessData.username).Scan(&ntype, &dueAt, &unit, &value)
 	if err != nil {
 		// Родитель уже удалён — входящее закрыто, и этого достаточно.
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		c.JSON(http.StatusOK, httpkit.H{"ok": true})
 		return
 	}
 
@@ -122,5 +122,5 @@ func handleDismissNotification(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

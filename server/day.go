@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Раздел «День»: ежедневный план. Пользователь задаёт свободное время,
@@ -236,22 +236,22 @@ func dueKnowledgeNotes(day string) []Note {
 }
 
 // handleDaySuggest — предложения состава дня под лимит времени.
-func handleDaySuggest(c *gin.Context) {
+func handleDaySuggest(c *httpkit.Context) {
 	var req struct {
 		Date    string `json:"date"`
 		Minutes int    `json:"minutes"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	day, err := parseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	if req.Minutes < 1 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Укажите доступное время"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Укажите доступное время"})
 		return
 	}
 
@@ -336,7 +336,7 @@ func handleDaySuggest(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"date":             day,
 		"minutes":          req.Minutes,
 		"used_minutes":     req.Minutes - left,
@@ -476,11 +476,11 @@ func dayCompletedTasks(ctx context.Context, username, day string) []completedTas
 }
 
 // handleGetDay — план на дату (или пустой, если день ещё не сформирован).
-func handleGetDay(c *gin.Context) {
+func handleGetDay(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	day, err := parseDay(c.Query("date"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	body, found := loadDayItems(sessData.username, day)
@@ -493,7 +493,7 @@ func handleGetDay(c *gin.Context) {
 
 // handleSaveDay сохраняет (перезаписывает) план дня.
 // Тело: {"date": "ГГГГ-ММ-ДД", "budget_minutes": число, "items":[{"kind":"task|note","ref_id":N}]}
-func handleSaveDay(c *gin.Context) {
+func handleSaveDay(c *httpkit.Context) {
 	var req struct {
 		Date          string `json:"date"`
 		BudgetMinutes int    `json:"budget_minutes"`
@@ -503,12 +503,12 @@ func handleSaveDay(c *gin.Context) {
 		} `json:"items"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	day, err := parseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	if req.BudgetMinutes < 0 {
@@ -521,7 +521,7 @@ func handleSaveDay(c *gin.Context) {
 
 	tx, err := db.Begin(ctx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "БД недоступна"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "БД недоступна"})
 		return
 	}
 	defer tx.Rollback(ctx)
@@ -535,7 +535,7 @@ func handleSaveDay(c *gin.Context) {
 		 RETURNING id`,
 		username, day, req.BudgetMinutes).Scan(&planID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить день: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
 		return
 	}
 
@@ -563,7 +563,7 @@ func handleSaveDay(c *gin.Context) {
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM day_items WHERE plan_id = $1`, planID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить день: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
 		return
 	}
 
@@ -586,13 +586,13 @@ func handleSaveDay(c *gin.Context) {
 			`INSERT INTO day_items (plan_id, kind, ref_id, minutes, done, position, actual_minutes)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 			planID, it.Kind, it.RefID, minutes, p.done, pos, p.actual); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить день: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
 			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить день: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
 		return
 	}
 
@@ -602,7 +602,7 @@ func handleSaveDay(c *gin.Context) {
 
 // handleSetDayItemDone — отметить позицию плана дня выполненной (done=true)
 // или снять отметку. Тело: {"date", "kind", "ref_id", "done"}.
-func handleSetDayItemDone(c *gin.Context) {
+func handleSetDayItemDone(c *httpkit.Context) {
 	var req struct {
 		Date  string `json:"date"`
 		Kind  string `json:"kind"`
@@ -610,16 +610,16 @@ func handleSetDayItemDone(c *gin.Context) {
 		Done  bool   `json:"done"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	day, err := parseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	if req.Kind != "task" && req.Kind != "note" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный тип позиции"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный тип позиции"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -629,10 +629,10 @@ func handleSetDayItemDone(c *gin.Context) {
 		       (SELECT id FROM day_plans WHERE username = $4 AND day = $5)`,
 		req.Done, req.Kind, req.RefID, sessData.username, day)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось обновить позицию дня"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось обновить позицию дня"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
 // maxDayItemSpentMinutes — верхняя граница фактического времени по позиции дня
@@ -645,7 +645,7 @@ const maxDayItemSpentMinutes = 24 * 60
 // у конспектов время считается по символам.
 // Если задачи ещё нет в плане этого дня, она добавляется в день (план при
 // необходимости создаётся) — чтобы время можно было указать прямо из задачи.
-func handleSetDayItemSpent(c *gin.Context) {
+func handleSetDayItemSpent(c *httpkit.Context) {
 	var req struct {
 		Date    string `json:"date"`
 		Kind    string `json:"kind"`
@@ -653,27 +653,27 @@ func handleSetDayItemSpent(c *gin.Context) {
 		Minutes int    `json:"minutes"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	if req.Kind != "task" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Факт можно указать только для задачи"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Факт можно указать только для задачи"})
 		return
 	}
 	if req.Minutes < 0 || req.Minutes > maxDayItemSpentMinutes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректное время"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректное время"})
 		return
 	}
 	day, err := parseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	username := sessData.username
 	// Чужая/несуществующая задача в день не добавляется.
 	if _, ok := tasks.getOwned(username, req.RefID); !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Задача не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Задача не найдена"})
 		return
 	}
 
@@ -684,14 +684,14 @@ func handleSetDayItemSpent(c *gin.Context) {
 		`INSERT INTO day_plans (username, day, budget_minutes)
 		 VALUES ($1, $2, 0)
 		 ON CONFLICT (username, day) DO NOTHING`, username, day); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
 		return
 	}
 	var planID int
 	if err := db.QueryRow(ctx,
 		`SELECT id FROM day_plans WHERE username = $1 AND day = $2`,
 		username, day).Scan(&planID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
 		return
 	}
 
@@ -706,10 +706,10 @@ func handleSetDayItemSpent(c *gin.Context) {
 		 ON CONFLICT (plan_id, kind, ref_id)
 		 DO UPDATE SET actual_minutes = EXCLUDED.actual_minutes`,
 		planID, req.RefID, minutes, req.Minutes); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить время"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "minutes": req.Minutes})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true, "minutes": req.Minutes})
 }
 
 // DaySummary — строка истории (прошедшие дни).
@@ -730,10 +730,10 @@ type DaySummary struct {
 // handleDayHistory — список дней (сначала новые): сохранённые планы и дни,
 // в которые были закрыты задачи. День задачи берётся из completed_date —
 // локальной даты, которую пользователь может задать (в том числе задним числом).
-func handleDayHistory(c *gin.Context) {
+func handleDayHistory(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	if db == nil {
-		c.JSON(http.StatusOK, gin.H{"days": []DaySummary{}})
+		c.JSON(http.StatusOK, httpkit.H{"days": []DaySummary{}})
 		return
 	}
 	rows, err := db.Query(context.Background(),
@@ -778,7 +778,7 @@ func handleDayHistory(c *gin.Context) {
 		 ORDER BY d.day DESC
 		 LIMIT 90`, sessData.username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить историю"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить историю"})
 		return
 	}
 	defer rows.Close()
@@ -789,7 +789,7 @@ func handleDayHistory(c *gin.Context) {
 			days = append(days, d)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"days": days})
+	c.JSON(http.StatusOK, httpkit.H{"days": days})
 }
 
 // parseDayInt — вспомогательная проверка для времени (оставлено для будущего

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Раздел «Заметки»: быстрые записи-черновики. В коде называются draft, чтобы не
@@ -32,7 +32,7 @@ const (
 )
 
 // handleListDrafts возвращает заметки пользователя: свежие сверху.
-func handleListDrafts(c *gin.Context) {
+func handleListDrafts(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 	rows, err := db.Query(context.Background(),
 		`SELECT id, content, `+draftCreatedExpr+`, `+draftUpdatedExpr+`
@@ -40,7 +40,7 @@ func handleListDrafts(c *gin.Context) {
 		 ORDER BY updated DESC, id DESC`,
 		sessData.username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить заметки"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить заметки"})
 		return
 	}
 	defer rows.Close()
@@ -56,17 +56,17 @@ func handleListDrafts(c *gin.Context) {
 }
 
 // handleCreateDraft сохраняет новую заметку.
-func handleCreateDraft(c *gin.Context) {
+func handleCreateDraft(c *httpkit.Context) {
 	var req struct {
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	content, err := draftContent(req.Content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -79,7 +79,7 @@ func handleCreateDraft(c *gin.Context) {
 		sessData.username, content).
 		Scan(&n.ID, &n.Content, &n.Created, &n.Updated)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить заметку"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить заметку"})
 		return
 	}
 	c.JSON(http.StatusOK, n)
@@ -98,22 +98,22 @@ func draftContent(raw string) (string, error) {
 }
 
 // handleUpdateDraft заменяет текст существующей заметки.
-func handleUpdateDraft(c *gin.Context) {
+func handleUpdateDraft(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID заметки"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID заметки"})
 		return
 	}
 	var req struct {
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	content, err := draftContent(req.Content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
@@ -126,25 +126,25 @@ func handleUpdateDraft(c *gin.Context) {
 		id, sessData.username, content).
 		Scan(&n.ID, &n.Content, &n.Created, &n.Updated)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Заметка не найдена"})
 		return
 	}
 	c.JSON(http.StatusOK, n)
 }
 
 // handleDeleteDraft удаляет заметку.
-func handleDeleteDraft(c *gin.Context) {
+func handleDeleteDraft(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID заметки"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID заметки"})
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
 	tag, err := db.Exec(context.Background(),
 		`DELETE FROM draft_notes WHERE id = $1 AND username = $2`, id, sessData.username)
 	if err != nil || tag.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Заметка не найдена"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }

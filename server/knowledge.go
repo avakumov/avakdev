@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Note — конспект знаний по конкретной теме. Генерируется через ИИ,
@@ -323,7 +323,7 @@ func (ns *noteStore) saveAudio(id int, data []byte, mime string) error {
 // handleListNotes возвращает список всех конспектов.
 // handleListNotes возвращает все конспекты с временем чтения, вычисленным
 // по скорости чтения текущего пользователя (см. readingMinutes).
-func handleListNotes(c *gin.Context) {
+func handleListNotes(c *httpkit.Context) {
 	username := ""
 	if sessData, ok := c.MustGet("session").(session); ok {
 		username = sessData.username
@@ -340,14 +340,14 @@ func handleListNotes(c *gin.Context) {
 }
 
 // handleCreateNote создаёт новый конспект. Счётчик повторений стартует с нуля.
-func handleCreateNote(c *gin.Context) {
+func handleCreateNote(c *httpkit.Context) {
 	var req struct {
 		Topic   string `json:"topic"`
 		Title   string `json:"title"`
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	req.Topic = strings.TrimSpace(req.Topic)
@@ -356,13 +356,13 @@ func handleCreateNote(c *gin.Context) {
 		req.Title = req.Topic
 	}
 	if req.Title == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Укажите тему или заголовок конспекта"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Укажите тему или заголовок конспекта"})
 		return
 	}
 
 	n, err := notes.create(req.Topic, req.Title, req.Content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить конспект"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить конспект"})
 		return
 	}
 	c.JSON(http.StatusOK, n)
@@ -370,10 +370,10 @@ func handleCreateNote(c *gin.Context) {
 
 // handleUpdateNote обновляет конспект по ID (title, content).
 // Счётчик повторений пользователь меняет только через handleRepeatNote.
-func handleUpdateNote(c *gin.Context) {
+func handleUpdateNote(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
 		return
 	}
 
@@ -382,66 +382,66 @@ func handleUpdateNote(c *gin.Context) {
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 
 	n, err := notes.update(id, strings.TrimSpace(req.Title), req.Content)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, n)
 }
 
 // handleRepeatNote увеличивает счётчик повторений конспекта на единицу.
-func handleRepeatNote(c *gin.Context) {
+func handleRepeatNote(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
 		return
 	}
 
 	n, err := notes.markRepeat(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, n)
 }
 
 // handleDeleteNote удаляет конспект по ID.
-func handleDeleteNote(c *gin.Context) {
+func handleDeleteNote(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
 		return
 	}
 	if err := notes.deleteByID(id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, httpkit.H{"ok": true})
 }
 
 // handleGenerateNote вызывает DeepSeek для создания краткого конспекта по теме.
-func handleGenerateNote(c *gin.Context) {
+func handleGenerateNote(c *httpkit.Context) {
 	var req struct {
 		Topic string `json:"topic"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный запрос"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
 	req.Topic = strings.TrimSpace(req.Topic)
 	if req.Topic == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Укажите тему"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Укажите тему"})
 		return
 	}
 
 	apiKey := deepseekAPIKey()
 	if apiKey == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
+		c.JSON(http.StatusServiceUnavailable, httpkit.H{
 			"error": "Ключ DeepSeek не настроен (DEEPSEEK_API_KEY в .env)",
 		})
 		return
@@ -449,11 +449,11 @@ func handleGenerateNote(c *gin.Context) {
 
 	content, err := generateNoteContent(req.Topic, apiKey)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadGateway, httpkit.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, httpkit.H{
 		"topic":   req.Topic,
 		"title":   req.Topic,
 		"content": content,

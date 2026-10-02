@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/gin-gonic/gin"
+	"avakumov/server/internal/httpkit"
 )
 
 // Конфигурация Yandex SpeechKit для синтеза речи (TTS).
@@ -141,20 +141,20 @@ func yandexTTS(text string) ([]byte, string, error) {
 // handleSynthesizeNote генерирует аудио для конспекта по его полному тексту
 // и сохраняет его в БД. Если аудио уже есть — возвращает его без повторного
 // обращения к Yandex SpeechKit (экономия токенов/квоты).
-func handleSynthesizeNote(c *gin.Context) {
+func handleSynthesizeNote(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
 		return
 	}
 
 	n, ok := notes.get(id)
 	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Конспект не найден"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Конспект не найден"})
 		return
 	}
 	if strings.TrimSpace(n.Content) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Конспект пуст — нечего озвучивать"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Конспект пуст — нечего озвучивать"})
 		return
 	}
 
@@ -162,7 +162,7 @@ func handleSynthesizeNote(c *gin.Context) {
 	// списки, ссылки, код), чтобы TTS читал чистый текст.
 	text := markdownToPlainText(n.Content)
 	if strings.TrimSpace(text) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Конспект пуст — нечего озвучивать"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Конспект пуст — нечего озвучивать"})
 		return
 	}
 
@@ -178,12 +178,12 @@ func handleSynthesizeNote(c *gin.Context) {
 	// склеиваем в одно аудио (OGG — конкатенация кадров допустима).
 	audio, mime, err := synthesizeChunks(text)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadGateway, httpkit.H{"error": err.Error()})
 		return
 	}
 
 	if err := notes.saveAudio(id, audio, mime); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить аудио"})
+		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аудио"})
 		return
 	}
 
@@ -193,15 +193,15 @@ func handleSynthesizeNote(c *gin.Context) {
 // handleGetNoteAudio возвращает ранее сгенерированное аудио конспекта.
 // Если аудио ещё нет, возвращает 404 — фронтенд может вызвать
 // POST /api/knowledge/:id/tts для генерации.
-func handleGetNoteAudio(c *gin.Context) {
+func handleGetNoteAudio(c *httpkit.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID"})
+		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
 		return
 	}
 
 	if !notes.hasAudio(id) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Аудио ещё не сгенерировано"})
+		c.JSON(http.StatusNotFound, httpkit.H{"error": "Аудио ещё не сгенерировано"})
 		return
 	}
 
