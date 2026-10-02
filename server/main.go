@@ -226,12 +226,12 @@ func main() {
 	authed.DELETE("/tasks/:id", h.DeleteTask)
 
 	// Раздел «День»: ежедневный план (задачи + повторение знаний, метрики).
-	authed.GET("/day", handleGetDay)
-	authed.POST("/day/suggest", handleDaySuggest)
-	authed.PUT("/day", handleSaveDay)
-	authed.PUT("/day/done", handleSetDayItemDone)
-	authed.PUT("/day/spent", handleSetDayItemSpent)
-	authed.GET("/day/history", handleDayHistory)
+	authed.GET("/day", h.GetDay)
+	authed.POST("/day/suggest", h.DaySuggest)
+	authed.PUT("/day", h.SaveDay)
+	authed.PUT("/day/done", h.SetDayItemDone)
+	authed.PUT("/day/spent", h.SetDayItemSpent)
+	authed.GET("/day/history", h.DayHistory)
 
 	// Уведомления пользователя (колокольчик на странице профиля).
 	authed.GET("/notifications", h.ListNotifications)
