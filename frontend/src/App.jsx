@@ -28,6 +28,7 @@ import Metrics from "./Metrics.jsx";
 import Notes from "./Notes.jsx";
 import Feed from "./Feed.jsx";
 import FeedEdit from "./FeedEdit.jsx";
+import DBSchema from "./DBSchema.jsx";
 import NotesDock from "./NotesDock.jsx";
 import Tasks from "./Tasks.jsx";
 import AppTasks from "./AppTasks.jsx";
@@ -94,6 +95,7 @@ const VIEW_PATHS = {
   notes: "/notes",
   app: "/app",
   server: "/server",
+  db: "/db",
   user: "/user",
 };
 
@@ -575,6 +577,7 @@ function App() {
           {view === "feed" && <Feed onExit={closeFeed} />}
           {view === "feed-edit" && <FeedEdit onLaunch={openFeed} />}
           {view === "app" && <AppTasks />}
+          {view === "db" && <DBSchema />}
           {view === "user" && (
             <User user={meQuery.data} onLogout={handleLogout} />
           )}

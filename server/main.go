@@ -143,6 +143,9 @@ func main() {
 				c.JSON(http.StatusOK, collectMetrics())
 			})
 
+			// Схема БД (DDL) для раздела «База данных».
+			admin.GET("/db-schema", handleDBSchema)
+
 			// Задачи по модификации приложения (раздел «Приложение») —
 			// только для администраторов (запрос деплоя/отката изменений).
 			admin.GET("/app-tasks", handleListAppTasks)

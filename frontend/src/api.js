@@ -164,6 +164,25 @@ export function useMetrics(refetchInterval = 5000, enabled = true) {
   });
 }
 
+// Схема БД (DDL) для админ-раздела «База данных» с /api/db-schema.
+// Запрашиваем только когда раздел открыт (enabled).
+// Возвращает { schema, generated_at }. Отдаём текст ошибки сервера, чтобы
+// было понятно, например, что не установлен pg_dump.
+export function useDBSchema(enabled = true) {
+  return useQuery({
+    queryKey: ["db-schema"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/db-schema`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Ошибка запроса: ${res.status}`);
+      return data;
+    },
+    staleTime: 60_000,
+    enabled,
+    retry: false,
+  });
+}
+
 // ==== «Важное» сообщение ====
 
 // Текущее «важное» сообщение с /api/important.

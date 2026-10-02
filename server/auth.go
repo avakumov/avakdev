@@ -74,7 +74,7 @@ var (
 		"reading", "metrics", "profile", "important", "notes", "feed-edit",
 		"user",
 	}
-	adminSections = []string{"server", "app"}
+	adminSections = []string{"server", "app", "db"}
 )
 
 // userSections возвращает разделы, доступные пользователю с ролью isAdmin.

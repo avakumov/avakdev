@@ -15,6 +15,7 @@ import {
   Bell,
   StickyNote,
   Rss,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IS_LOCAL_DEV } from "@/lib/env";
@@ -41,6 +42,7 @@ export const NAV_ITEMS = [
   { key: "feed-edit", label: "Лента", icon: Rss },
   { key: "server", label: "Сервер", icon: Server },
   { key: "app", label: "Приложение", icon: Wrench },
+  { key: "db", label: "База данных", icon: Database },
 ];
 
 // Боковое меню: на десктопе закреплено слева (lg+), на мобильных выезжает
