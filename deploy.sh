@@ -311,7 +311,7 @@ ExecStart=$BIN_PATH
 Restart=on-failure
 RestartSec=5
 Environment=PORT=$APP_PORT
-Environment=GIN_MODE=release
+Environment=APP_ENV=production
 # Читаем ключи из .env (DEEPSEEK_API_KEY, YANDEX_FOLDER_ID, YANDEX_API_KEY и т.д.)
 EnvironmentFile=$INSTALL_DIR/.env
 

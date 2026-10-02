@@ -71,17 +71,17 @@ func TestImportantStore(t *testing.T) {
 	}
 }
 
-// В тестовом/локальном окружении (без GIN_MODE=release) сообщение
+// В тестовом/локальном окружении (без APP_ENV=production) сообщение
 // не должно показываться — это production-only функциональность.
 func TestImportantEnabledOnlyOnProduction(t *testing.T) {
 	// Сбрасываем переменную, чтобы тест не зависел от окружения машины.
-	t.Setenv("GIN_MODE", "")
+	t.Setenv("APP_ENV", "")
 	if importantEnabled() {
 		t.Fatal("importantEnabled() = true в не-production окружении, want false")
 	}
 
-	t.Setenv("GIN_MODE", "release")
+	t.Setenv("APP_ENV", "production")
 	if !importantEnabled() {
-		t.Fatal("importantEnabled() = false при GIN_MODE=release, want true")
+		t.Fatal("importantEnabled() = false при APP_ENV=production, want true")
 	}
 }

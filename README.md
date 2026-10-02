@@ -121,6 +121,7 @@ go install github.com/air-verse/air@latest
 ## Переменные окружения
 
 - `PORT` — порт сервера (по умолчанию `8080`)
+- `APP_ENV=production` — production-режим: включается «важное» сообщение, отключается агент
 - `DEEPSEEK_API_KEY` — ключ DeepSeek для генерации конспектов и резюме
 - `DATABASE_URL` — строка подключения PostgreSQL
 - `PG_PASS` — пароль роли PostgreSQL для локальной dev-БД (используют `Makefile` и скрипты в `scripts/`; можно не задавать, если пароль есть в `DATABASE_URL`)
@@ -143,7 +144,7 @@ Go-сервера: он сам правит файлы (код, миграции
 air перезапускал бы его при каждом изменении файла посреди задачи.
 `make dev` / `make dev-backend` поднимают агента сами, отдельно есть
 `make dev-agent`. В production агент не запускается (нет исходников и
-`GIN_MODE=release`).
+`APP_ENV=production`).
 
 **Кнопка «Deploy»**: у задачи со статусом «Готова» в UI есть кнопка
 «Deploy» — она ставит флаг `deploy_requested`. Dev-агент при следующем опросе

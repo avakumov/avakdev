@@ -33,11 +33,6 @@ func indexData(fsys fs.FS) ([]byte, bool) {
 }
 
 func main() {
-	// В продакшене (собранный бинарник) включаем release-режим.
-	if os.Getenv("GIN_MODE") == "release" {
-		httpkit.SetMode(httpkit.ReleaseMode)
-	}
-
 	// Подхватываем переменные из .env (ключ DeepSeek, DATABASE_URL и т.п.).
 	loadEnv()
 

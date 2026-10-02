@@ -11,10 +11,10 @@ import (
 )
 
 // importantEnabled — «важное» сообщение показывается только на production.
-// Продакшен определяется по GIN_MODE=release (задаётся в systemd-юните
+// Продакшен определяется по APP_ENV=production (задаётся в systemd-юните
 // скриптом deploy.sh при установке на сервер).
 func importantEnabled() bool {
-	return os.Getenv("GIN_MODE") == "release"
+	return os.Getenv("APP_ENV") == "production"
 }
 
 // importantMessage — «важное» сообщение одного пользователя.

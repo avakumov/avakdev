@@ -1,9 +1,8 @@
 // Package httpkit — тонкая обёртка над go-chi/chi (и, значит, над net/http).
 //
-// Экспериментальная ветка `chi`: цель — заменить gin на chi и сравнить размер
-// бинарника и число зависимостей. Роутинг, группы, middleware и логи/восстановление
-// после паник даёт chi; Context — небольшой хелпер для JSON-ответов и разбора
-// запроса, чтобы не переписывать обработчики вручную.
+// Роутинг, группы, middleware и логи/восстановление после паник даёт chi;
+// Context — небольшой хелпер для JSON-ответов и разбора запроса, чтобы
+// обработчики оставались компактными.
 package httpkit
 
 import (
@@ -18,20 +17,14 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// H — удобный алиас для JSON-объектов (замена gin.H).
+// H — удобный алиас для JSON-объектов.
 type H = map[string]any
 
-// HandlerFunc — обработчик запроса (замена gin.HandlerFunc).
+// HandlerFunc — обработчик запроса.
 type HandlerFunc = func(*Context)
 
 // Middleware — стандартный middleware chi: func(http.Handler) http.Handler.
 type Middleware = func(http.Handler) http.Handler
-
-// Mode-константы оставлены для совместимости (в chi режимов нет).
-const ReleaseMode = "release"
-
-// SetMode — заглушка (в gin переключала debug/release).
-func SetMode(string) {}
 
 // Context — небольшой хелпер над http.ResponseWriter/http.Request: JSON-ответы,
 // параметры маршрута chi, разбор JSON/multipart, cookie и значения контекста.
@@ -171,7 +164,8 @@ type Engine struct {
 // New создаёт роутер без встроенных middleware.
 func New() *Engine { return &Engine{router: chi.NewRouter()} }
 
-// Default — аналог gin.Default(): логгер запросов + восстановление после паник.
+// Default — роутер со встроенными middleware: логгером запросов и
+// восстановлением после паник.
 func Default() *Engine {
 	e := New()
 	e.router.Use(middleware.Logger)

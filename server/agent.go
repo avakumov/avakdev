@@ -41,7 +41,7 @@ type agent struct {
 // данные для сервера задач. Возвращает true, если агент запущен; в остальных
 // случаях пишет причину отключения и возвращает false.
 func startAgent() bool {
-	if os.Getenv("GIN_MODE") == "release" {
+	if os.Getenv("APP_ENV") == "production" {
 		log.Println("AGENT: отключён — в production агент не запускается")
 		return false
 	}
