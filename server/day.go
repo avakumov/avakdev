@@ -14,25 +14,15 @@ import (
 	"time"
 
 	"avakumov/server/internal/httpkit"
+	"avakumov/server/internal/store"
 )
 
 // Раздел «День»: ежедневный план. Пользователь задаёт свободное время,
 // сервер предлагает состав (активные задачи + заметки к повторению,
 // вписывающиеся в лимит), метрики в план не входят и время не считают.
 
-// DayItem — позиция сохранённого дня.
-type DayItem struct {
-	Kind    string `json:"kind"` // task | note
-	RefID   int    `json:"ref_id"`
-	Title   string `json:"title"`
-	Meta    string `json:"meta"` // категория задачи / тема заметки
-	Minutes int    `json:"minutes"`
-	Done    bool   `json:"done"`
-	// SpentMinutes — фактически потраченное время позиции в этот день (0 —
-	// не указано). При подсчёте «потрачено» имеет приоритет над Minutes.
-	// Для заметок не используется — у них время по символам.
-	SpentMinutes int `json:"spent_minutes"`
-}
+// DayItem — позиция сохранённого дня (определение живёт в store).
+type DayItem = store.DayItem
 
 // DayCandidate — кандидат в план из списка предложений.
 type DayCandidate struct {
@@ -44,33 +34,11 @@ type DayCandidate struct {
 	Selected bool   `json:"selected"`
 }
 
-// dayBody — единый ответ для дня.
-// completedTask — задача, закрытая в этот день (для отчёта дня).
-type completedTask struct {
-	ID       int    `json:"id"`
-	Title    string `json:"title"`
-	Category string `json:"category"`
-	DoneAt   string `json:"done_at"` // RFC3339, UTC
-	// CompletedDate — за какой день задача выполнена (ГГГГ-ММ-ДД).
-	CompletedDate string `json:"completed_date"`
-	// ActualHours — потраченное время задачи (ч) — сумма фактического времени
-	// по дням; PlannedHours — плановая оценка (ч).
-	ActualHours  float64 `json:"actual_hours"`
-	PlannedHours float64 `json:"planned_hours"`
-}
+// completedTask / dayBody — определения живут в store (день, его строки и
+// закрытые в этот день задачи).
+type completedTask = store.CompletedTask
 
-type dayBody struct {
-	Date          string    `json:"date"`
-	BudgetMinutes int       `json:"budget_minutes"`
-	TotalMinutes  int       `json:"total_minutes"`
-	Items         []DayItem `json:"items"`
-	// Report — сохранённый текст отчёта за день (пишется автоматически при
-	// вводе в «Дне»).
-	Report string `json:"report"`
-	// CompletedTasks — все задачи, отмеченные выполненными в этот день, даже
-	// если их не было в плане. Показываются в отчёте за день.
-	CompletedTasks []completedTask `json:"completed_tasks"`
-}
+type dayBody = store.DayBody
 
 // envReadingSpeed — символов в минуту из переменной окружения
 // DAY_READING_SPEED; 0, если переменная не задана или некорректна.
@@ -86,10 +54,7 @@ func envReadingSpeed() int {
 // 0 или отсутствие значения = «среднее»: сначала DAY_READING_SPEED, иначе 1500.
 func readingSpeedFor(username string) int {
 	if db != nil && username != "" {
-		var v int
-		err := db.QueryRow(context.Background(),
-			`SELECT reading_speed FROM users WHERE username = $1`, username).Scan(&v)
-		if err == nil && v > 0 {
+		if v, ok := dayStore.ReadingSpeed(context.Background(), username); ok && v > 0 {
 			return v
 		}
 	}
@@ -386,7 +351,7 @@ func resolveItemMinutes(username, kind string, refID int) (int, bool) {
 	return 0, false
 }
 
-// loadDayItems собирает план из БД по дате.
+// loadDayItems собирает план из БД по дате (SQL — в store.Day).
 func loadDayItems(username, day string) (dayBody, bool) {
 	if db == nil {
 		return dayBody{}, false
@@ -396,32 +361,20 @@ func loadDayItems(username, day string) (dayBody, bool) {
 	body.Date = day
 	body.Items = make([]DayItem, 0)
 	// Задачи, закрытые в этот день: не зависят от того, был ли план.
-	body.CompletedTasks = dayCompletedTasks(ctx, username, day)
+	body.CompletedTasks = dayStore.CompletedTasks(ctx, username, day)
 
-	var planID int
-	err := db.QueryRow(ctx,
-		`SELECT id, budget_minutes, COALESCE(report, '')
-		 FROM day_plans
-		 WHERE username = $1 AND day = $2`, username, day).
-		Scan(&planID, &body.BudgetMinutes, &body.Report)
+	planID, budget, report, ok := dayStore.PlanInfo(ctx, username, day)
+	if !ok {
+		return body, false
+	}
+	body.BudgetMinutes, body.Report = budget, report
+
+	raw, err := dayStore.Items(ctx, planID)
 	if err != nil {
 		return body, false
 	}
-
-	items := make([]DayItem, 0)
-	rows, err := db.Query(ctx,
-		`SELECT kind, ref_id, minutes, done, position, actual_minutes
-		 FROM day_items WHERE plan_id = $1 ORDER BY position`, planID)
-	if err != nil {
-		return body, false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var it DayItem
-		var pos int
-		if err := rows.Scan(&it.Kind, &it.RefID, &it.Minutes, &it.Done, &pos, &it.SpentMinutes); err != nil {
-			continue
-		}
+	items := make([]DayItem, 0, len(raw))
+	for _, it := range raw {
 		title, meta, ok := dayItemTitle(username, it.Kind, it.RefID)
 		if !ok {
 			continue // задача/заметка удалены — позицию пропускаем
@@ -440,39 +393,6 @@ func loadDayItems(username, day string) (dayBody, bool) {
 	}
 	body.Items = items
 	return body, true
-}
-
-// dayCompletedTasks возвращает задачи пользователя, закрытые в указанный день.
-// День берётся из completed_date — локальной даты, которую пользователь может
-// задать (в том числе задним числом), поэтому часовой пояс здесь не нужен.
-// ActualHours — сумма фактического времени задачи по дням (0, если фактов нет).
-func dayCompletedTasks(ctx context.Context, username, day string) []completedTask {
-	out := make([]completedTask, 0)
-	rows, err := db.Query(ctx,
-		`SELECT t.id, t.title, t.category,
-		        to_char(t.completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-		        COALESCE(to_char(t.completed_date,'YYYY-MM-DD'),''),
-		        COALESCE((SELECT SUM(i.actual_minutes)
-		                    FROM day_items i
-		                    JOIN day_plans p ON p.id = i.plan_id
-		                   WHERE i.kind = 'task' AND i.ref_id = t.id
-		                     AND p.username = t.username), 0)::float8 / 60.0,
-		        t.planned_hours
-		   FROM tasks t
-		  WHERE t.username = $1 AND t.status = 'done' AND t.completed_date = $2::date
-		  ORDER BY t.completed_at`,
-		username, day)
-	if err != nil {
-		return out
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var t completedTask
-		if err := rows.Scan(&t.ID, &t.Title, &t.Category, &t.DoneAt, &t.CompletedDate, &t.ActualHours, &t.PlannedHours); err == nil {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // handleGetDay — план на дату (или пустой, если день ещё не сформирован).
@@ -519,56 +439,13 @@ func handleSaveDay(c *httpkit.Context) {
 	username := sessData.username
 	ctx := context.Background()
 
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "БД недоступна"})
-		return
-	}
-	defer tx.Rollback(ctx)
-
-	var planID int
-	err = tx.QueryRow(ctx,
-		`INSERT INTO day_plans (username, day, budget_minutes)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (username, day)
-		 DO UPDATE SET budget_minutes = EXCLUDED.budget_minutes, updated = now()
-		 RETURNING id`,
-		username, day, req.BudgetMinutes).Scan(&planID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
-		return
-	}
-
 	type kv struct {
 		kind string
 		id   int
 	}
-	// Сохраняем факт и отметку «выполнено» у позиций, которые остаются в плане:
-	// пере-формирование дня не должно обнулять уже введённое время.
-	type prevItem struct {
-		actual int
-		done   bool
-	}
-	prev := make(map[kv]prevItem)
-	if rows, err := tx.Query(ctx,
-		`SELECT kind, ref_id, actual_minutes, done FROM day_items WHERE plan_id = $1`, planID); err == nil {
-		for rows.Next() {
-			var k kv
-			var p prevItem
-			if err := rows.Scan(&k.kind, &k.id, &p.actual, &p.done); err == nil {
-				prev[k] = p
-			}
-		}
-		rows.Close()
-	}
-
-	if _, err := tx.Exec(ctx, `DELETE FROM day_items WHERE plan_id = $1`, planID); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
-		return
-	}
-
 	seen := make(map[kv]bool)
-	for pos, it := range req.Items {
+	items := make([]store.SaveItem, 0, len(req.Items))
+	for _, it := range req.Items {
 		if it.Kind != "task" && it.Kind != "note" {
 			continue
 		}
@@ -581,17 +458,10 @@ func handleSaveDay(c *httpkit.Context) {
 			continue
 		}
 		seen[k] = true
-		p := prev[k]
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO day_items (plan_id, kind, ref_id, minutes, done, position, actual_minutes)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			planID, it.Kind, it.RefID, minutes, p.done, pos, p.actual); err != nil {
-			c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
-			return
-		}
+		items = append(items, store.SaveItem{Kind: it.Kind, RefID: it.RefID, Minutes: minutes})
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := dayStore.SavePlan(ctx, username, day, req.BudgetMinutes, items); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
 		return
 	}
@@ -623,12 +493,7 @@ func handleSetDayItemDone(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	_, err = db.Exec(context.Background(),
-		`UPDATE day_items SET done = $1
-		 WHERE kind = $2 AND ref_id = $3 AND plan_id =
-		       (SELECT id FROM day_plans WHERE username = $4 AND day = $5)`,
-		req.Done, req.Kind, req.RefID, sessData.username, day)
-	if err != nil {
+	if err := dayStore.SetItemDone(context.Background(), sessData.username, day, req.Kind, req.RefID, req.Done); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось обновить позицию дня"})
 		return
 	}
@@ -680,17 +545,8 @@ func handleSetDayItemSpent(c *httpkit.Context) {
 	ctx := context.Background()
 	// План дня создаём при необходимости (шапку «доступное время» пользователь
 	// задаст сам при формировании).
-	if _, err := db.Exec(ctx,
-		`INSERT INTO day_plans (username, day, budget_minutes)
-		 VALUES ($1, $2, 0)
-		 ON CONFLICT (username, day) DO NOTHING`, username, day); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
-		return
-	}
-	var planID int
-	if err := db.QueryRow(ctx,
-		`SELECT id FROM day_plans WHERE username = $1 AND day = $2`,
-		username, day).Scan(&planID); err != nil {
+	planID, err := dayStore.EnsurePlan(ctx, username, day)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
 		return
 	}
@@ -698,34 +554,15 @@ func handleSetDayItemSpent(c *httpkit.Context) {
 	// Позиция дня создаётся при необходимости: задача с указанным временем
 	// должна появиться в «Плане дня». Плановые минуты — обычная оценка задачи.
 	minutes, _ := resolveItemMinutes(username, "task", req.RefID)
-	if _, err := db.Exec(ctx,
-		`INSERT INTO day_items (plan_id, kind, ref_id, minutes, position, actual_minutes)
-		 VALUES ($1, 'task', $2, $3,
-		         COALESCE((SELECT MAX(position) + 1 FROM day_items WHERE plan_id = $1), 0),
-		         $4)
-		 ON CONFLICT (plan_id, kind, ref_id)
-		 DO UPDATE SET actual_minutes = EXCLUDED.actual_minutes`,
-		planID, req.RefID, minutes, req.Minutes); err != nil {
+	if err := dayStore.SetItemSpent(ctx, planID, req.RefID, req.Minutes, minutes); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
 		return
 	}
 	c.JSON(http.StatusOK, httpkit.H{"ok": true, "minutes": req.Minutes})
 }
 
-// DaySummary — строка истории (прошедшие дни).
-type DaySummary struct {
-	Date          string `json:"date"`
-	BudgetMinutes int    `json:"budget_minutes"`
-	TotalMinutes  int    `json:"total_minutes"`
-	Tasks         int    `json:"tasks"`
-	Notes         int    `json:"notes"`
-	// SpentMinutes — фактически проставленное время дня по задачам: факт дня,
-	// иначе факт задачи (план и повторения не считаются). Без времени чтения.
-	SpentMinutes int `json:"spent_minutes"`
-	// HasPlan — был ли сохранён план на этот день. День может попасть в
-	// историю только из-за закрытых задач (тогда плана нет).
-	HasPlan bool `json:"has_plan"`
-}
+// DaySummary — строка истории (определение живёт в store).
+type DaySummary = store.DaySummary
 
 // handleDayHistory — список дней (сначала новые): сохранённые планы и дни,
 // в которые были закрыты задачи. День задачи берётся из completed_date —
@@ -736,58 +573,10 @@ func handleDayHistory(c *httpkit.Context) {
 		c.JSON(http.StatusOK, httpkit.H{"days": []DaySummary{}})
 		return
 	}
-	rows, err := db.Query(context.Background(),
-		`WITH plan_days AS (
-		     SELECT p.day AS day,
-		            p.budget_minutes,
-		            COALESCE(SUM(i.minutes), 0) AS total_minutes,
-		            COUNT(*) FILTER (WHERE i.kind = 'task') AS tasks,
-		            COUNT(*) FILTER (WHERE i.kind = 'note') AS notes
-		     FROM day_plans p
-		     LEFT JOIN day_items i ON i.plan_id = p.id
-		     WHERE p.username = $1
-		     GROUP BY p.id, p.day, p.budget_minutes
-		 ),
-		 done_days AS (
-		     SELECT t.completed_date AS day
-		     FROM tasks t
-		     WHERE t.username = $1 AND t.status = 'done' AND t.completed_date IS NOT NULL
-		     GROUP BY 1
-		 ),
-		 /* Фактически проставленное время по задачам дня: сумма фактов позиций
-		    дня (day_items.actual_minutes). Плановые оценки не считаем, а время
-		    задачи, закрытой вне плана, сюда не попадает — для неё факта нет. */
-		 spent_days AS (
-		     SELECT p.day AS day,
-		            COALESCE(SUM(i.actual_minutes), 0)::int AS task_minutes
-		       FROM day_plans p
-		       JOIN day_items i ON i.plan_id = p.id AND i.kind = 'task'
-		      WHERE p.username = $1
-		      GROUP BY p.day
-		 )
-		 SELECT to_char(d.day, 'YYYY-MM-DD'),
-		        COALESCE(pd.budget_minutes, 0),
-		        COALESCE(pd.total_minutes, 0),
-		        COALESCE(pd.tasks, 0),
-		        COALESCE(pd.notes, 0),
-		        COALESCE(sd.task_minutes, 0),
-		        (pd.day IS NOT NULL)
-		 FROM (SELECT day FROM plan_days UNION SELECT day FROM done_days) d
-		 LEFT JOIN plan_days pd ON pd.day = d.day
-		 LEFT JOIN spent_days sd ON sd.day = d.day
-		 ORDER BY d.day DESC
-		 LIMIT 90`, sessData.username)
+	days, err := dayStore.History(context.Background(), sessData.username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить историю"})
 		return
-	}
-	defer rows.Close()
-	days := make([]DaySummary, 0)
-	for rows.Next() {
-		var d DaySummary
-		if err := rows.Scan(&d.Date, &d.BudgetMinutes, &d.TotalMinutes, &d.Tasks, &d.Notes, &d.SpentMinutes, &d.HasPlan); err == nil {
-			days = append(days, d)
-		}
 	}
 	c.JSON(http.StatusOK, httpkit.H{"days": days})
 }
