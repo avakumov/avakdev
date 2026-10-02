@@ -3,9 +3,10 @@ package main
 import "avakumov/server/internal/store"
 
 // Хранилища БД разделов. Создаются после подключения к БД (см. main → initStores).
-// Пока сюда переехал только раздел «Чтение»; остальные постепенно переезжают
-// с прямых db.Query в main.
-var readingStore *store.Reading
+var (
+	readingStore *store.Reading
+	draftsStore  *store.Drafts
+)
 
 // initStores готовит хранилища разделов. Вызывается после initDB.
 func initStores() {
@@ -15,4 +16,5 @@ func initStores() {
 		return
 	}
 	readingStore = store.NewReading(db)
+	draftsStore = store.NewDrafts(db)
 }
