@@ -90,7 +90,7 @@ func main() {
 
 	// Фоновая доставка уведомлений в Telegram и обработка привязки бота.
 	startNotificationScheduler()
-	startTelegramLinkWatcher()
+	application.StartTelegramLinkWatcher()
 	logAuthConfig()
 
 	// Агент по задачам приложения — только в dev-режиме, отдельным процессом
@@ -105,21 +105,21 @@ func main() {
 	api := r.Group("/api")
 
 	// Публичные маршруты (без авторизации).
-	api.POST("/login", handleLogin)
+	api.POST("/login", h.Login)
 
 	// Маршруты, требующие активной сессии.
 	authed := api.Group("")
-	authed.Use(authRequired)
-	authed.GET("/me", handleMe)
-	authed.PUT("/me", handleUpdateMe)
-	authed.PUT("/me/avatar", handleUpdateAvatar)
-	authed.POST("/me/telegram/link", handleLinkTelegram)
-	authed.POST("/me/telegram/unlink", handleUnlinkTelegram)
-	authed.POST("/logout", handleLogout)
+	authed.Use(h.AuthRequired)
+	authed.GET("/me", h.Me)
+	authed.PUT("/me", h.UpdateMe)
+	authed.PUT("/me/avatar", h.UpdateAvatar)
+	authed.POST("/me/telegram/link", h.LinkTelegram)
+	authed.POST("/me/telegram/unlink", h.UnlinkTelegram)
+	authed.POST("/logout", h.Logout)
 
 	// Маршруты, требующие прав администратора.
 	admin := authed.Group("")
-	admin.Use(adminRequired)
+	admin.Use(h.AdminRequired)
 	admin.GET("/health", func(c *httpkit.Context) {
 		c.JSON(http.StatusOK, httpkit.H{
 			"status": "ok",

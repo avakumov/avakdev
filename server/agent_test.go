@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"avakumov/server/internal/app"
 )
 
 // Пути инструментов не должны выходить за пределы репозитория.
@@ -48,13 +50,13 @@ func TestAgentServerFlow(t *testing.T) {
 			return
 		}
 		sessionCookie = "sess123"
-		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: sessionCookie, Path: "/api"})
+		http.SetCookie(w, &http.Cookie{Name: app.CookieName, Value: sessionCookie, Path: "/api"})
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"username":"agent"}`))
 	})
 
 	mux.HandleFunc("/api/app-tasks", func(w http.ResponseWriter, r *http.Request) {
-		if c, err := r.Cookie(cookieName); err != nil || c.Value != sessionCookie {
+		if c, err := r.Cookie(app.CookieName); err != nil || c.Value != sessionCookie {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -62,7 +64,7 @@ func TestAgentServerFlow(t *testing.T) {
 	})
 
 	mux.HandleFunc("/api/app-tasks/", func(w http.ResponseWriter, r *http.Request) {
-		if c, err := r.Cookie(cookieName); err != nil || c.Value != sessionCookie {
+		if c, err := r.Cookie(app.CookieName); err != nil || c.Value != sessionCookie {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -286,21 +288,21 @@ func TestAgentUpdateTaskRetriesAfter401(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
 		loginCount++
-		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "sess-live", Path: "/api"})
+		http.SetCookie(w, &http.Cookie{Name: app.CookieName, Value: "sess-live", Path: "/api"})
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/app-tasks/1", func(w http.ResponseWriter, r *http.Request) {
 		putCount++
 		if putCount == 1 {
 			// Первый запрос идёт со старой сессией, сгоревшей после рестарта.
-			if c, err := r.Cookie(cookieName); err != nil || c.Value != "sess-dead" {
+			if c, err := r.Cookie(app.CookieName); err != nil || c.Value != "sess-dead" {
 				t.Errorf("первый PUT должен идти со старой сессией")
 			}
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		// Повторный запрос — уже со свежей сессией.
-		if c, err := r.Cookie(cookieName); err != nil || c.Value != "sess-live" {
+		if c, err := r.Cookie(app.CookieName); err != nil || c.Value != "sess-live" {
 			t.Errorf("повторный PUT должен идти со свежей сессией")
 		}
 		w.WriteHeader(http.StatusOK)

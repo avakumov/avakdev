@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"time"
+
+	"avakumov/server/internal/app"
 )
 
 // notificationTick — как часто проверяем наступившие уведомления.
@@ -65,7 +67,7 @@ func deliverDueTelegramNotifications() {
 
 	for _, n := range items {
 		msg := "🔔 " + n.Text
-		if err := tgSendMessage(n.ChatID, msg); err != nil {
+		if err := app.TelegramSendMessage(n.ChatID, msg); err != nil {
 			log.Printf("УВЕДОМЛЕНИЯ #%d: отправка в Telegram: %v", n.ID, err)
 			continue // попробуем в следующий тик
 		}

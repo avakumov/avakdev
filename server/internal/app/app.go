@@ -13,6 +13,13 @@ import (
 	"avakumov/server/internal/store"
 )
 
+const (
+	// CookieName — имя cookie с токеном сессии (общее для main и handlers).
+	CookieName = "avakumov_session"
+	// SessionTTL — время жизни сессии.
+	SessionTTL = 24 * time.Hour
+)
+
 // Session — активная сессия пользователя.
 type Session struct {
 	Username string
@@ -75,6 +82,7 @@ type App struct {
 	DB   *pgxpool.Pool
 	Sess *SessionStore
 
+	Users     *store.Users
 	Reading   *store.Reading
 	Drafts    *store.Drafts
 	Bookmarks *store.Bookmarks
@@ -86,6 +94,7 @@ func New(db *pgxpool.Pool) *App {
 	a := &App{DB: db}
 	if db != nil {
 		a.Sess = NewSessionStore()
+		a.Users = store.NewUsers(db)
 		a.Reading = store.NewReading(db)
 		a.Drafts = store.NewDrafts(db)
 		a.Bookmarks = store.NewBookmarks(db)

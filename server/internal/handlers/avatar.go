@@ -1,10 +1,11 @@
-package main
+package handlers
 
 import (
 	"context"
 	"net/http"
 	"strings"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/httpkit"
 )
 
@@ -28,18 +29,17 @@ var validAvatarPresets = map[string]bool{
 // стороне), включая «тяжёлые» кадры.
 const maxAvatarBytes = 512 << 10
 
-// handleUpdateAvatar сохраняет аватар текущего пользователя (PUT /api/me/avatar).
+// UpdateAvatar сохраняет аватар текущего пользователя (PUT /api/me/avatar).
 // Тело JSON: { preset?, photo_data?, photo_mime? }.
 //   - preset — выбранный готовый вариант (тогда фото очищается);
 //   - photo_data + photo_mime — своё фото (тогда preset очищается);
 //   - если ни preset, ни photo нет — аватар сбрасывается (инициалы).
-func handleUpdateAvatar(c *httpkit.Context) {
-	sessVal, ok := c.Get("session")
+func (h *Handlers) UpdateAvatar(c *httpkit.Context) {
+	sessData, ok := c.MustGet("session").(app.Session)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
 		return
 	}
-	sessData, _ := sessVal.(session)
 
 	var req struct {
 		Preset    string `json:"preset"`
@@ -91,12 +91,12 @@ func handleUpdateAvatar(c *httpkit.Context) {
 		mime = ""
 	}
 
-	if err := usersStore.SetAvatar(context.Background(), sessData.Username, preset, photo, mime); err != nil {
+	if err := h.App.Users.SetAvatar(context.Background(), sessData.Username, preset, photo, mime); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аватар"})
 		return
 	}
 
-	u, found := loadUser(sessData.Username)
+	u, found := h.userByUsername(sessData.Username)
 	if !found {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Пользователь не найден"})
 		return

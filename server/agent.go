@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"avakumov/server/internal/app"
 )
 
 // Агент по задачам приложения. Работает ТОЛЬКО в dev-режиме (в production
@@ -521,7 +523,7 @@ func (a *agent) ensureSession() error {
 		return fmt.Errorf("вход на %s: статус %d", a.serverURL, resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
-		if c.Name == cookieName {
+		if c.Name == app.CookieName {
 			a.sessionTok = c.Value
 			return nil
 		}
@@ -654,7 +656,7 @@ func (a *agent) updateTask(id int, t AppTask, patch taskPatch) error {
 
 func (a *agent) setCookie(req *http.Request) {
 	if a.sessionTok != "" {
-		req.Header.Set("Cookie", cookieName+"="+a.sessionTok)
+		req.Header.Set("Cookie", app.CookieName+"="+a.sessionTok)
 	}
 }
 
