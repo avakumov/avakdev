@@ -25,13 +25,78 @@ type DueTelegramNotification struct {
 	ChatID string
 }
 
+// UserNotification — уведомление пользователя (создаёт себе сам).
+type UserNotification struct {
+	ID          int    `json:"id"`
+	Username    string `json:"-"`
+	Text        string `json:"text"`
+	Type        string `json:"type"`
+	DueAt       string `json:"due_at"` // RFC3339 (UTC)
+	PeriodUnit  string `json:"period_unit"`
+	PeriodValue int    `json:"period_value"`
+	Channel     string `json:"channel"`
+	Created     string `json:"created"`
+	Updated     string `json:"updated"`
+}
+
 // Notifications — SQL уведомлений: «входящие» колокольчика и рассылка по
-// расписанию (таблицы notification_inbox и user_notifications). In-memory часть
-// (кэш уведомлений) остаётся в main.
+// расписанию (таблицы notification_inbox и user_notifications).
 type Notifications struct{ pool *pgxpool.Pool }
 
 // NewNotifications создаёт хранилище SQL уведомлений.
 func NewNotifications(pool *pgxpool.Pool) *Notifications { return &Notifications{pool: pool} }
+
+// ListAll возвращает все уведомления (для загрузки кэша при старте).
+func (s *Notifications) ListAll(ctx context.Context) ([]UserNotification, error) {
+	if s.pool == nil {
+		return nil, ErrNoDB
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id,
+		        username,
+		        text,
+		        type,
+		        to_char(due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        period_unit,
+		        period_value,
+		        channel,
+		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		 FROM user_notifications`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]UserNotification, 0)
+	for rows.Next() {
+		var n UserNotification
+		if err := rows.Scan(&n.ID, &n.Username, &n.Text, &n.Type,
+			&n.DueAt, &n.PeriodUnit, &n.PeriodValue, &n.Channel,
+			&n.Created, &n.Updated); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// Create вставляет уведомление и возвращает его с заполненными id/created/updated.
+func (s *Notifications) Create(ctx context.Context, n UserNotification) (UserNotification, error) {
+	if s.pool == nil {
+		return UserNotification{}, ErrNoDB
+	}
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO user_notifications
+		   (username, text, type, due_at, period_unit, period_value, channel)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id,
+		           to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		           to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
+		n.Username, n.Text, n.Type, n.DueAt, n.PeriodUnit, n.PeriodValue, n.Channel).
+		Scan(&n.ID, &n.Created, &n.Updated)
+	return n, err
+}
 
 // DeliverDueApp кладёт во «входящие» наступившие уведомления канала app
 // (по одному на уведомление, пока оно не закрыто).

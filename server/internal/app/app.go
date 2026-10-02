@@ -87,6 +87,10 @@ type App struct {
 	Drafts    *store.Drafts
 	Bookmarks *store.Bookmarks
 	Reports   *store.Reports
+
+	// NotifDB — SQL уведомлений; Notifications — in-memory кэш поверх NotifDB.
+	NotifDB       *store.Notifications
+	Notifications *NotificationCache
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -99,6 +103,22 @@ func New(db *pgxpool.Pool) *App {
 		a.Drafts = store.NewDrafts(db)
 		a.Bookmarks = store.NewBookmarks(db)
 		a.Reports = store.NewReports(db)
+		a.NotifDB = store.NewNotifications(db)
 	}
 	return a
+}
+
+// InitNotifications создаёт in-memory кэш уведомлений и подгружает их из БД.
+// Вызывается после New; без БД создаёт пустой кэш.
+func (a *App) InitNotifications() error {
+	var backend *store.Notifications
+	if a.DB != nil {
+		backend = a.NotifDB
+	}
+	c, err := NewNotificationCache(backend)
+	if err != nil {
+		return err
+	}
+	a.Notifications = c
+	return nil
 }

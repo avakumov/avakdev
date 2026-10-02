@@ -84,7 +84,7 @@ func main() {
 	if err := initGoals(); err != nil {
 		log.Fatalf("не удалось инициализировать раздел «Цели»: %v", err)
 	}
-	if err := initNotifications(); err != nil {
+	if err := application.InitNotifications(); err != nil {
 		log.Fatalf("не удалось инициализировать уведомления: %v", err)
 	}
 
@@ -239,12 +239,12 @@ func main() {
 	authed.GET("/day/history", handleDayHistory)
 
 	// Уведомления пользователя (колокольчик на странице профиля).
-	authed.GET("/notifications", handleListNotifications)
-	authed.POST("/notifications", handleCreateNotification)
-	authed.DELETE("/notifications/:id", handleDeleteNotification)
+	authed.GET("/notifications", h.ListNotifications)
+	authed.POST("/notifications", h.CreateNotification)
+	authed.DELETE("/notifications/:id", h.DeleteNotification)
 	// «Входящие»: наступившие по расписанию (колокольчик).
-	authed.GET("/notifications/inbox", handleListNotificationInbox)
-	authed.DELETE("/notifications/inbox/:id", handleDismissNotification)
+	authed.GET("/notifications/inbox", h.ListNotificationInbox)
+	authed.DELETE("/notifications/inbox/:id", h.DismissNotification)
 
 	// Профиль и генерация резюме.
 	authed.GET("/profile", handleGetProfile)
