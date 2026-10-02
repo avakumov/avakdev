@@ -57,74 +57,38 @@ func startNotificationScheduler() {
 
 // deliverDueTelegramNotifications отправляет наступившие telegram-уведомления.
 func deliverDueTelegramNotifications() {
-	rows, err := db.Query(context.Background(),
-		`SELECT n.id, n.text, n.type, n.period_unit, n.period_value,
-		        to_char(n.due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-		        u.telegram_chat_id
-		 FROM user_notifications n
-		 JOIN users u ON u.username = n.username
-		 WHERE n.channel = 'telegram'
-		   AND n.due_at <= now()
-		   AND u.telegram_chat_id <> ''`)
+	items, err := notificationsStore.DueTelegram(context.Background())
 	if err != nil {
 		log.Printf("УВЕДОМЛЕНИЯ: выборка: %v", err)
 		return
 	}
-	defer rows.Close()
-
-	type dueNotif struct {
-		id     int
-		text   string
-		ntype  string
-		unit   string
-		value  int
-		dueAt  string
-		chatID string
-	}
-	items := make([]dueNotif, 0)
-	for rows.Next() {
-		var n dueNotif
-		if err := rows.Scan(&n.id, &n.text, &n.ntype, &n.unit, &n.value,
-			&n.dueAt, &n.chatID); err != nil {
-			log.Printf("УВЕДОМЛЕНИЯ: чтение: %v", err)
-			return
-		}
-		items = append(items, n)
-	}
-	if err := rows.Err(); err != nil {
-		log.Printf("УВЕДОМЛЕНИЯ: чтение: %v", err)
-		return
-	}
 
 	for _, n := range items {
-		msg := "🔔 " + n.text
-		if err := tgSendMessage(n.chatID, msg); err != nil {
-			log.Printf("УВЕДОМЛЕНИЯ #%d: отправка в Telegram: %v", n.id, err)
+		msg := "🔔 " + n.Text
+		if err := tgSendMessage(n.ChatID, msg); err != nil {
+			log.Printf("УВЕДОМЛЕНИЯ #%d: отправка в Telegram: %v", n.ID, err)
 			continue // попробуем в следующий тик
 		}
-		log.Printf("УВЕДОМЛЕНИЯ #%d: отправлено в Telegram", n.id)
+		log.Printf("УВЕДОМЛЕНИЯ #%d: отправлено в Telegram", n.ID)
 
-		if n.ntype == notifOnce {
-			if _, err := db.Exec(context.Background(),
-				`DELETE FROM user_notifications WHERE id = $1`, n.id); err != nil {
-				log.Printf("УВЕДОМЛЕНИЯ #%d: удаление: %v", n.id, err)
+		if n.Type == notifOnce {
+			if err := notificationsStore.DeleteByID(context.Background(), n.ID); err != nil {
+				log.Printf("УВЕДОМЛЕНИЯ #%d: удаление: %v", n.ID, err)
 			}
-			notifications.removeFromMemory(n.id)
+			notifications.removeFromMemory(n.ID)
 			continue
 		}
 
 		// Периодическое: сдвигаем ближайшее срабатывание.
-		due, err := time.Parse(time.RFC3339, n.dueAt)
+		due, err := time.Parse(time.RFC3339, n.DueAt)
 		if err != nil {
-			log.Printf("УВЕДОМЛЕНИЯ #%d: разбор due_at: %v", n.id, err)
+			log.Printf("УВЕДОМЛЕНИЯ #%d: разбор due_at: %v", n.ID, err)
 			continue
 		}
-		next := advanceDue(due.UTC(), n.unit, n.value).Format(time.RFC3339)
-		if _, err := db.Exec(context.Background(),
-			`UPDATE user_notifications SET due_at = $2, updated = now() WHERE id = $1`,
-			n.id, next); err != nil {
-			log.Printf("УВЕДОМЛЕНИЯ #%d: сдвиг периода: %v", n.id, err)
+		next := advanceDue(due.UTC(), n.Unit, n.Value).Format(time.RFC3339)
+		if err := notificationsStore.SetDue(context.Background(), n.ID, next); err != nil {
+			log.Printf("УВЕДОМЛЕНИЯ #%d: сдвиг периода: %v", n.ID, err)
 		}
-		notifications.patchDue(n.id, next)
+		notifications.patchDue(n.ID, next)
 	}
 }

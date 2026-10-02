@@ -10,25 +10,13 @@ import (
 	"avakumov/server/internal/httpkit"
 )
 
-// NotificationInboxItem — запись «входящих»: уведомление, наступившее по
-// расписанию и ещё не закрытое пользователем (колокольчик).
-type NotificationInboxItem struct {
-	ID      int    `json:"id"`
-	Text    string `json:"text"`
-	Created string `json:"created"`
-}
+// «Входящие» колокольчика: уведомления канала app, наступившие по расписанию
+// и ещё не закрытые пользователем. SQL живёт в store.Notifications.
 
 // deliverDueAppNotifications кладёт во «входящие» наступившие уведомления
 // канала app (по одному на уведомление, пока оно не закрыто).
 func deliverDueAppNotifications() {
-	_, err := db.Exec(context.Background(),
-		`INSERT INTO notification_inbox (username, notif_id, text)
-		 SELECT n.username, n.id, n.text
-		 FROM user_notifications n
-		 WHERE n.channel = 'app'
-		   AND n.due_at <= now()
-		   AND NOT EXISTS (SELECT 1 FROM notification_inbox i WHERE i.notif_id = n.id)`)
-	if err != nil {
+	if err := notificationsStore.DeliverDueApp(context.Background()); err != nil {
 		log.Printf("УВЕДОМЛЕНИЯ: входящие (app): %v", err)
 	}
 }
@@ -37,30 +25,8 @@ func deliverDueAppNotifications() {
 func handleListNotificationInbox(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
-	rows, err := db.Query(context.Background(),
-		`SELECT id,
-		        text,
-		        to_char(created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM notification_inbox
-		 WHERE username = $1
-		 ORDER BY created DESC`,
-		sessData.username)
+	out, err := notificationsStore.Inbox(context.Background(), sessData.username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
-		return
-	}
-	defer rows.Close()
-
-	out := make([]NotificationInboxItem, 0)
-	for rows.Next() {
-		var it NotificationInboxItem
-		if err := rows.Scan(&it.ID, &it.Text, &it.Created); err != nil {
-			c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
-			return
-		}
-		out = append(out, it)
-	}
-	if err := rows.Err(); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
 		return
 	}
@@ -77,25 +43,14 @@ func handleDismissNotification(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	var notifID int
-	err = db.QueryRow(context.Background(),
-		`DELETE FROM notification_inbox WHERE id = $1 AND username = $2
-		 RETURNING notif_id`,
-		id, sessData.username).Scan(&notifID)
+	notifID, err := notificationsStore.DismissInbox(context.Background(), sessData.username, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Уведомление не найдено"})
 		return
 	}
 
 	// Действие с родительским уведомлением.
-	var ntype, dueAt, unit string
-	var value int
-	err = db.QueryRow(context.Background(),
-		`SELECT type,
-		        to_char(due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-		        period_unit, period_value
-		 FROM user_notifications WHERE id = $1 AND username = $2`,
-		notifID, sessData.username).Scan(&ntype, &dueAt, &unit, &value)
+	ntype, dueAt, unit, value, err := notificationsStore.Meta(context.Background(), sessData.username, notifID)
 	if err != nil {
 		// Родитель уже удалён — входящее закрыто, и этого достаточно.
 		c.JSON(http.StatusOK, httpkit.H{"ok": true})
@@ -103,8 +58,7 @@ func handleDismissNotification(c *httpkit.Context) {
 	}
 
 	if ntype == notifOnce {
-		if _, err := db.Exec(context.Background(),
-			`DELETE FROM user_notifications WHERE id = $1`, notifID); err != nil {
+		if err := notificationsStore.DeleteByID(context.Background(), notifID); err != nil {
 			log.Printf("УВЕДОМЛЕНИЯ: удаление одноразового #%d: %v", notifID, err)
 		}
 		notifications.removeFromMemory(notifID)
@@ -112,10 +66,7 @@ func handleDismissNotification(c *httpkit.Context) {
 		due, err := time.Parse(time.RFC3339, dueAt)
 		if err == nil {
 			next := advanceDue(due.UTC(), unit, value).Format(time.RFC3339)
-			if _, err := db.Exec(context.Background(),
-				`UPDATE user_notifications SET due_at = $2, updated = now()
-				 WHERE id = $1`,
-				notifID, next); err != nil {
+			if err := notificationsStore.SetDue(context.Background(), notifID, next); err != nil {
 				log.Printf("УВЕДОМЛЕНИЯ: сдвиг периодического #%d: %v", notifID, err)
 			}
 			notifications.patchDue(notifID, next)
