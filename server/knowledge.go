@@ -326,7 +326,7 @@ func (ns *noteStore) saveAudio(id int, data []byte, mime string) error {
 func handleListNotes(c *httpkit.Context) {
 	username := ""
 	if sessData, ok := c.MustGet("session").(session); ok {
-		username = sessData.username
+		username = sessData.Username
 	}
 	speed := readingSpeedFor(username)
 

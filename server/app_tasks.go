@@ -266,7 +266,7 @@ func (s *appTaskStore) delete(username string, id int) error {
 // handleListAppTasks отдаёт задачи пользователя.
 func handleListAppTasks(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	c.JSON(http.StatusOK, httpkit.H{"tasks": appTasks.list(sessData.username)})
+	c.JSON(http.StatusOK, httpkit.H{"tasks": appTasks.list(sessData.Username)})
 }
 
 // handleCreateAppTask создаёт новую задачу.
@@ -280,7 +280,7 @@ func handleCreateAppTask(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := appTasks.create(sessData.username, req.Title, req.Description)
+	t, err := appTasks.create(sessData.Username, req.Title, req.Description)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
@@ -312,7 +312,7 @@ func handleUpdateAppTask(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := appTasks.update(sessData.username, id, req.Title, req.Description, req.Status, req.Result, req.Log, req.DeployRequested, req.DeployedAt, req.CommitHash, req.RevertRequested, req.RevertedAt)
+	t, err := appTasks.update(sessData.Username, id, req.Title, req.Description, req.Status, req.Result, req.Log, req.DeployRequested, req.DeployedAt, req.CommitHash, req.RevertRequested, req.RevertedAt)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {
@@ -332,7 +332,7 @@ func handleDeleteAppTask(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := appTasks.delete(sessData.username, id); err != nil {
+	if err := appTasks.delete(sessData.Username, id); err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}

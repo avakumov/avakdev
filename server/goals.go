@@ -387,7 +387,7 @@ func (g *Goal) computeProgress() {
 // handleListGoals отдаёт цели пользователя с прогрессом, вычисленным из задач.
 func handleListGoals(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	list := goals.list(sessData.username)
+	list := goals.list(sessData.Username)
 	for i := range list {
 		list[i].computeProgress()
 	}
@@ -422,7 +422,7 @@ func handleCreateGoal(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	g, err := goals.create(sessData.username, req.Title, req.Description, req.TargetDate, req.Status)
+	g, err := goals.create(sessData.Username, req.Title, req.Description, req.TargetDate, req.Status)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
@@ -430,7 +430,7 @@ func handleCreateGoal(c *httpkit.Context) {
 
 	for _, draft := range req.Tasks {
 		d := normalizeGoalTaskDraft(draft)
-		if _, err := tasks.create(sessData.username, d.Category, d.Title, d.Description,
+		if _, err := tasks.create(sessData.Username, d.Category, d.Title, d.Description,
 			d.PlannedHours, "", taskTodo, &g.ID); err != nil {
 			c.JSON(http.StatusBadRequest, httpkit.H{
 				"error": "Не удалось создать задачу «" + d.Title + "»: " + err.Error(),
@@ -658,7 +658,7 @@ func handleUpdateGoal(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	g, err := goals.update(sessData.username, id, req.Title, req.Description, req.TargetDate, req.Status)
+	g, err := goals.update(sessData.Username, id, req.Title, req.Description, req.TargetDate, req.Status)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errGoalNotFound) {
@@ -692,11 +692,11 @@ func handleReorderGoalTasks(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	if _, ok := goals.getOwned(sessData.username, id); !ok {
+	if _, ok := goals.getOwned(sessData.Username, id); !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": errGoalNotFound.Error()})
 		return
 	}
-	if err := tasks.setGoalOrder(sessData.username, id, req.TaskIDs); err != nil {
+	if err := tasks.setGoalOrder(sessData.Username, id, req.TaskIDs); err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
@@ -715,7 +715,7 @@ func handleDeleteGoal(c *httpkit.Context) {
 	deleteTasks := q == "1" || strings.EqualFold(q, "true")
 
 	sessData, _ := c.MustGet("session").(session)
-	if err := goals.delete(sessData.username, id, deleteTasks); err != nil {
+	if err := goals.delete(sessData.Username, id, deleteTasks); err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}

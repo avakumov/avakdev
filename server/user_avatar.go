@@ -91,12 +91,12 @@ func handleUpdateAvatar(c *httpkit.Context) {
 		mime = ""
 	}
 
-	if err := usersStore.SetAvatar(context.Background(), sessData.username, preset, photo, mime); err != nil {
+	if err := usersStore.SetAvatar(context.Background(), sessData.Username, preset, photo, mime); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аватар"})
 		return
 	}
 
-	u, found := loadUser(sessData.username)
+	u, found := loadUser(sessData.Username)
 	if !found {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Пользователь не найден"})
 		return

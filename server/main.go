@@ -10,7 +10,9 @@ import (
 
 	"avakumov/server/internal/httpkit"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/database"
+	"avakumov/server/internal/handlers"
 )
 
 // indexData читает index.html из переданной FS.
@@ -54,6 +56,9 @@ func main() {
 	defer database.Close() // пул закроется при выходе из main
 	// Хранилища БД разделов (создаются после подключения, см. stores.go).
 	initStores()
+	// Приложение (домен): пул БД, сессии и хранилища store.
+	application = app.New(db)
+	h := handlers.New(application)
 	// Применяем версионированные миграции БД (goose), встроенные в бинарник.
 	if err := runMigrations(); err != nil {
 		log.Fatalf("не удалось применить миграции БД: %v", err)
@@ -185,10 +190,10 @@ func main() {
 	authed.POST("/important/seen", handleMarkImportantSeen)
 
 	// Раздел «Заметки»: быстрые записи-черновики.
-	authed.GET("/drafts", handleListDrafts)
-	authed.POST("/drafts", handleCreateDraft)
-	authed.PUT("/drafts/:id", handleUpdateDraft)
-	authed.DELETE("/drafts/:id", handleDeleteDraft)
+	authed.GET("/drafts", h.ListDrafts)
+	authed.POST("/drafts", h.CreateDraft)
+	authed.PUT("/drafts/:id", h.UpdateDraft)
+	authed.DELETE("/drafts/:id", h.DeleteDraft)
 
 	// Раздел «Лента»: элементы ленты (пока тип контента — «вопрос-ответ»).
 	// /view — счётчик показов, растёт когда элемент показан в ленте.

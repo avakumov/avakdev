@@ -5,7 +5,6 @@ import "avakumov/server/internal/store"
 // Хранилища БД разделов. Создаются после подключения к БД (см. main → initStores).
 var (
 	readingStore       *store.Reading
-	draftsStore        *store.Drafts
 	bookmarksStore     *store.Bookmarks
 	reportsStore       *store.Reports
 	usersStore         *store.Users
@@ -23,7 +22,6 @@ func initStores() {
 		return
 	}
 	readingStore = store.NewReading(db)
-	draftsStore = store.NewDrafts(db)
 	bookmarksStore = store.NewBookmarks(db)
 	reportsStore = store.NewReports(db)
 	usersStore = store.NewUsers(db)

@@ -45,7 +45,7 @@ const maxBookBytes = 40 << 20
 // (дошедшая до конца книги — это максимум по закладкам).
 func handleListBooks(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	out, err := booksStore.List(context.Background(), sessData.username)
+	out, err := booksStore.List(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить книги"})
 		return
@@ -62,7 +62,7 @@ func handleGetBook(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	b, ok := booksStore.Get(context.Background(), sessData.username, id)
+	b, ok := booksStore.Get(context.Background(), sessData.Username, id)
 	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
@@ -106,7 +106,7 @@ func handleUploadBook(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	b, err := booksStore.Create(context.Background(), sessData.username, title, author, format, bookHTML)
+	b, err := booksStore.Create(context.Background(), sessData.Username, title, author, format, bookHTML)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить книгу"})
 		return
@@ -122,7 +122,7 @@ func handleDeleteBook(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	ok, err := booksStore.Delete(context.Background(), sessData.username, id)
+	ok, err := booksStore.Delete(context.Background(), sessData.Username, id)
 	if err != nil || !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
@@ -147,7 +147,7 @@ func handleSetBookFinished(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	finishedAt, ok := booksStore.SetFinished(context.Background(), sessData.username, id, req.Finished)
+	finishedAt, ok := booksStore.SetFinished(context.Background(), sessData.Username, id, req.Finished)
 	if !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return

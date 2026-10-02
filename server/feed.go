@@ -95,7 +95,7 @@ func feedPayload(kind, topic, question, answer, details string) (string, string,
 // handleListFeed возвращает элементы ленты пользователя (свежие сверху).
 func handleListFeed(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	out, err := feedStore.List(context.Background(), sessData.username)
+	out, err := feedStore.List(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить ленту"})
 		return
@@ -126,7 +126,7 @@ func handleCreateFeedItem(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	it, err := feedStore.Create(context.Background(), sessData.username, kind, topic, question, answer, details)
+	it, err := feedStore.Create(context.Background(), sessData.Username, kind, topic, question, answer, details)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элемент ленты"})
 		return
@@ -159,7 +159,7 @@ func handleUpdateFeedItem(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	it, err := feedStore.Update(context.Background(), sessData.username, id, kind, topic, question, answer, details)
+	it, err := feedStore.Update(context.Background(), sessData.Username, id, kind, topic, question, answer, details)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -175,7 +175,7 @@ func handleDeleteFeedItem(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	ok, err := feedStore.Delete(context.Background(), sessData.username, id)
+	ok, err := feedStore.Delete(context.Background(), sessData.Username, id)
 	if err != nil || !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -229,7 +229,7 @@ func handleBulkCreateFeedItems(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	out, err := feedStore.BulkCreate(context.Background(), sessData.username, feedKindQA, topics, questions, answers, details)
+	out, err := feedStore.BulkCreate(context.Background(), sessData.Username, feedKindQA, topics, questions, answers, details)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить элементы ленты"})
 		return
@@ -469,7 +469,7 @@ func handleFeedItemReaction(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	it, err := feedStore.React(context.Background(), sessData.username, id, know)
+	it, err := feedStore.React(context.Background(), sessData.Username, id, know)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return
@@ -486,7 +486,7 @@ func handleFeedItemView(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	it, err := feedStore.View(context.Background(), sessData.username, id)
+	it, err := feedStore.View(context.Background(), sessData.Username, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Элемент ленты не найден"})
 		return

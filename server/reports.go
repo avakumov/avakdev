@@ -16,7 +16,7 @@ import (
 // (только даты с непустым текстом), новые сверху.
 func handleListReports(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	out, err := reportsStore.List(context.Background(), sessData.username)
+	out, err := reportsStore.List(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить отчёты"})
 		return
@@ -43,7 +43,7 @@ func handleUpsertReport(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	if err := reportsStore.Upsert(context.Background(), sessData.username, day, req.Content); err != nil {
+	if err := reportsStore.Upsert(context.Background(), sessData.Username, day, req.Content); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить отчёт"})
 		return
 	}

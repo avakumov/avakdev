@@ -2,19 +2,17 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"avakumov/server/internal/httpkit"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/database"
 	"avakumov/server/internal/store"
 )
@@ -65,65 +63,8 @@ func userSections(isAdmin bool) []string {
 	return out
 }
 
-// session — активная сессия пользователя.
-type session struct {
-	username string
-	isAdmin  bool
-	expires  time.Time
-}
-
-// sessionStore — in-memory хранилище активных сессий.
-type sessionStore struct {
-	mu   sync.Mutex
-	data map[string]session
-}
-
-func newSessionStore() *sessionStore {
-	return &sessionStore{data: make(map[string]session)}
-}
-
-// create добавляет новую сессию и возвращает её токен.
-func (s *sessionStore) create(u *User, ttl time.Duration) (string, error) {
-	tok := make([]byte, 32)
-	if _, err := rand.Read(tok); err != nil {
-		return "", err
-	}
-	token := hex.EncodeToString(tok)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.data[token] = session{
-		username: u.Username,
-		isAdmin:  u.IsAdmin,
-		expires:  time.Now().Add(ttl),
-	}
-	return token, nil
-}
-
-// get возвращает сессию по токену, если она существует и не истекла.
-func (s *sessionStore) get(token string) (session, bool) {
-	if token == "" {
-		return session{}, false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess, ok := s.data[token]
-	if !ok {
-		return session{}, false
-	}
-	if time.Now().After(sess.expires) {
-		delete(s.data, token)
-		return session{}, false
-	}
-	return sess, true
-}
-
-// delete удаляет сессию по токену (logout).
-func (s *sessionStore) delete(token string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.data, token)
-}
+// session — активная сессия пользователя (определение живёт в app).
+type session = app.Session
 
 const (
 	cookieName = "avakumov_session"
@@ -131,8 +72,8 @@ const (
 )
 
 var (
-	db   *pgxpool.Pool
-	sess *sessionStore
+	db          *pgxpool.Pool
+	application *app.App
 )
 
 // initDB подключается к PostgreSQL по строке подключения из DATABASE_URL.
@@ -143,9 +84,6 @@ func initDB() error {
 	}
 	// Ссылка на пул для хендлеров. Постепенно её вытесняют хранилища (store).
 	db = database.Pool()
-	if db != nil {
-		sess = newSessionStore()
-	}
 	return nil
 }
 
@@ -164,7 +102,7 @@ func authRequired(next http.Handler) http.Handler {
 			httpkit.WriteJSON(w, http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
 			return
 		}
-		sessData, ok := sess.get(token.Value)
+		sessData, ok := application.Sess.Get(token.Value)
 		if !ok {
 			httpkit.WriteJSON(w, http.StatusUnauthorized, httpkit.H{"error": "Сессия истекла. Войдите снова."})
 			return
@@ -178,7 +116,7 @@ func adminRequired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v, _ := httpkit.NewContext(w, r).Get("session")
 		sessData, ok := v.(session)
-		if !ok || !sessData.isAdmin {
+		if !ok || !sessData.IsAdmin {
 			httpkit.WriteJSON(w, http.StatusForbidden, httpkit.H{"error": "Доступ только для администраторов"})
 			return
 		}
@@ -219,7 +157,7 @@ func handleLogin(c *httpkit.Context) {
 		return
 	}
 
-	token, err := sess.create(&u, sessionTTL)
+	token, err := application.Sess.Create(u.Username, u.IsAdmin, sessionTTL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось создать сессию"})
 		return
@@ -236,9 +174,9 @@ func handleLogin(c *httpkit.Context) {
 
 // handleLogout завершает сессию и удаляет cookie.
 func handleLogout(c *httpkit.Context) {
-	if sess != nil {
+	if application != nil && application.Sess != nil {
 		if token, err := c.Cookie(cookieName); err == nil {
-			sess.delete(token)
+			application.Sess.Delete(token)
 		}
 	}
 	c.SetCookie(cookieName, "", -1, "/api", "", false, true)
@@ -253,7 +191,7 @@ func handleMe(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := sessVal.(session)
-	u, found := loadUser(sessData.username)
+	u, found := loadUser(sessData.Username)
 	if !found {
 		// Пользователь удалён при живой сессии — считаем сессию недействительной.
 		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Сессия истекла. Войдите снова."})
@@ -332,13 +270,13 @@ func handleUpdateMe(c *httpkit.Context) {
 
 	// Необязательные поля (reading_speed, code_theme) приходят как nil, если их
 	// не трогали — COALESCE в store оставляет текущее значение в БД.
-	if err := usersStore.UpdateContacts(context.Background(), sessData.username,
+	if err := usersStore.UpdateContacts(context.Background(), sessData.Username,
 		req.Phone, req.Telegram, req.ReadingSpeed, req.CodeTheme); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить профиль"})
 		return
 	}
 
-	u, found := loadUser(sessData.username)
+	u, found := loadUser(sessData.Username)
 	if !found {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Пользователь не найден"})
 		return

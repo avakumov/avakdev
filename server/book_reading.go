@@ -33,7 +33,7 @@ const readingHistoryDays = 90
 // Дни с нулём секунд (например, только изменённая цель) не отдаём.
 func handleReadingHistory(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	days, err := readingStore.History(c.Request.Context(), sessData.username, readingHistoryDays)
+	days, err := readingStore.History(c.Request.Context(), sessData.Username, readingHistoryDays)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить историю чтения"})
 		return
@@ -51,7 +51,7 @@ func handleGetReadingTime(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	res, err := readingStore.Day(c.Request.Context(), sessData.username, day, readingGoalSeconds)
+	res, err := readingStore.Day(c.Request.Context(), sessData.Username, day, readingGoalSeconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить время чтения"})
 		return
@@ -81,7 +81,7 @@ func handleAddReadingTime(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	res, err := readingStore.Add(c.Request.Context(), sessData.username, day, req.Seconds)
+	res, err := readingStore.Add(c.Request.Context(), sessData.Username, day, req.Seconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время чтения"})
 		return
@@ -111,7 +111,7 @@ func handleSetReadingGoal(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	res, err := readingStore.SetGoal(c.Request.Context(), sessData.username, day, req.GoalSeconds)
+	res, err := readingStore.SetGoal(c.Request.Context(), sessData.Username, day, req.GoalSeconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить цель чтения"})
 		return

@@ -366,7 +366,7 @@ func normalizeMetricValue(metricType, value string) (string, error) {
 // handleListUserMetrics отдаёт определения метрик пользователя и все их значения.
 func handleListUserMetrics(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	defs := userMetrics.list(sessData.username)
+	defs := userMetrics.list(sessData.Username)
 
 	values := make([]metricValue, 0)
 	for _, d := range defs {
@@ -389,7 +389,7 @@ func handleCreateUserMetric(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	d, err := userMetrics.create(sessData.username, req.Name, req.Type, req.Unit)
+	d, err := userMetrics.create(sessData.Username, req.Name, req.Type, req.Unit)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
@@ -413,7 +413,7 @@ func handleUpdateUserMetric(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	d, err := userMetrics.update(sessData.username, id, req.Name, req.Unit)
+	d, err := userMetrics.update(sessData.Username, id, req.Name, req.Unit)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "метрика не найдена" {
@@ -433,7 +433,7 @@ func handleDeleteUserMetric(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := userMetrics.delete(sessData.username, id); err != nil {
+	if err := userMetrics.delete(sessData.Username, id); err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}
@@ -457,7 +457,7 @@ func handleSetUserMetricValue(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := userMetrics.setValue(sessData.username, id, date, req.Value); err != nil {
+	if err := userMetrics.setValue(sessData.Username, id, date, req.Value); err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "метрика не найдена" {
 			status = http.StatusNotFound
@@ -477,7 +477,7 @@ func handleDeleteUserMetricValue(c *httpkit.Context) {
 	}
 	date := c.Param("date")
 	sessData, _ := c.MustGet("session").(session)
-	if err := userMetrics.deleteValue(sessData.username, id, date); err != nil {
+	if err := userMetrics.deleteValue(sessData.Username, id, date); err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "метрика не найдена" {
 			status = http.StatusNotFound

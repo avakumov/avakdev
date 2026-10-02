@@ -118,7 +118,7 @@ func handleLinkTelegram(c *httpkit.Context) {
 	}
 	code := hex.EncodeToString(buf)
 
-	if err := usersStore.SetLinkCode(context.Background(), sessData.username, code); err != nil {
+	if err := usersStore.SetLinkCode(context.Background(), sessData.Username, code); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить код привязки"})
 		return
 	}
@@ -137,7 +137,7 @@ func handleLinkTelegram(c *httpkit.Context) {
 // (POST /api/me/telegram/unlink).
 func handleUnlinkTelegram(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	if err := usersStore.UnlinkTelegram(context.Background(), sessData.username); err != nil {
+	if err := usersStore.UnlinkTelegram(context.Background(), sessData.Username); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось отключить Telegram"})
 		return
 	}

@@ -538,7 +538,7 @@ func handleListTasks(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
 	// Лёгкое представление целей пользователя: только id, название, статус.
-	allGoals := goals.list(sessData.username)
+	allGoals := goals.list(sessData.Username)
 	brief := make([]struct {
 		ID     int    `json:"id"`
 		Title  string `json:"title"`
@@ -553,7 +553,7 @@ func handleListTasks(c *httpkit.Context) {
 	}
 
 	c.JSON(http.StatusOK, httpkit.H{
-		"tasks":      withSpent(sessData.username, tasks.list(sessData.username)),
+		"tasks":      withSpent(sessData.Username, tasks.list(sessData.Username)),
 		"categories": TaskCategories,
 		"goals":      brief,
 	})
@@ -583,12 +583,12 @@ func handleCreateTask(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	t, err := tasks.create(sessData.username, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
+	t, err := tasks.create(sessData.Username, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, withSpent(sessData.username, []Task{t})[0])
+	c.JSON(http.StatusOK, withSpent(sessData.Username, []Task{t})[0])
 }
 
 // optionalDay проверяет необязательную дату из запроса (ГГГГ-ММ-ДД).
@@ -632,7 +632,7 @@ func handleUpdateTask(c *httpkit.Context) {
 	if !ok {
 		return
 	}
-	t, err := tasks.update(sessData.username, id, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
+	t, err := tasks.update(sessData.Username, id, req.Category, req.Title, req.Description, req.PlannedHours, req.Deadline, req.Status, req.GoalID, doneDate)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {
@@ -641,7 +641,7 @@ func handleUpdateTask(c *httpkit.Context) {
 		c.JSON(status, httpkit.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, withSpent(sessData.username, []Task{t})[0])
+	c.JSON(http.StatusOK, withSpent(sessData.Username, []Task{t})[0])
 }
 
 // handleDeleteTask удаляет задачу.
@@ -652,7 +652,7 @@ func handleDeleteTask(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := tasks.delete(sessData.username, id); err != nil {
+	if err := tasks.delete(sessData.Username, id); err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}

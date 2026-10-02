@@ -23,7 +23,7 @@ const maxBookmarkExcerpt = 300
 // в «Дне» они больше не предлагаются. Если закладок нет, отдаёт null.
 func handleLastBookmark(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	out, err := bookmarksStore.Last(context.Background(), sessData.username)
+	out, err := bookmarksStore.Last(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить последнюю закладку"})
 		return
@@ -39,12 +39,12 @@ func handleListBookmarks(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if !bookmarksStore.BookOwned(context.Background(), sessData.username, bookID) {
+	if !bookmarksStore.BookOwned(context.Background(), sessData.Username, bookID) {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
 
-	out, err := bookmarksStore.List(context.Background(), sessData.username, bookID)
+	out, err := bookmarksStore.List(context.Background(), sessData.Username, bookID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить закладки"})
 		return
@@ -60,7 +60,7 @@ func handleCreateBookmark(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if !bookmarksStore.BookOwned(context.Background(), sessData.username, bookID) {
+	if !bookmarksStore.BookOwned(context.Background(), sessData.Username, bookID) {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Книга не найдена"})
 		return
 	}
@@ -82,7 +82,7 @@ func handleCreateBookmark(c *httpkit.Context) {
 		excerpt = string(runes[:maxBookmarkExcerpt])
 	}
 
-	b, err := bookmarksStore.Create(context.Background(), sessData.username, bookID, *req.Anchor, excerpt)
+	b, err := bookmarksStore.Create(context.Background(), sessData.Username, bookID, *req.Anchor, excerpt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить закладку"})
 		return
@@ -103,7 +103,7 @@ func handleDeleteBookmark(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	ok, err := bookmarksStore.Delete(context.Background(), sessData.username, bookID, bookmarkID)
+	ok, err := bookmarksStore.Delete(context.Background(), sessData.Username, bookID, bookmarkID)
 	if err != nil || !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Закладка не найдена"})
 		return

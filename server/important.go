@@ -160,13 +160,13 @@ func (s *importantStore) markSeen(username string) error {
 // (показ только на production) и seen_today (показывается раз в сутки).
 func handleGetImportant(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	msg, _ := important.get(sessData.username)
+	msg, _ := important.get(sessData.Username)
 	c.JSON(http.StatusOK, httpkit.H{
 		"enabled":    importantEnabled(),
 		"content":    msg.Content,
 		"updated_by": msg.UpdatedBy,
 		"updated_at": msg.UpdatedAt,
-		"seen_today": important.seenToday(sessData.username),
+		"seen_today": important.seenToday(sessData.Username),
 	})
 }
 
@@ -181,7 +181,7 @@ func handleSaveImportant(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	msg, err := important.save(sessData.username, req.Content)
+	msg, err := important.save(sessData.Username, req.Content)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить сообщение"})
 		return
@@ -197,7 +197,7 @@ func handleSaveImportant(c *httpkit.Context) {
 // сообщение сегодня — до следующего дня оно ему больше не покажется.
 func handleMarkImportantSeen(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	if err := important.markSeen(sessData.username); err != nil {
+	if err := important.markSeen(sessData.Username); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось отметить сообщение прочитанным"})
 		return
 	}

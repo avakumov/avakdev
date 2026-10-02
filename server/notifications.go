@@ -233,7 +233,7 @@ func (s *notificationStore) patchDue(id int, dueAt string) {
 // handleListNotifications отдаёт уведомления пользователя.
 func handleListNotifications(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
-	c.JSON(http.StatusOK, httpkit.H{"notifications": notifications.list(sessData.username)})
+	c.JSON(http.StatusOK, httpkit.H{"notifications": notifications.list(sessData.Username)})
 }
 
 // handleCreateNotification создаёт уведомление.
@@ -260,7 +260,7 @@ func handleCreateNotification(c *httpkit.Context) {
 		req.PeriodValue = 1
 	}
 	sessData, _ := c.MustGet("session").(session)
-	n, err := notifications.create(sessData.username, req.Text, req.Type, req.DueAt, req.PeriodUnit, req.PeriodValue, req.Channel)
+	n, err := notifications.create(sessData.Username, req.Text, req.Type, req.DueAt, req.PeriodUnit, req.PeriodValue, req.Channel)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
@@ -276,7 +276,7 @@ func handleDeleteNotification(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := notifications.delete(sessData.username, id); err != nil {
+	if err := notifications.delete(sessData.Username, id); err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
 		return
 	}

@@ -25,7 +25,7 @@ func deliverDueAppNotifications() {
 func handleListNotificationInbox(c *httpkit.Context) {
 	sessData, _ := c.MustGet("session").(session)
 
-	out, err := notificationsStore.Inbox(context.Background(), sessData.username)
+	out, err := notificationsStore.Inbox(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
 		return
@@ -43,14 +43,14 @@ func handleDismissNotification(c *httpkit.Context) {
 	}
 	sessData, _ := c.MustGet("session").(session)
 
-	notifID, err := notificationsStore.DismissInbox(context.Background(), sessData.username, id)
+	notifID, err := notificationsStore.DismissInbox(context.Background(), sessData.Username, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Уведомление не найдено"})
 		return
 	}
 
 	// Действие с родительским уведомлением.
-	ntype, dueAt, unit, value, err := notificationsStore.Meta(context.Background(), sessData.username, notifID)
+	ntype, dueAt, unit, value, err := notificationsStore.Meta(context.Background(), sessData.Username, notifID)
 	if err != nil {
 		// Родитель уже удалён — входящее закрыто, и этого достаточно.
 		c.JSON(http.StatusOK, httpkit.H{"ok": true})

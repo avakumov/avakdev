@@ -221,7 +221,7 @@ func handleDaySuggest(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	speed := readingSpeedFor(sessData.username)
+	speed := readingSpeedFor(sessData.Username)
 
 	// Активные задачи: по дедлайну (без дедлайна — в конец), затем старые.
 	type tc struct {
@@ -229,7 +229,7 @@ func handleDaySuggest(c *httpkit.Context) {
 		cand DayCandidate
 	}
 	rows := make([]tc, 0)
-	for _, t := range tasks.list(sessData.username) {
+	for _, t := range tasks.list(sessData.Username) {
 		if t.Status != taskTodo && t.Status != taskInProgress {
 			continue
 		}
@@ -403,7 +403,7 @@ func handleGetDay(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
-	body, found := loadDayItems(sessData.username, day)
+	body, found := loadDayItems(sessData.Username, day)
 	if !found {
 		// Плана может не быть, но закрытые в этот день задачи уже собраны.
 		body.Date = day
@@ -436,7 +436,7 @@ func handleSaveDay(c *httpkit.Context) {
 	}
 
 	sessData, _ := c.MustGet("session").(session)
-	username := sessData.username
+	username := sessData.Username
 	ctx := context.Background()
 
 	type kv struct {
@@ -493,7 +493,7 @@ func handleSetDayItemDone(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	if err := dayStore.SetItemDone(context.Background(), sessData.username, day, req.Kind, req.RefID, req.Done); err != nil {
+	if err := dayStore.SetItemDone(context.Background(), sessData.Username, day, req.Kind, req.RefID, req.Done); err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось обновить позицию дня"})
 		return
 	}
@@ -535,7 +535,7 @@ func handleSetDayItemSpent(c *httpkit.Context) {
 		return
 	}
 	sessData, _ := c.MustGet("session").(session)
-	username := sessData.username
+	username := sessData.Username
 	// Чужая/несуществующая задача в день не добавляется.
 	if _, ok := tasks.getOwned(username, req.RefID); !ok {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Задача не найдена"})
@@ -573,7 +573,7 @@ func handleDayHistory(c *httpkit.Context) {
 		c.JSON(http.StatusOK, httpkit.H{"days": []DaySummary{}})
 		return
 	}
-	days, err := dayStore.History(context.Background(), sessData.username)
+	days, err := dayStore.History(context.Background(), sessData.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить историю"})
 		return
