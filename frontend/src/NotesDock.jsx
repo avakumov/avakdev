@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createDraft, updateDraft, deleteDraft } from "./api.js";
 import { useAppStore } from "./store.js";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { AlertCircle, Loader2, Save, Trash2, X } from "lucide-react";
 
@@ -160,16 +161,18 @@ function NotesDock() {
       {zButton}
       <div className="w-[min(30rem,calc(100vw-5.5rem))] border bg-background p-2 shadow-md">
         <div className="flex items-start gap-1">
-          <textarea
+          {/* Общий Textarea: авто-рост по строкам. Оформление нейтрализуем
+              (без рамки/отступов/радиуса) — панель заметки сама рисует
+              рамку, поле должно остаться прозрачным и во всю ширину. */}
+          <Textarea
             ref={areaRef}
             value={text}
-            rows={5}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={draftKeyHandler(save, closeEditor)}
             placeholder="Текст заметки…"
             aria-label="Текст заметки"
             className={cn(
-              "min-w-0 flex-1 resize-y bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground",
+              "min-w-0 w-auto flex-1 rounded-none border-0 bg-transparent px-0 py-0 focus-visible:ring-0 dark:bg-transparent",
               isNew && NEW_DRAFT_TEXT_CLASS,
             )}
           />

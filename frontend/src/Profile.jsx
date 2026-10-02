@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   FileText,
   Sparkles,
@@ -65,20 +66,6 @@ function applyPhotoToHtml(html, photoData, photoMime) {
   }
   byClass.lastIndex = 0;
   return html.replace(byClass, replacement);
-}
-
-// Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
-function Textarea({ className, ...props }) {
-  return (
-    <textarea
-      data-slot="textarea"
-      className={
-        "w-full min-h-28 rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 resize-y " +
-        (className || "")
-      }
-      {...props}
-    />
-  );
 }
 
 // Карточка описания профиля: поле для ввода и кнопка сохранения.
@@ -364,7 +351,7 @@ function ResumeView({ resume, photoData, photoMime, onChanged }) {
         {editing ? (
           <div className="space-y-3">
             <Textarea
-              className="min-h-72 font-mono"
+              className="font-mono"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
             />

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -61,20 +62,6 @@ const STATUS_META = {
 
 const statusLabel = (s) => STATUS_META[s]?.label || s;
 const statusVariant = (s) => STATUS_META[s]?.variant || "outline";
-
-// Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
-function Textarea({ className, ...props }) {
-  return (
-    <textarea
-      data-slot="textarea"
-      className={
-        "w-full min-h-24 rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 resize-y " +
-        (className || "")
-      }
-      {...props}
-    />
-  );
-}
 
 // Форма добавления новой задачи по модификации приложения.
 function NewTaskForm({ onSaved }) {

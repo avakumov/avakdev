@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useImportant, saveImportantMessage } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Megaphone,
   Save,
@@ -25,33 +26,6 @@ import {
   Eye,
   PenLine,
 } from "lucide-react";
-
-// Строка-обёртка над обычным textarea (в стилистике shadcn/ui). Высота
-// подстраивается под текст: чуть больше контента (запас ~одна строка).
-function Textarea({ className, ...props }) {
-  const ref = useRef(null);
-  const value = props.value ?? "";
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    // Запас 20px — поле немного выше самого текста.
-    el.style.height = el.scrollHeight + 20 + "px";
-  }, [value]);
-
-  return (
-    <textarea
-      ref={ref}
-      data-slot="textarea"
-      className={
-        "w-full min-h-28 overflow-hidden rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 " +
-        (className || "")
-      }
-      {...props}
-    />
-  );
-}
 
 // Переключатель «Редактирование / Превью» + кнопка справки по Markdown.
 function EditorToolbar({ tab, onTabChange, onHelp }) {

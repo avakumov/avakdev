@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -99,20 +100,6 @@ const spentTitle = (t) => {
 };
 
 // Перенос по словам (стандартное поведение) — см. ячейку названия в TaskRow.
-
-// Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
-function Textarea({ className, ...props }) {
-  return (
-    <textarea
-      data-slot="textarea"
-      className={
-        "w-full min-h-24 rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 resize-y " +
-        (className || "")
-      }
-      {...props}
-    />
-  );
-}
 
 // Модальное окно с формой задачи (создание или редактирование).
 // goals — цели пользователя (из /api/tasks); presetGoalId — цель,

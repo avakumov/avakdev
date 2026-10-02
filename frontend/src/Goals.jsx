@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import ModalClose from "@/components/ModalClose.jsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -67,20 +68,6 @@ const statusMeta = (s) => STATUSES.find((x) => x.value === s) || STATUSES[0];
 // Сортировка задач цели по последовательности выполнения (position, затем id).
 const byGoalOrder = (a, b) =>
   (a.position ?? 0) - (b.position ?? 0) || a.id - b.id;
-
-// Строка-обёртка над обычным textarea (в стилистике shadcn/ui).
-function Textarea({ className, ...props }) {
-  return (
-    <textarea
-      data-slot="textarea"
-      className={
-        "w-full min-h-20 rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 resize-y " +
-        (className || "")
-      }
-      {...props}
-    />
-  );
-}
 
 // Модалка создания/редактирования цели.
 // При создании можно сгенерировать черновики задач (ИИ): они показываются
