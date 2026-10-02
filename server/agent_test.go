@@ -76,13 +76,13 @@ func TestAgentServerFlow(t *testing.T) {
 			DeployedAt      *string `json:"deployed_at"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		if req.Status != taskStatusInProgress && req.Status != taskStatusDone {
+		if req.Status != app.AppTaskStatusInProgress && req.Status != app.AppTaskStatusDone {
 			t.Errorf("PUT со статусом %q, want in_progress или done", req.Status)
 		}
-		if req.Status == taskStatusDone && (req.Result == nil || *req.Result == "") && req.DeployedAt == nil {
+		if req.Status == app.AppTaskStatusDone && (req.Result == nil || *req.Result == "") && req.DeployedAt == nil {
 			t.Errorf("PUT done без результата и без времени деплоя")
 		}
-		if req.Status == taskStatusDone && (req.Log == nil || *req.Log == "") {
+		if req.Status == app.AppTaskStatusDone && (req.Log == nil || *req.Log == "") {
 			t.Errorf("PUT done без журнала выполнения")
 		}
 		if req.DeployedAt != nil && (req.DeployRequested == nil || *req.DeployRequested) {
@@ -117,14 +117,14 @@ func TestAgentServerFlow(t *testing.T) {
 		t.Fatalf("tasks = %+v", tasks)
 	}
 
-	if err := a.updateTask(tasks[0].ID, tasks[0], taskPatch{Status: strPtr(taskStatusInProgress)}); err != nil {
+	if err := a.updateTask(tasks[0].ID, tasks[0], taskPatch{Status: strPtr(app.AppTaskStatusInProgress)}); err != nil {
 		t.Fatalf("updateTask(in_progress): %v", err)
 	}
 	res := "изменён отступ"
 	taskLog := "[1] read_file(...)\nвывод сборки"
 	hash := "abc1234"
 	if err := a.updateTask(tasks[0].ID, tasks[0], taskPatch{
-		Status:     strPtr(taskStatusDone),
+		Status:     strPtr(app.AppTaskStatusDone),
 		Result:     &res,
 		Log:        &taskLog,
 		CommitHash: &hash,
@@ -134,7 +134,7 @@ func TestAgentServerFlow(t *testing.T) {
 	// Завершение деплоя: снимаем флаг и проставляем время.
 	deployedAt := "2026-08-23T12:00:00Z"
 	if err := a.updateTask(tasks[0].ID, tasks[0], taskPatch{
-		Status:          strPtr(taskStatusDone),
+		Status:          strPtr(app.AppTaskStatusDone),
 		Log:             &taskLog,
 		DeployRequested: boolPtr(false),
 		DeployedAt:      &deployedAt,
@@ -183,7 +183,7 @@ func TestAgentGitWorkflow(t *testing.T) {
 	}
 
 	// Коммит задачи: хэш не пустой, сообщение с номером задачи, дерево чистое.
-	task := AppTask{ID: 5, Title: "Правка отступа"}
+	task := app.AppTask{ID: 5, Title: "Правка отступа"}
 	hash, out, err := a.commitTask(task)
 	if err != nil {
 		t.Fatalf("commitTask: %v %s", err, out)
@@ -247,7 +247,7 @@ func TestAgentCommitWithFallbackIdentity(t *testing.T) {
 	}
 
 	a := &agent{repoRoot: root}
-	task := AppTask{ID: 7, Title: "Новая миграция"}
+	task := app.AppTask{ID: 7, Title: "Новая миграция"}
 	hash, out, err := a.commitTask(task)
 	if err != nil {
 		t.Fatalf("commitTask без git identity должен проходить через фолбэк: %v %s", err, out)
@@ -319,8 +319,8 @@ func TestAgentUpdateTaskRetriesAfter401(t *testing.T) {
 		sessionTok: "sess-dead",
 	}
 
-	task := AppTask{ID: 1, Title: "Задача"}
-	if err := a.updateTask(task.ID, task, taskPatch{Status: strPtr(taskStatusDone)}); err != nil {
+	task := app.AppTask{ID: 1, Title: "Задача"}
+	if err := a.updateTask(task.ID, task, taskPatch{Status: strPtr(app.AppTaskStatusDone)}); err != nil {
 		t.Fatalf("updateTask: %v", err)
 	}
 	if putCount != 2 {

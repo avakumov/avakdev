@@ -107,6 +107,9 @@ type App struct {
 
 	// UserMetrics — in-memory хранилище метрик пользователей.
 	UserMetrics *MetricStore
+
+	// AppTasks — in-memory хранилище задач по модификации приложения.
+	AppTasks *AppTaskStore
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -200,5 +203,20 @@ func (a *App) InitUserMetrics() error {
 		return err
 	}
 	a.UserMetrics = s
+	return nil
+}
+
+// InitAppTasks создаёт in-memory хранилище задач по модификации приложения.
+// Вызывается после New; без БД создаёт пустое хранилище.
+func (a *App) InitAppTasks() error {
+	var pool *pgxpool.Pool
+	if a.DB != nil {
+		pool = a.DB
+	}
+	s, err := NewAppTaskStore(pool)
+	if err != nil {
+		return err
+	}
+	a.AppTasks = s
 	return nil
 }

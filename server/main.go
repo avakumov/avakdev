@@ -73,7 +73,7 @@ func main() {
 	if err := application.InitUserMetrics(); err != nil {
 		log.Fatalf("не удалось инициализировать метрики: %v", err)
 	}
-	if err := initAppTasks(); err != nil {
+	if err := application.InitAppTasks(); err != nil {
 		log.Fatalf("не удалось инициализировать задачи: %v", err)
 	}
 	if err := application.InitTasksGoals(); err != nil {
@@ -139,10 +139,10 @@ func main() {
 
 	// Задачи по модификации приложения (раздел «Приложение») —
 	// только для администраторов (запрос деплоя/отката изменений).
-	admin.GET("/app-tasks", handleListAppTasks)
-	admin.POST("/app-tasks", handleCreateAppTask)
-	admin.PUT("/app-tasks/:id", handleUpdateAppTask)
-	admin.DELETE("/app-tasks/:id", handleDeleteAppTask)
+	admin.GET("/app-tasks", h.ListAppTasks)
+	admin.POST("/app-tasks", h.CreateAppTask)
+	admin.PUT("/app-tasks/:id", h.UpdateAppTask)
+	admin.DELETE("/app-tasks/:id", h.DeleteAppTask)
 
 	// Отчёты за дни (создание, редактирование, список).
 	authed.GET("/reports", h.ListReports)

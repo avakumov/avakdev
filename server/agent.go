@@ -130,12 +130,12 @@ func (a *agent) runCycle() error {
 		msg := "Не выполнена: есть незакоммиченные файлы в рабочем дереве:\n" + statusOut
 		taskLog := "Дерево не чистое перед выполнением задачи:\n" + statusOut
 		for _, t := range tasks {
-			if t.Status != taskStatusNew {
+			if t.Status != app.AppTaskStatusNew {
 				continue
 			}
 			log.Printf("AGENT: задача #%d «%s»: не выполнена (грязное дерево)", t.ID, t.Title)
 			if err2 := a.updateTask(t.ID, t, taskPatch{
-				Status: strPtr(taskStatusFailed),
+				Status: strPtr(app.AppTaskStatusFailed),
 				Result: &msg,
 				Log:    &taskLog,
 			}); err2 != nil {
@@ -150,13 +150,13 @@ func (a *agent) runCycle() error {
 	// коммитом, хэш сохраняется в задаче.
 	processed := 0
 	for _, t := range tasks {
-		if t.Status != taskStatusNew {
+		if t.Status != app.AppTaskStatusNew {
 			continue
 		}
 		processed++
 		log.Printf("AGENT: беру задачу #%d «%s»", t.ID, t.Title)
 
-		if err := a.updateTask(t.ID, t, taskPatch{Status: strPtr(taskStatusInProgress)}); err != nil {
+		if err := a.updateTask(t.ID, t, taskPatch{Status: strPtr(app.AppTaskStatusInProgress)}); err != nil {
 			log.Printf("AGENT: не удалось пометить задачу #%d «в работе»: %v", t.ID, err)
 			continue
 		}
@@ -173,7 +173,7 @@ func (a *agent) runCycle() error {
 			}
 			msg := "Не выполнена: " + err.Error()
 			if err2 := a.updateTask(t.ID, t, taskPatch{
-				Status: strPtr(taskStatusFailed),
+				Status: strPtr(app.AppTaskStatusFailed),
 				Result: &msg,
 				Log:    &taskLog,
 			}); err2 != nil {
@@ -189,7 +189,7 @@ func (a *agent) runCycle() error {
 			msg := "Выполнена, но не закоммичена: " + err.Error()
 			taskLog += "\ngit commit: " + commitOut + "\n" + err.Error()
 			if err2 := a.updateTask(t.ID, t, taskPatch{
-				Status: strPtr(taskStatusFailed),
+				Status: strPtr(app.AppTaskStatusFailed),
 				Result: &msg,
 				Log:    &taskLog,
 			}); err2 != nil {
@@ -200,7 +200,7 @@ func (a *agent) runCycle() error {
 		taskLog += "\n" + commitOut
 
 		if err := a.updateTask(t.ID, t, taskPatch{
-			Status:     strPtr(taskStatusDone),
+			Status:     strPtr(app.AppTaskStatusDone),
 			Result:     &result,
 			Log:        &taskLog,
 			CommitHash: &hash,
@@ -237,7 +237,7 @@ func (a *agent) runCycle() error {
 // deployTask выполняет деплой: только из чистого дерева (HEAD — уже
 // закоммиченные задачи), затем make deploy и обновление статуса.
 // Журнал задачи при этом сохраняется и дополняется.
-func (a *agent) deployTask(t AppTask) {
+func (a *agent) deployTask(t app.AppTask) {
 	logBuf := strings.Builder{}
 	logBuf.WriteString(t.Log)
 	if logBuf.Len() > 0 && !strings.HasSuffix(t.Log, "\n") {
@@ -262,7 +262,7 @@ func (a *agent) deployTask(t AppTask) {
 			logBuf.WriteString("Деплой не удался: " + deployErr.Error() + "\n" + deployOut)
 			taskLog := truncateLog(logBuf.String())
 			if err2 := a.updateTask(t.ID, t, taskPatch{
-				Status:          strPtr(taskStatusDone),
+				Status:          strPtr(app.AppTaskStatusDone),
 				Log:             &taskLog,
 				DeployRequested: boolPtr(false),
 			}); err2 != nil {
@@ -274,7 +274,7 @@ func (a *agent) deployTask(t AppTask) {
 
 		taskLog := truncateLog(logBuf.String())
 		if err := a.updateTask(t.ID, t, taskPatch{
-			Status:          strPtr(taskStatusDone),
+			Status:          strPtr(app.AppTaskStatusDone),
 			Log:             &taskLog,
 			DeployRequested: boolPtr(false),
 			DeployedAt:      &deployedAt,
@@ -290,7 +290,7 @@ func (a *agent) deployTask(t AppTask) {
 	// повторим в следующем цикле, когда дерево подчистят.
 	taskLog := truncateLog(logBuf.String())
 	if err2 := a.updateTask(t.ID, t, taskPatch{
-		Status: strPtr(taskStatusDone),
+		Status: strPtr(app.AppTaskStatusDone),
 		Log:    &taskLog,
 	}); err2 != nil {
 		log.Printf("AGENT: не удалось обновить задачу #%d: %v", t.ID, err2)
@@ -298,7 +298,7 @@ func (a *agent) deployTask(t AppTask) {
 }
 
 // revertTask откатывает задеплоенный коммит задачи: git revert + make deploy.
-func (a *agent) revertTask(t AppTask) {
+func (a *agent) revertTask(t app.AppTask) {
 	logBuf := strings.Builder{}
 	logBuf.WriteString(t.Log)
 	if logBuf.Len() > 0 && !strings.HasSuffix(t.Log, "\n") {
@@ -311,7 +311,7 @@ func (a *agent) revertTask(t AppTask) {
 		logBuf.WriteString("Откат невозможен: у задачи нет commit_hash")
 		taskLog := truncateLog(logBuf.String())
 		a.updateTask(t.ID, t, taskPatch{
-			Status:          strPtr(taskStatusDone),
+			Status:          strPtr(app.AppTaskStatusDone),
 			Log:             &taskLog,
 			RevertRequested: boolPtr(false),
 		})
@@ -328,7 +328,7 @@ func (a *agent) revertTask(t AppTask) {
 		}
 		taskLog := truncateLog(logBuf.String())
 		a.updateTask(t.ID, t, taskPatch{
-			Status:          strPtr(taskStatusDone),
+			Status:          strPtr(app.AppTaskStatusDone),
 			Log:             &taskLog,
 			RevertRequested: boolPtr(false),
 		})
@@ -343,7 +343,7 @@ func (a *agent) revertTask(t AppTask) {
 		logBuf.WriteString("\nДеплой отката отменён: дерево грязное:\n" + statusOut)
 		taskLog := truncateLog(logBuf.String())
 		a.updateTask(t.ID, t, taskPatch{
-			Status:          strPtr(taskStatusDone),
+			Status:          strPtr(app.AppTaskStatusDone),
 			Log:             &taskLog,
 			RevertRequested: boolPtr(false),
 		})
@@ -356,7 +356,7 @@ func (a *agent) revertTask(t AppTask) {
 		logBuf.WriteString("\nДеплой отката не удался: " + deployErr.Error() + "\n" + deployOut)
 		taskLog := truncateLog(logBuf.String())
 		a.updateTask(t.ID, t, taskPatch{
-			Status:          strPtr(taskStatusDone),
+			Status:          strPtr(app.AppTaskStatusDone),
 			Log:             &taskLog,
 			RevertRequested: boolPtr(false),
 		})
@@ -367,7 +367,7 @@ func (a *agent) revertTask(t AppTask) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	taskLog := truncateLog(logBuf.String())
 	if err := a.updateTask(t.ID, t, taskPatch{
-		Status:          strPtr(taskStatusDone),
+		Status:          strPtr(app.AppTaskStatusDone),
 		Log:             &taskLog,
 		RevertRequested: boolPtr(false),
 		RevertedAt:      &now,
@@ -382,7 +382,7 @@ func (a *agent) revertTask(t AppTask) {
 // «Нечего коммитить» (задача ничего не меняла) не ошибка: возвращается HEAD.
 // Если у git не настроена user.name/user.email — подставляется запасная
 // идентичность, иначе коммит падает и файлы остаются незакоммиченными.
-func (a *agent) commitTask(t AppTask) (hash, out string, err error) {
+func (a *agent) commitTask(t app.AppTask) (hash, out string, err error) {
 	if out, err = a.runGit("add", "-A"); err != nil {
 		return "", out, fmt.Errorf("git add: %v", err)
 	}
@@ -532,7 +532,7 @@ func (a *agent) ensureSession() error {
 }
 
 // fetchTasks получает список задач с сервера.
-func (a *agent) fetchTasks() ([]AppTask, error) {
+func (a *agent) fetchTasks() ([]app.AppTask, error) {
 	req, err := http.NewRequest(http.MethodGet, a.serverURL+"/api/app-tasks", nil)
 	if err != nil {
 		return nil, err
@@ -558,7 +558,7 @@ func (a *agent) fetchTasks() ([]AppTask, error) {
 	}
 
 	var parsed struct {
-		Tasks []AppTask `json:"tasks"`
+		Tasks []app.AppTask `json:"tasks"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
@@ -585,7 +585,7 @@ type taskPatch struct {
 // updateTask применяет taskPatch к задаче на сервере. При 401 перелогинивается
 // и повторяет запрос один раз — иначе после деплоя (рестарт прода) статус
 // не обновится и задача будет деплоиться/откатываться бесконечно.
-func (a *agent) updateTask(id int, t AppTask, patch taskPatch) error {
+func (a *agent) updateTask(id int, t app.AppTask, patch taskPatch) error {
 	payload := map[string]any{
 		"title":       t.Title,
 		"description": t.Description,
@@ -762,7 +762,7 @@ type chatResponse struct {
 // executeTask выполняет задачу через DeepSeek с инструментами.
 // Возвращает итоговый ответ агента (краткий итог изменений) и подробный
 // журнал выполнения (вызовы инструментов и их результаты).
-func (a *agent) executeTask(t AppTask) (result, taskLog string, err error) {
+func (a *agent) executeTask(t app.AppTask) (result, taskLog string, err error) {
 	taskText := t.Title
 	if strings.TrimSpace(t.Description) != "" {
 		taskText += "\n\n" + t.Description
