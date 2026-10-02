@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/httpkit"
 	"avakumov/server/internal/store"
 )
@@ -146,16 +146,8 @@ func noteDueDate(created, updated string, repetitions int) (time.Time, error) {
 	return t.AddDate(0, 0, interval), nil
 }
 
-// parseDay нормализует "YYYY-MM-DD"; пусто — сегодня (локальная дата).
-func parseDay(s string) (string, error) {
-	if s == "" {
-		return time.Now().Format("2006-01-02"), nil
-	}
-	if _, err := time.Parse("2006-01-02", s); err != nil {
-		return "", errors.New("некорректная дата (ожидается ГГГГ-ММ-ДД)")
-	}
-	return s, nil
-}
+// parseDay — обёртка над app.ParseDay (для кода, оставшегося в main).
+func parseDay(s string) (string, error) { return app.ParseDay(s) }
 
 // dueKnowledgeNotes — заметки к повторению на дату day, по возрастанию даты.
 // Свежая заметка (0 повторений) доступна сразу после создания, дальше график

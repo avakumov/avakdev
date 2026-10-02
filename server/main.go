@@ -150,19 +150,19 @@ func main() {
 	admin.DELETE("/app-tasks/:id", handleDeleteAppTask)
 
 	// Отчёты за дни (создание, редактирование, список).
-	authed.GET("/reports", handleListReports)
-	authed.PUT("/reports/:date", handleUpsertReport)
+	authed.GET("/reports", h.ListReports)
+	authed.PUT("/reports/:date", h.UpsertReport)
 
 	// Раздел «Чтение»: книги (fb2/epub → HTML).
 	authed.GET("/books", handleListBooks)
 	authed.POST("/books", handleUploadBook)
-	authed.GET("/books/last-bookmark", handleLastBookmark)
+	authed.GET("/books/last-bookmark", h.LastBookmark)
 	authed.GET("/books/:id", handleGetBook)
 	authed.DELETE("/books/:id", handleDeleteBook)
 	authed.PUT("/books/:id/finished", handleSetBookFinished)
-	authed.GET("/books/:id/bookmarks", handleListBookmarks)
-	authed.POST("/books/:id/bookmarks", handleCreateBookmark)
-	authed.DELETE("/books/:id/bookmarks/:bookmarkId", handleDeleteBookmark)
+	authed.GET("/books/:id/bookmarks", h.ListBookmarks)
+	authed.POST("/books/:id/bookmarks", h.CreateBookmark)
+	authed.DELETE("/books/:id/bookmarks/:bookmarkId", h.DeleteBookmark)
 
 	// Время чтения по дням и цель чтения на день.
 	authed.GET("/reading/time", handleGetReadingTime)

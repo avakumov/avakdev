@@ -75,8 +75,10 @@ type App struct {
 	DB   *pgxpool.Pool
 	Sess *SessionStore
 
-	Reading *store.Reading
-	Drafts  *store.Drafts
+	Reading   *store.Reading
+	Drafts    *store.Drafts
+	Bookmarks *store.Bookmarks
+	Reports   *store.Reports
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -86,6 +88,8 @@ func New(db *pgxpool.Pool) *App {
 		a.Sess = NewSessionStore()
 		a.Reading = store.NewReading(db)
 		a.Drafts = store.NewDrafts(db)
+		a.Bookmarks = store.NewBookmarks(db)
+		a.Reports = store.NewReports(db)
 	}
 	return a
 }
