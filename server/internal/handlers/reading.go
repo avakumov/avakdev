@@ -1,8 +1,9 @@
-package main
+package handlers
 
 import (
 	"net/http"
 
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/httpkit"
 )
 
@@ -10,7 +11,7 @@ import (
 // (отсчёт идёт, пока пользователь листает текст) и по закрытию книги добавляет
 // их к дню. Дата — календарный день клиента в формате ГГГГ-ММ-ДД.
 // Цель чтения у каждого дня своя (по умолчанию — час), её можно менять.
-// Данные и SQL живут в store.Reading (переменная readingStore).
+// Данные и SQL живут в store.Reading (App.Reading).
 
 // readingGoalSeconds — цель чтения по умолчанию: час в день.
 const readingGoalSeconds = 3600
@@ -28,12 +29,12 @@ const maxReadingSecondsPerSave = 24 * 3600
 // readingHistoryDays — сколько последних дней с чтением отдаём отчётам.
 const readingHistoryDays = 90
 
-// handleReadingHistory — дни, в которые было чтение (сначала новые).
+// ReadingHistory — дни, в которые было чтение (сначала новые).
 // Нужна отчётам: такие дни попадают в список дней наравне с планами.
 // Дни с нулём секунд (например, только изменённая цель) не отдаём.
-func handleReadingHistory(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(session)
-	days, err := readingStore.History(c.Request.Context(), sessData.Username, readingHistoryDays)
+func (h *Handlers) ReadingHistory(c *httpkit.Context) {
+	sessData, _ := c.MustGet("session").(app.Session)
+	days, err := h.App.Reading.History(c.Request.Context(), sessData.Username, readingHistoryDays)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить историю чтения"})
 		return
@@ -41,17 +42,17 @@ func handleReadingHistory(c *httpkit.Context) {
 	c.JSON(http.StatusOK, days)
 }
 
-// handleGetReadingTime возвращает, сколько секунд пользователь читал за день
+// GetReadingTime возвращает, сколько секунд пользователь читал за день
 // и какова цель этого дня (GET /api/reading/time?date=ГГГГ-ММ-ДД; пусто — сегодня).
-func handleGetReadingTime(c *httpkit.Context) {
-	day, err := parseDay(c.Query("date"))
+func (h *Handlers) GetReadingTime(c *httpkit.Context) {
+	day, err := app.ParseDay(c.Query("date"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
+	sessData, _ := c.MustGet("session").(app.Session)
 
-	res, err := readingStore.Day(c.Request.Context(), sessData.Username, day, readingGoalSeconds)
+	res, err := h.App.Reading.Day(c.Request.Context(), sessData.Username, day, readingGoalSeconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить время чтения"})
 		return
@@ -59,9 +60,9 @@ func handleGetReadingTime(c *httpkit.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-// handleAddReadingTime добавляет секунды чтения к дню (POST /api/reading/time,
+// AddReadingTime добавляет секунды чтения к дню (POST /api/reading/time,
 // тело {"date","seconds"}) и возвращает новую сумму за день.
-func handleAddReadingTime(c *httpkit.Context) {
+func (h *Handlers) AddReadingTime(c *httpkit.Context) {
 	var req struct {
 		Date    string `json:"date"`
 		Seconds int    `json:"seconds"`
@@ -70,7 +71,7 @@ func handleAddReadingTime(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
-	day, err := parseDay(req.Date)
+	day, err := app.ParseDay(req.Date)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
@@ -79,9 +80,9 @@ func handleAddReadingTime(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректное время чтения"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
+	sessData, _ := c.MustGet("session").(app.Session)
 
-	res, err := readingStore.Add(c.Request.Context(), sessData.Username, day, req.Seconds)
+	res, err := h.App.Reading.Add(c.Request.Context(), sessData.Username, day, req.Seconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время чтения"})
 		return
@@ -89,9 +90,9 @@ func handleAddReadingTime(c *httpkit.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-// handleSetReadingGoal меняет цель чтения на день (PUT /api/reading/goal,
+// SetReadingGoal меняет цель чтения на день (PUT /api/reading/goal,
 // тело {"date","goal_seconds"}). Строка дня создаётся, если её ещё нет.
-func handleSetReadingGoal(c *httpkit.Context) {
+func (h *Handlers) SetReadingGoal(c *httpkit.Context) {
 	var req struct {
 		Date        string `json:"date"`
 		GoalSeconds int    `json:"goal_seconds"`
@@ -100,7 +101,7 @@ func handleSetReadingGoal(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
-	day, err := parseDay(req.Date)
+	day, err := app.ParseDay(req.Date)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
@@ -109,9 +110,9 @@ func handleSetReadingGoal(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Цель чтения — от 1 минуты до 24 часов"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(session)
+	sessData, _ := c.MustGet("session").(app.Session)
 
-	res, err := readingStore.SetGoal(c.Request.Context(), sessData.Username, day, req.GoalSeconds)
+	res, err := h.App.Reading.SetGoal(c.Request.Context(), sessData.Username, day, req.GoalSeconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить цель чтения"})
 		return

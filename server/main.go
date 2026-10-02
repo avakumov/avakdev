@@ -165,10 +165,10 @@ func main() {
 	authed.DELETE("/books/:id/bookmarks/:bookmarkId", h.DeleteBookmark)
 
 	// Время чтения по дням и цель чтения на день.
-	authed.GET("/reading/time", handleGetReadingTime)
-	authed.GET("/reading/history", handleReadingHistory)
-	authed.POST("/reading/time", handleAddReadingTime)
-	authed.PUT("/reading/goal", handleSetReadingGoal)
+	authed.GET("/reading/time", h.GetReadingTime)
+	authed.GET("/reading/history", h.ReadingHistory)
+	authed.POST("/reading/time", h.AddReadingTime)
+	authed.PUT("/reading/goal", h.SetReadingGoal)
 
 	// Конспекты знаний (создание, генерация, редактирование, удаление).
 	authed.GET("/knowledge", handleListNotes)
