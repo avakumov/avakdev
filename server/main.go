@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"net/http"
@@ -324,6 +325,12 @@ func serveFrontend(r *httpkit.Engine) {
 func hasIndex(fsys fs.FS) bool {
 	_, err := fs.Stat(fsys, "index.html")
 	return err == nil
+}
+
+// initDB подключается к PostgreSQL по строке подключения из DATABASE_URL.
+// БД не настроена (пустая переменная) — приложение работает без неё.
+func initDB() error {
+	return database.Init(context.Background(), os.Getenv("DATABASE_URL"))
 }
 
 // logAuthConfig печатает состояние подключения к БД при старте.
