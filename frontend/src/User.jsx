@@ -447,6 +447,17 @@ function User({ user, onLogout }) {
             >
               {theme === "dark" ? <Sun /> : <Moon />}
             </Button>
+            {/* Выход — рядом с переключателем темы, всегда на виду. */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onLogout}
+              className="shrink-0 text-destructive"
+              title="Выйти"
+              aria-label="Выйти"
+            >
+              <LogOut />
+            </Button>
           </CardTitle>
         </CardHeader>
 
@@ -645,13 +656,6 @@ function User({ user, onLogout }) {
             )}
           </div>
 
-          <Separator />
-
-          {/* Выход */}
-          <Button variant="destructive" className="w-full" onClick={onLogout}>
-            <LogOut />
-            Выйти
-          </Button>
         </CardContent>
       </Card>
 
