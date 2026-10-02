@@ -9,7 +9,7 @@
 # ---------------------------------------------------------------------------
 # Конфигурация
 # ---------------------------------------------------------------------------
-.PHONY: help dev dev-backend dev-frontend install build build-binary run \
+.PHONY: help dev dev-backend dev-frontend install build build-frontend build-binary run \
         run-with-db run-without-db deploy deploy-deps \
         pg-status pg-start pg-stop pg-setup pg-init db-pull
 
@@ -35,8 +35,9 @@ help:
 	@echo ""
 	@echo "  Прочее:"
 	@echo "    make install              — установить зависимости (go mod tidy + npm install)"
-	@echo "    make build                — собрать фронтенд в frontend/dist"
-	@echo "    make build-binary         — собрать бинарник со встроенным фронтендом"
+	@echo "    make build                — полная сборка: фронтенд + бинарник (server/server)"
+	@echo "    make build-binary         — то же, что make build"
+	@echo "    make build-frontend       — только фронтенд в frontend/dist"
 	@echo "    make run                  — «прод»-запуск: Go отдаёт статику и API на :8080"
 	@echo ""
 	@echo "  Деплой:"
@@ -145,7 +146,8 @@ install:
 	cd server && go mod tidy
 	cd frontend && npm install
 
-build:
+# Фронтенд (vite) → frontend/dist.
+build-frontend:
 	cd frontend && npm run build
 
 # ---------------------------------------------------------------------------
@@ -154,17 +156,22 @@ build:
 run: dev-check-db
 	cd server && go run .
 
-# Собирает один исполняемый файл со встроенным фронтендом.
-# (embed-сборка требует, чтобы server/frontend-dist содержал собранную статику)
-build-binary:
+# Бинарник со встроенным фронтендом — server/server. Сначала собирает фронтенд
+# (эта же цель — то, что нужно для деплоя).
+# nomsgpack — убирает из gin binding поддержку msgpack (тянет ugorji/go/codec,
+# ~6 МБ бинарника); само приложение msgpack не использует.
+build-binary: build-frontend
 	rm -rf server/frontend-dist/assets server/frontend-dist/index.html
 	@if [ -f frontend/dist/index.html ]; then \
 		cp -r frontend/dist/index.html server/frontend-dist/; \
 		cp -r frontend/dist/assets server/frontend-dist/; \
 	else \
-		echo "Фронтенд не собран. Сначала: make build"; exit 1; \
+		echo "Фронтенд не собран. Сначала: make build-frontend"; exit 1; \
 	fi
-	cd server && CGO_ENABLED=0 go build -trimpath -tags embed -ldflags '-s -w' -o server .
+	cd server && CGO_ENABLED=0 go build -trimpath -tags 'embed nomsgpack' -ldflags '-s -w' -o server .
+
+# Полная сборка (для деплоя) — фронтенд + бинарник со встроенной статикой.
+build: build-binary
 
 # ---------------------------------------------------------------------------
 # Деплой

@@ -7,15 +7,14 @@
 #   - Удалённый VDS/VPS-сервер по SSH, если DEPLOY_HOST задан.
 #
 # Что делает (сборка всегда локальная):
-#   1. Собирает React-фронтенд (frontend/dist).
-#   2. Копирует его в server/frontend-dist и встраивает в Go-бинарник (embed).
-#   3. Собирает один исполняемый файл.
-#   4. Ставит его (локально или по VPS) и создаёт служебного пользователя.
-#   5. Создаёт и активирует systemd-юнит.
-#   6. Настраивает Caddy для HTTPS (реверс-прокси на локальный порт).
+#   1. Одной командой `make build` собирает фронтенд и встраивает его в
+#      Go-бинарник (server/server): frontend/dist → server/frontend-dist → embed.
+#   2. Ставит его (локально или по VPS) и создаёт служебного пользователя.
+#   3. Создаёт и активирует systemd-юнит.
+#   4. Настраивает Caddy для HTTPS (реверс-прокси на локальный порт).
 #
 # Требования:
-#   - локально: go, node/npm
+#   - локально: go, node/npm, make
 #   - локально (для локального деплоя): sudo, systemd
 #   - для удалённого деплоя: ssh/scp + ключ без пароля (или ssh-agent)
 #   - для HTTPS через Caddy нужен реальный домен или локальный сертификат
@@ -107,6 +106,7 @@ FRONTEND_DIST_STAGING="$SERVER_DIR/frontend-dist"
 # ---------------------------------------------------------------------------
 command -v go    >/dev/null 2>&1 || { echo "Ошибка: go не установлен"; exit 1; }
 command -v npm   >/dev/null 2>&1 || { echo "Ошибка: npm не установлен"; exit 1; }
+command -v make  >/dev/null 2>&1 || { echo "Ошибка: make не установлен"; exit 1; }
 
 if [[ -n "$DEPLOY_HOST" ]]; then
   # Удалённый режим
@@ -192,19 +192,20 @@ if [[ "${1:-}" == "--install-deps" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Шаг 1. Сборка фронтенда
+# Шаг 1. Сборка фронтенда и бинарника (единая точка — make build)
 # ---------------------------------------------------------------------------
-echo "==> Сборка фронтенда"
+# Правила сборки живут только в Makefile (цель `build`): фронтенд →
+# server/frontend-dist → Go-бинарник с embed. Здесь не дублируем их, а лишь
+# проверяем окружение и вызываем make из корня проекта.
+echo "==> Сборка фронтенда и бинарника (make build)"
 
-# Проверяем права на каталог сборки фронтенда. Если он принадлежит root
-# (например, скрипт ранее запускался через sudo), обычный пользователь
-# не сможет его очистить — Vite упадёт с загадочным EACCES. Остановимся
-# заранее с понятным сообщением.
-# Проверяем владельца каталога сборки и вложенного assets (могут быть от root
-# из-за прежних запусков через sudo). Если кто-то из них root — обычный
-# пользователь не сможет их очистить, и Vite упадёт с загадочным EACCES.
-need_chown=0
-for _d_ in "$FRONTEND_DIR/dist" "$FRONTEND_DIR/dist/assets"; do
+# Проверяем владельцев каталогов сборки (frontend/dist и staging-каталог
+# embed-статики). Если что-то принадлежит root (например, скрипт ранее
+# запускался через sudo), обычный пользователь не сможет это очистить —
+# сборка упадёт с загадочным EACCES. Остановимся заранее с понятным текстом.
+for _d_ in \
+  "$FRONTEND_DIR/dist" "$FRONTEND_DIR/dist/assets" \
+  "$FRONTEND_DIST_STAGING" "$FRONTEND_DIST_STAGING/assets"; do
   if [ -d "$_d_" ] && [ "$(stat -c '%U' "$_d_" 2>/dev/null || echo unknown)" = "root" ]; then
     echo
     echo "ОШИБКА: каталог $_d_ принадлежит root."
@@ -215,62 +216,26 @@ for _d_ in "$FRONTEND_DIR/dist" "$FRONTEND_DIR/dist/assets"; do
   fi
 done
 unset _d_
-(
-  cd "$FRONTEND_DIR"
 
-  # Устанавливаем зависимости только если их ещё нет (один раз),
-  # а не при каждом деплое — это быстрее и без лишнего вывода npm.
-  if [ ! -d node_modules ]; then
-    echo "node_modules не найден — устанавливаю зависимости"
-    if [ -f package-lock.json ]; then
-      npm ci
-    else
-      npm install
-    fi
+# Зависимости фронтенда ставим один раз, а не при каждом деплое.
+if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+  echo "node_modules не найден — устанавливаю зависимости фронтенда"
+  if [ -f "$FRONTEND_DIR/package-lock.json" ]; then
+    ( cd "$FRONTEND_DIR" && npm ci )
+  else
+    ( cd "$FRONTEND_DIR" && npm install )
   fi
+fi
 
-  npm run build
-)
+# Полная сборка: фронтенд → server/frontend-dist → бинарник server/server.
+( cd "$SCRIPT_DIR" && make build )
 
-# ---------------------------------------------------------------------------
-# Шаг 2. Копирование статики для embed
-# ---------------------------------------------------------------------------
-echo "==> Подготовка статики для embed"
-
-# Аналогичная проверка для staging-каталога embed-статики.
-# Проверяем владельца staging-каталога embed-статики и вложенного assets.
-for _d_ in "$FRONTEND_DIST_STAGING" "$FRONTEND_DIST_STAGING/assets"; do
-  if [ -d "$_d_" ] && [ "$(stat -c '%U' "$_d_" 2>/dev/null || echo unknown)" = "root" ]; then
-    echo
-    echo "ОШИБКА: каталог $_d_ принадлежит root."
-    echo "Скрипт ранее запускался через 'sudo'. Верните владельца пользователю:"
-    echo "  sudo chown -R \"\$(whoami):\$(whoami)\" $FRONTEND_DIST_STAGING"
-    echo "После этого запустите скрипт БЕЗ sudo."
-    exit 1
-  fi
-done
-unset _d_
-
-rm -rf "$FRONTEND_DIST_STAGING"/assets "$FRONTEND_DIST_STAGING"/index.html
-cp -r "$FRONTEND_DIR"/dist/index.html "$FRONTEND_DIST_STAGING"/
-cp -r "$FRONTEND_DIR"/dist/assets    "$FRONTEND_DIST_STAGING"/
+# make build-binary кладёт бинарник в server/server (имя фиксировано в Makefile),
+# а нужное имя при установке задаёт BIN_NAME на шаге доставки.
+BIN_ARCHIVE="$SERVER_DIR/server"
 
 # ---------------------------------------------------------------------------
-# Шаг 3. Сборка бинарника (с тегом embed)
-# ---------------------------------------------------------------------------
-echo "==> Сборка Go-бинарника"
-BUILD_DIR="$(mktemp -d)"
-trap 'rm -rf "$BUILD_DIR"' EXIT
-
-(
-  cd "$SERVER_DIR"
-  CGO_ENABLED=0 go build -trimpath -tags embed -ldflags '-s -w' \
-      -o "$BUILD_DIR/$BIN_NAME" .
-)
-BIN_ARCHIVE="$BUILD_DIR/$BIN_NAME"
-
-# ---------------------------------------------------------------------------
-# Шаг 4. Доставка бинарника на цель
+# Шаг 2. Доставка бинарника на цель
 # ---------------------------------------------------------------------------
 if [[ -n "$DEPLOY_HOST" ]]; then
   echo "==> Копирую бинарник на $SSH_TARGET:$DEPLOY_REMOTE_DIR/$BIN_NAME"
@@ -295,7 +260,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Шаг 4.5. Доставка .env на цель
+# Шаг 3. Доставка .env на цель
 # ---------------------------------------------------------------------------
 # Копируем .env файл, чтобы Go-сервер видел ключи (DeepSeek, Yandex SpeechKit и т.д.)
 # при работе под systemd (WorkingDirectory=$INSTALL_DIR, loadEnv() ищет .env рядом).
@@ -315,7 +280,7 @@ fi
 
 
 # ---------------------------------------------------------------------------
-# Шаг 5. Systemd-юнит
+# Шаг 4. Systemd-юнит
 # ---------------------------------------------------------------------------
 echo "==> Настройка systemd"
 
@@ -358,7 +323,7 @@ run_on_target "sudo systemctl daemon-reload && sudo systemctl enable '$SERVICE_N
 echo "==> Сервис '$SERVICE_NAME' запущен"
 
 # ---------------------------------------------------------------------------
-# Шаг 6. Конфигурация Caddy (HTTPS)
+# Шаг 5. Конфигурация Caddy (HTTPS)
 # ---------------------------------------------------------------------------
 caddy_present="$(run_on_target 'if command -v caddy >/dev/null 2>&1 || [ -x /usr/bin/caddy ]; then echo yes; else echo no; fi')"
 
