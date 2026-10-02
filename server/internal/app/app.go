@@ -110,6 +110,9 @@ type App struct {
 
 	// AppTasks — in-memory хранилище задач по модификации приложения.
 	AppTasks *AppTaskStore
+
+	// Profile — in-memory хранилище профиля (резюме и фото).
+	Profile *ProfileStore
 }
 
 // New собирает приложение на готовом пуле БД (nil — БД не настроена).
@@ -218,5 +221,20 @@ func (a *App) InitAppTasks() error {
 		return err
 	}
 	a.AppTasks = s
+	return nil
+}
+
+// InitProfile создаёт in-memory хранилище профиля и подгружает данные из БД.
+// Вызывается после New; без БД создаёт пустой профиль.
+func (a *App) InitProfile() error {
+	var pool *pgxpool.Pool
+	if a.DB != nil {
+		pool = a.DB
+	}
+	s, err := NewProfileStore(pool)
+	if err != nil {
+		return err
+	}
+	a.Profile = s
 	return nil
 }

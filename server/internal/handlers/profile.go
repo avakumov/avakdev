@@ -1,19 +1,17 @@
-package main
+package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
-	"sync"
 	"time"
 
-	"regexp"
-
+	"avakumov/server/internal/app"
 	"avakumov/server/internal/httpkit"
 )
 
@@ -25,159 +23,6 @@ var imgWithID = regexp.MustCompile(`<img[^>]*id="resume-photo"[^>]*>`)
 // Служит запасным вариантом: если DeepSeek не сохранил id="resume-photo",
 // а сгенерировал собственный тег фото, мы всё равно подменим его.
 var photoImgClass = regexp.MustCompile(`<img[^>]*class="[^"]*\bphoto\b[^"]*"[^>]*>`)
-
-// Profile — пользовательский профиль: описание для генерации резюме
-// и сгенерированное резюме.
-type Profile struct {
-	// Description — короткое описание работника/соискателя,
-	// на основе которого генерируется резюме.
-	Description string `json:"description"`
-	// Resume — сгенерированное DeepSeek резюме (в HTML/текстовом виде).
-	// Содержит плейсхолдер <img id="resume-photo">, в который на сервере
-	// подставляется актуальное фото.
-	Resume string `json:"resume"`
-	// PhotoMime — MIME-тип прикреплённого фото (например image/jpeg).
-	PhotoMime string `json:"photo_mime"`
-	// PhotoData — прикреплённое фото в base64 (без data URI префикса).
-	PhotoData string `json:"photo_data"`
-	// Updated — время последнего изменения профиля (RFC3339, UTC).
-	Updated string `json:"updated"`
-}
-
-// profileStore — хранилище профиля.
-// Если база данных PostgreSQL настроена, профиль хранится в таблице profile
-// (единственная строка id=1). Иначе используется in-memory структура.
-type profileStore struct {
-	mu    sync.Mutex
-	data  Profile
-	hasDB bool
-}
-
-// profiles — глобальное хранилище профиля.
-var profiles *profileStore
-
-// newProfileStore создаёт новое хранилище профиля.
-func newProfileStore() *profileStore {
-	return &profileStore{data: Profile{}, hasDB: db != nil}
-}
-
-// initProfiles инициализирует глобальное хранилище профиля.
-// При наличии БД подгружает уже сохранённые данные.
-// (Таблица и строка id=1 создаются миграциями goose, см. migrations/.)
-func initProfiles() error {
-	profiles = newProfileStore()
-	if !profiles.hasDB {
-		return nil
-	}
-
-	var description, resume, photo, photoMime, updated string
-	err := db.QueryRow(context.Background(),
-		`SELECT description,
-		        resume,
-		        photo,
-		        photo_mime,
-		        to_char(updated AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')
-		 FROM profile WHERE id = 1`).
-		Scan(&description, &resume, &photo, &photoMime, &updated)
-	if err != nil && err.Error() != "no rows in result set" {
-		return err
-	}
-	profiles.data = Profile{
-		Description: description,
-		Resume:      resume,
-		PhotoMime:   photoMime,
-		PhotoData:   photo,
-		Updated:     updated,
-	}
-	return nil
-}
-
-// get возвращает текущий профиль.
-func (ps *profileStore) get() Profile {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	return ps.data
-}
-
-// saveDescription сохраняет только описание (резюме не трогаем).
-func (ps *profileStore) saveDescription(description string) (Profile, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	p := Profile{
-		Description: description,
-		Resume:      ps.data.Resume,
-		PhotoMime:   ps.data.PhotoMime,
-		PhotoData:   ps.data.PhotoData,
-		Updated:     now,
-	}
-
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
-	if ps.hasDB {
-		if _, err := db.Exec(context.Background(),
-			`UPDATE profile SET description = $1, updated = now() WHERE id = 1`,
-			description); err != nil {
-			return Profile{}, err
-		}
-	}
-	ps.data = p
-	return p, nil
-}
-
-// saveResume сохраняет сгенерированное резюме (описание не трогаем).
-func (ps *profileStore) saveResume(resume string) (Profile, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	p := Profile{
-		Description: ps.data.Description,
-		Resume:      resume,
-		PhotoMime:   ps.data.PhotoMime,
-		PhotoData:   ps.data.PhotoData,
-		Updated:     now,
-	}
-
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
-	if ps.hasDB {
-		if _, err := db.Exec(context.Background(),
-			`UPDATE profile SET resume = $1, updated = now() WHERE id = 1`,
-			resume); err != nil {
-			return Profile{}, err
-		}
-	}
-	ps.data = p
-	return p, nil
-}
-
-// savePhoto сохраняет фото (base64 + MIME) в профиль.
-func (ps *profileStore) savePhoto(data, mime string) (Profile, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	p := Profile{
-		Description: ps.data.Description,
-		Resume:      ps.data.Resume,
-		PhotoMime:   mime,
-		PhotoData:   data,
-		Updated:     now,
-	}
-
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
-	if ps.hasDB {
-		if _, err := db.Exec(context.Background(),
-			`UPDATE profile SET photo = $1, photo_mime = $2, updated = now() WHERE id = 1`,
-			data, mime); err != nil {
-			return Profile{}, err
-		}
-	}
-	ps.data = p
-	return p, nil
-}
-
-// clearPhoto удаляет фото из профиля.
-func (ps *profileStore) clearPhoto() (Profile, error) {
-	return ps.savePhoto("", "")
-}
 
 // applyPhotoToResume подставляет актуальное фото (data URI) в HTML резюме.
 // Сначала ищет наш плейсхолдер <img id="resume-photo">; если его нет
@@ -201,15 +46,10 @@ func applyPhotoToResume(html, photoData, photoMime string) string {
 	return photoImgClass.ReplaceAllString(html, replacement)
 }
 
-// deepseekAPIKey возвращает ключ DeepSeek из окружения/.env.
-func deepseekAPIKey() string {
-	return getenvOrEnvFile("DEEPSEEK_API_KEY", "")
-}
-
 // generateResume вызывает DeepSeek chat API для создания резюме
 // на основе описания пользователя.
 func generateResume(description string) (string, error) {
-	apiKey := deepseekAPIKey()
+	apiKey := app.DeepSeekAPIKey()
 	if apiKey == "" {
 		return "", fmt.Errorf("ключ DeepSeek не настроен (DEEPSEEK_API_KEY в .env)")
 	}
@@ -306,13 +146,13 @@ func sanitizeHTMLAnswer(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// handleGetProfile возвращает текущий профиль.
-func handleGetProfile(c *httpkit.Context) {
-	c.JSON(http.StatusOK, profiles.get())
+// GetProfile возвращает текущий профиль.
+func (h *Handlers) GetProfile(c *httpkit.Context) {
+	c.JSON(http.StatusOK, h.App.Profile.Get())
 }
 
-// handleSaveProfile сохраняет описание профиля.
-func handleSaveProfile(c *httpkit.Context) {
+// SaveProfile сохраняет описание профиля.
+func (h *Handlers) SaveProfile(c *httpkit.Context) {
 	var req struct {
 		Description string `json:"description"`
 	}
@@ -320,7 +160,7 @@ func handleSaveProfile(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
-	p, err := profiles.saveDescription(req.Description)
+	p, err := h.App.Profile.SaveDescription(req.Description)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить профиль"})
 		return
@@ -328,15 +168,15 @@ func handleSaveProfile(c *httpkit.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
-// handleGenerateResume генерирует резюме на основе описания профиля.
-func handleGenerateResume(c *httpkit.Context) {
-	p := profiles.get()
+// GenerateResume генерирует резюме на основе описания профиля.
+func (h *Handlers) GenerateResume(c *httpkit.Context) {
+	p := h.App.Profile.Get()
 	resume, err := generateResume(p.Description)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
 		return
 	}
-	updated, err := profiles.saveResume(resume)
+	updated, err := h.App.Profile.SaveResume(resume)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить резюме"})
 		return
@@ -344,8 +184,8 @@ func handleGenerateResume(c *httpkit.Context) {
 	c.JSON(http.StatusOK, updated)
 }
 
-// handleSaveResume сохраняет вручную отредактированный текст резюме.
-func handleSaveResume(c *httpkit.Context) {
+// SaveResume сохраняет вручную отредактированный текст резюме.
+func (h *Handlers) SaveResume(c *httpkit.Context) {
 	var req struct {
 		Resume string `json:"resume"`
 	}
@@ -353,7 +193,7 @@ func handleSaveResume(c *httpkit.Context) {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
 		return
 	}
-	p, err := profiles.saveResume(req.Resume)
+	p, err := h.App.Profile.SaveResume(req.Resume)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить резюме"})
 		return
@@ -372,8 +212,8 @@ var allowedPhotoTypes = map[string]bool{
 	"image/gif":  true,
 }
 
-// handleUploadPhoto загружает фото профиля из multipart-формы (поле "photo").
-func handleUploadPhoto(c *httpkit.Context) {
+// UploadPhoto загружает фото профиля из multipart-формы (поле "photo").
+func (h *Handlers) UploadPhoto(c *httpkit.Context) {
 	file, header, err := c.Request.FormFile("photo")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось прочитать файл"})
@@ -397,7 +237,7 @@ func handleUploadPhoto(c *httpkit.Context) {
 		return
 	}
 	data := base64.StdEncoding.EncodeToString(buf)
-	p, err := profiles.savePhoto(data, mime)
+	p, err := h.App.Profile.SavePhoto(data, mime)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить фото"})
 		return
@@ -405,9 +245,9 @@ func handleUploadPhoto(c *httpkit.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
-// handleDeletePhoto удаляет фото профиля.
-func handleDeletePhoto(c *httpkit.Context) {
-	p, err := profiles.clearPhoto()
+// DeletePhoto удаляет фото профиля.
+func (h *Handlers) DeletePhoto(c *httpkit.Context) {
+	p, err := h.App.Profile.ClearPhoto()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось удалить фото"})
 		return
@@ -415,11 +255,11 @@ func handleDeletePhoto(c *httpkit.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
-// handleResumePage отдаёт отдельную HTML-страницу с резюме.
+// ResumePage отдаёт отдельную HTML-страницу с резюме.
 // Страница содержит только резюме (HTML+CSS), её можно открыть в браузере
 // и распечатать/сохранить в PDF. В HTML подставляется актуальное фото.
-func handleResumePage(c *httpkit.Context) {
-	p := profiles.get()
+func (h *Handlers) ResumePage(c *httpkit.Context) {
+	p := h.App.Profile.Get()
 	if strings.TrimSpace(p.Resume) == "" {
 		c.JSON(http.StatusNotFound, httpkit.H{"error": "Резюме ещё не сгенерировано"})
 		return
@@ -427,4 +267,167 @@ func handleResumePage(c *httpkit.Context) {
 	html := applyPhotoToResume(p.Resume, p.PhotoData, p.PhotoMime)
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
+}
+
+// resumeTemplateCSS содержит CSS-шаблон резюме в одну человекочитаемую строку.
+// Он передаётся DeepSeek в системном сообщении как образец оформления,
+// чтобы сгенерированное резюме точно соответствовало нашему дизайну.
+//
+// Это формат А4, ориентированный на печать: страница сама подстраивается,
+// а при печати в PDF браузер корректно разобьёт документ на страницы.
+func resumeTemplateCSS() string {
+	return `<style>
+  :root {
+    --accent: #2563eb;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, Roboto, Arial, sans-serif;
+    color: var(--ink);
+    background: #f3f4f6;
+    line-height: 1.5;
+  }
+  .page {
+    max-width: 800px;
+    margin: 24px auto;
+    background: #ffffff;
+    padding: 40px 48px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    border-radius: 8px;
+  }
+  .header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 20px;
+  }
+  .header .info { flex: 1; min-width: 0; }
+  .header .photo-wrap { flex-shrink: 0; }
+  .photo {
+    display: block;
+    width: 140px;
+    height: 170px;
+    object-fit: cover;
+    border-radius: 0;
+    margin: 0;
+    border: 1px solid #d1d5db;
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .role { font-size: 16px; color: var(--accent); font-weight: 600; margin-bottom: 12px; }
+  .contacts { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .section { margin-top: 20px; }
+  .section h2 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--accent);
+    border-bottom: 2px solid var(--line);
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+  }
+  .section p { margin-bottom: 8px; }
+  ul { margin: 0 0 8px 18px; }
+  li { margin-bottom: 4px; }
+  .job { margin-bottom: 14px; }
+  .job .head { display: flex; justify-content: space-between; flex-wrap: wrap; font-weight: 600; }
+  .job .head .dates { font-weight: 400; color: var(--muted); font-style: italic; }
+  .skill-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .skill-tags span {
+    background: #eff6ff;
+    color: var(--accent);
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 13px;
+  }
+  @media (max-width: 640px) {
+    .page { padding: 24px 20px; margin: 8px auto; }
+    .header { flex-direction: column; align-items: flex-start; gap: 16px; }
+    .header .photo-wrap { order: -1; align-self: center; }
+  }
+  @media print {
+    body { background: #fff; }
+    .page { max-width: none; margin: 0; padding: 0; box-shadow: none; border-radius: 0; }
+    .section { break-inside: avoid; }
+  }
+</style>`
+}
+
+// resumeTemplateHead возвращает открывающую часть HTML-документа резюме:
+// DOCTYPE, head с charset/viewport и встроенным CSS-шаблоном.
+func resumeTemplateHead() string {
+	return "<!DOCTYPE html>\n<html lang=\"ru\">\n<head>\n<meta charset=\"UTF-8\">\n" +
+		"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n" +
+		"<title>Резюме</title>\n" +
+		resumeTemplateCSS() + "\n</head>\n<body>\n<div class=\"page\">\n"
+}
+
+// resumeTemplateFoot возвращает закрывающую часть HTML-документа резюме.
+func resumeTemplateFoot() string {
+	return "\n</div>\n</body>\n</html>"
+}
+
+// resumeTemplateBodyAsExample возвращает пример структуры тела резюме
+// (пустые разделы с плейсхолдерами), который передаётся DeepSeek,
+// чтобы модель вписала сгенерированный контент в наш шаблон.
+func resumeTemplateBodyAsExample() string {
+	return `<div class="header">
+  <div class="info">
+    <h1>ИМЯ ФАМИЛИЯ</h1>
+    <div class="role">ДОЛЖНОСТЬ</div>
+    <div class="contacts">
+      <span>email@example.com</span>
+      <span>+7 (000) 000-00-00</span>
+      <span>Город</span>
+      <span>github.com/username</span>
+    </div>
+  </div>
+  <div class="photo-wrap"><img id="resume-photo" class="photo" alt="Фото"></div>
+</div>
+
+<div class="section">
+  <h2>О себе</h2>
+  <p>Краткое описание соискателя.</p>
+</div>
+
+<div class="section">
+  <h2>Навыки</h2>
+  <div class="skill-tags">
+    <span>Навык 1</span>
+    <span>Навык 2</span>
+    <span>Навык 3</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Опыт работы</h2>
+  <div class="job">
+    <div class="head"><span>Компания — должность</span><span class="dates">2020 — 2024</span></div>
+    <ul>
+      <li>Достижение или обязанность.</li>
+      <li>Достижение или обязанность.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Образование</h2>
+  <p><strong>Университет</strong> — специальность, год окончания.</p>
+</div>
+
+<div class="section">
+  <h2>Достижения</h2>
+  <ul>
+    <li>Конкретное достижение.</li>
+  </ul>
+</div>`
 }

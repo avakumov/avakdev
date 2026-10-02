@@ -61,7 +61,7 @@ func main() {
 	if err := runMigrations(); err != nil {
 		log.Fatalf("не удалось применить миграции БД: %v", err)
 	}
-	if err := initProfiles(); err != nil {
+	if err := application.InitProfile(); err != nil {
 		log.Fatalf("не удалось инициализировать профиль: %v", err)
 	}
 	if err := application.InitKnowledge(); err != nil {
@@ -242,15 +242,15 @@ func main() {
 	authed.DELETE("/notifications/inbox/:id", h.DismissNotification)
 
 	// Профиль и генерация резюме.
-	authed.GET("/profile", handleGetProfile)
-	authed.PUT("/profile", handleSaveProfile)
-	authed.POST("/profile/generate", handleGenerateResume)
-	authed.PUT("/profile/resume", handleSaveResume)
-	authed.GET("/profile/resume", handleResumePage)
+	authed.GET("/profile", h.GetProfile)
+	authed.PUT("/profile", h.SaveProfile)
+	authed.POST("/profile/generate", h.GenerateResume)
+	authed.PUT("/profile/resume", h.SaveResume)
+	authed.GET("/profile/resume", h.ResumePage)
 
 	// Фото для резюме.
-	authed.POST("/profile/photo", handleUploadPhoto)
-	authed.DELETE("/profile/photo", handleDeletePhoto)
+	authed.POST("/profile/photo", h.UploadPhoto)
+	authed.DELETE("/profile/photo", h.DeletePhoto)
 
 	// ---- Статика React ----
 	// В собранном бинарнике фронтенд встроен (embed).
