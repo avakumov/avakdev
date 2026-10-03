@@ -4,16 +4,15 @@ import (
 	"net/http"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // GetImportant отдаёт «важное» сообщение текущего пользователя:
 // текст, автора и время последнего обновления, а также флаг enabled
 // (показ только на production) и seen_today (показывается раз в сутки).
-func (h *Handlers) GetImportant(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
+func (h *Handlers) GetImportant(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
 	msg, _ := h.App.Important.Get(sessData.Username)
-	c.JSON(http.StatusOK, httpkit.H{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":    app.ImportantEnabled(),
 		"content":    msg.Content,
 		"updated_by": msg.UpdatedBy,
@@ -24,21 +23,21 @@ func (h *Handlers) GetImportant(c *httpkit.Context) {
 
 // SaveImportant сохраняет «важное» сообщение текущего пользователя.
 // Каждый авторизованный пользователь управляет только своим сообщением.
-func (h *Handlers) SaveImportant(c *httpkit.Context) {
+func (h *Handlers) SaveImportant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Content string `json:"content"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	msg, err := h.App.Important.Save(sessData.Username, req.Content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить сообщение"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить сообщение"})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"content":    msg.Content,
 		"updated_by": msg.UpdatedBy,
 		"updated_at": msg.UpdatedAt,
@@ -47,11 +46,11 @@ func (h *Handlers) SaveImportant(c *httpkit.Context) {
 
 // MarkImportantSeen отмечает, что текущий пользователь прочитал
 // сообщение сегодня — до следующего дня оно ему больше не покажется.
-func (h *Handlers) MarkImportantSeen(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
+func (h *Handlers) MarkImportantSeen(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
 	if err := h.App.Important.MarkSeen(sessData.Username); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось отметить сообщение прочитанным"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось отметить сообщение прочитанным"})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

@@ -9,8 +9,6 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"avakumov/server/internal/httpkit"
 )
 
 // pgDumpTimeout — сколько ждём pg_dump, прежде чем прервать.
@@ -21,15 +19,15 @@ const pgDumpTimeout = 20 * time.Second
 //
 // Пароль передаём через переменные окружения libpq (PG*), а не аргументом
 // командной строки — чтобы он не светился в списке процессов сервера.
-func (h *Handlers) DBSchema(c *httpkit.Context) {
+func (h *Handlers) DBSchema(w http.ResponseWriter, r *http.Request) {
 	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if dsn == "" {
-		c.JSON(http.StatusServiceUnavailable, httpkit.H{"error": "DATABASE_URL не задан"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "DATABASE_URL не задан"})
 		return
 	}
 	env, err := pgEnvFromDSN(dsn)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Некорректный DATABASE_URL"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Некорректный DATABASE_URL"})
 		return
 	}
 
@@ -39,14 +37,14 @@ func (h *Handlers) DBSchema(c *httpkit.Context) {
 		bin = "pg_dump"
 	}
 	if _, err := exec.LookPath(bin); err != nil {
-		c.JSON(http.StatusServiceUnavailable, httpkit.H{
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "pg_dump не найден. Установите пакет postgresql-client (Debian/Ubuntu) " +
 				"или postgresql (Arch/Manjaro), либо задайте путь в PG_DUMP_BIN.",
 		})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), pgDumpTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), pgDumpTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "--schema-only", "--no-owner", "--no-privileges")
@@ -58,11 +56,11 @@ func (h *Handlers) DBSchema(c *httpkit.Context) {
 		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
 			msg += ": " + strings.TrimSpace(string(ee.Stderr))
 		}
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": msg})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": msg})
 		return
 	}
 
-	c.JSON(http.StatusOK, httpkit.H{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"schema":       string(out),
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
 	})

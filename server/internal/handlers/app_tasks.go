@@ -3,41 +3,38 @@ package handlers
 import (
 	"net/http"
 	"strconv"
-
-	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // ListAppTasks отдаёт задачи пользователя.
-func (h *Handlers) ListAppTasks(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
-	c.JSON(http.StatusOK, httpkit.H{"tasks": h.App.AppTasks.List(sessData.Username)})
+func (h *Handlers) ListAppTasks(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": h.App.AppTasks.List(sessData.Username)})
 }
 
 // CreateAppTask создаёт новую задачу.
-func (h *Handlers) CreateAppTask(c *httpkit.Context) {
+func (h *Handlers) CreateAppTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	t, err := h.App.AppTasks.Create(sessData.Username, req.Title, req.Description)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, t)
+	writeJSON(w, http.StatusOK, t)
 }
 
 // UpdateAppTask обновляет задачу (заголовок, описание, статус).
-func (h *Handlers) UpdateAppTask(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) UpdateAppTask(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID задачи"})
 		return
 	}
 	var req struct {
@@ -52,34 +49,34 @@ func (h *Handlers) UpdateAppTask(c *httpkit.Context) {
 		RevertRequested *bool   `json:"revert_requested"`
 		RevertedAt      *string `json:"reverted_at"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	t, err := h.App.AppTasks.Update(sessData.Username, id, req.Title, req.Description, req.Status, req.Result, req.Log, req.DeployRequested, req.DeployedAt, req.CommitHash, req.RevertRequested, req.RevertedAt)
 	if err != nil {
 		status := http.StatusBadRequest
 		if err.Error() == "задача не найдена" {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, httpkit.H{"error": err.Error()})
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, t)
+	writeJSON(w, http.StatusOK, t)
 }
 
 // DeleteAppTask удаляет задачу.
-func (h *Handlers) DeleteAppTask(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) DeleteAppTask(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID задачи"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID задачи"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	if err := h.App.AppTasks.Delete(sessData.Username, id); err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

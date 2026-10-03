@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 	"avakumov/server/internal/store"
 )
 
@@ -38,26 +37,26 @@ type completedTask = store.CompletedTask
 type dayBody = store.DayBody
 
 // DaySuggest — предложения состава дня под лимит времени.
-func (h *Handlers) DaySuggest(c *httpkit.Context) {
+func (h *Handlers) DaySuggest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Date    string `json:"date"`
 		Minutes int    `json:"minutes"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	day, err := app.ParseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	if req.Minutes < 1 {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Укажите доступное время"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Укажите доступное время"})
 		return
 	}
 
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	speed := h.App.ReadingSpeed(sessData.Username)
 
 	// Активные задачи: по дедлайну (без дедлайна — в конец), затем старые.
@@ -138,7 +137,7 @@ func (h *Handlers) DaySuggest(c *httpkit.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, httpkit.H{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"date":             day,
 		"minutes":          req.Minutes,
 		"used_minutes":     req.Minutes - left,
@@ -233,11 +232,11 @@ func (h *Handlers) loadDayItems(username, day string) (dayBody, bool) {
 }
 
 // GetDay — план на дату (или пустой, если день ещё не сформирован).
-func (h *Handlers) GetDay(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
-	day, err := app.ParseDay(c.Query("date"))
+func (h *Handlers) GetDay(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
+	day, err := app.ParseDay(r.URL.Query().Get("date"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	body, found := h.loadDayItems(sessData.Username, day)
@@ -245,12 +244,12 @@ func (h *Handlers) GetDay(c *httpkit.Context) {
 		// Плана может не быть, но закрытые в этот день задачи уже собраны.
 		body.Date = day
 	}
-	c.JSON(http.StatusOK, body)
+	writeJSON(w, http.StatusOK, body)
 }
 
 // SaveDay сохраняет (перезаписывает) план дня.
 // Тело: {"date": "ГГГГ-ММ-ДД", "budget_minutes": число, "items":[{"kind":"task|note","ref_id":N}]}
-func (h *Handlers) SaveDay(c *httpkit.Context) {
+func (h *Handlers) SaveDay(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Date          string `json:"date"`
 		BudgetMinutes int    `json:"budget_minutes"`
@@ -259,20 +258,20 @@ func (h *Handlers) SaveDay(c *httpkit.Context) {
 			RefID int    `json:"ref_id"`
 		} `json:"items"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	day, err := app.ParseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	if req.BudgetMinutes < 0 {
 		req.BudgetMinutes = 0
 	}
 
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	username := sessData.Username
 	ctx := context.Background()
 
@@ -299,42 +298,42 @@ func (h *Handlers) SaveDay(c *httpkit.Context) {
 	}
 
 	if err := h.App.Day.SavePlan(ctx, username, day, req.BudgetMinutes, items); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить день: " + err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить день: " + err.Error()})
 		return
 	}
 
 	body, _ := h.loadDayItems(username, day)
-	c.JSON(http.StatusOK, body)
+	writeJSON(w, http.StatusOK, body)
 }
 
 // SetDayItemDone — отметить позицию плана дня выполненной (done=true)
 // или снять отметку. Тело: {"date", "kind", "ref_id", "done"}.
-func (h *Handlers) SetDayItemDone(c *httpkit.Context) {
+func (h *Handlers) SetDayItemDone(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Date  string `json:"date"`
 		Kind  string `json:"kind"`
 		RefID int    `json:"ref_id"`
 		Done  bool   `json:"done"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	day, err := app.ParseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	if req.Kind != "task" && req.Kind != "note" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный тип позиции"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный тип позиции"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	if err := h.App.Day.SetItemDone(context.Background(), sessData.Username, day, req.Kind, req.RefID, req.Done); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось обновить позицию дня"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось обновить позицию дня"})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // maxDayItemSpentMinutes — верхняя граница фактического времени по позиции дня
@@ -347,35 +346,35 @@ const maxDayItemSpentMinutes = 24 * 60
 // у конспектов время считается по символам.
 // Если задачи ещё нет в плане этого дня, она добавляется в день (план при
 // необходимости создаётся) — чтобы время можно было указать прямо из задачи.
-func (h *Handlers) SetDayItemSpent(c *httpkit.Context) {
+func (h *Handlers) SetDayItemSpent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Date    string `json:"date"`
 		Kind    string `json:"kind"`
 		RefID   int    `json:"ref_id"`
 		Minutes int    `json:"minutes"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	if req.Kind != "task" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Факт можно указать только для задачи"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Факт можно указать только для задачи"})
 		return
 	}
 	if req.Minutes < 0 || req.Minutes > maxDayItemSpentMinutes {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректное время"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректное время"})
 		return
 	}
 	day, err := app.ParseDay(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	username := sessData.Username
 	// Чужая/несуществующая задача в день не добавляется.
 	if _, ok := h.App.Tasks.GetOwned(username, req.RefID); !ok {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": "Задача не найдена"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Задача не найдена"})
 		return
 	}
 
@@ -384,7 +383,7 @@ func (h *Handlers) SetDayItemSpent(c *httpkit.Context) {
 	// задаст сам при формировании).
 	planID, err := h.App.Day.EnsurePlan(ctx, username, day)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить время"})
 		return
 	}
 
@@ -392,10 +391,10 @@ func (h *Handlers) SetDayItemSpent(c *httpkit.Context) {
 	// должна появиться в «Плане дня». Плановые минуты — обычная оценка задачи.
 	minutes, _ := h.resolveItemMinutes(username, "task", req.RefID)
 	if err := h.App.Day.SetItemSpent(ctx, planID, req.RefID, req.Minutes, minutes); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить время"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить время"})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true, "minutes": req.Minutes})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "minutes": req.Minutes})
 }
 
 // daySummary — строка истории (определение живёт в store).
@@ -404,16 +403,16 @@ type daySummary = store.DaySummary
 // DayHistory — список дней (сначала новые): сохранённые планы и дни,
 // в которые были закрыты задачи. День задачи берётся из completed_date —
 // локальной даты, которую пользователь может задать (в том числе задним числом).
-func (h *Handlers) DayHistory(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
+func (h *Handlers) DayHistory(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
 	if h.App.DB == nil {
-		c.JSON(http.StatusOK, httpkit.H{"days": []daySummary{}})
+		writeJSON(w, http.StatusOK, map[string]any{"days": []daySummary{}})
 		return
 	}
 	days, err := h.App.Day.History(context.Background(), sessData.Username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить историю"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось загрузить историю"})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"days": days})
+	writeJSON(w, http.StatusOK, map[string]any{"days": days})
 }

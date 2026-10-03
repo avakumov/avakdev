@@ -6,47 +6,44 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-
-	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // maxDraftRunes — предельный размер текста заметки (символов).
 const maxDraftRunes = 20000
 
 // ListDrafts возвращает заметки пользователя: свежие сверху.
-func (h *Handlers) ListDrafts(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
+func (h *Handlers) ListDrafts(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
 	out, err := h.App.Drafts.List(context.Background(), sessData.Username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить заметки"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось загрузить заметки"})
 		return
 	}
-	c.JSON(http.StatusOK, out)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // CreateDraft сохраняет новую заметку.
-func (h *Handlers) CreateDraft(c *httpkit.Context) {
+func (h *Handlers) CreateDraft(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Content string `json:"content"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	content, err := draftContent(req.Content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 
 	n, err := h.App.Drafts.Create(context.Background(), sessData.Username, content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить заметку"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить заметку"})
 		return
 	}
-	c.JSON(http.StatusOK, n)
+	writeJSON(w, http.StatusOK, n)
 }
 
 // draftContent проверяет и нормализует текст заметки.
@@ -62,46 +59,46 @@ func draftContent(raw string) (string, error) {
 }
 
 // UpdateDraft заменяет текст существующей заметки.
-func (h *Handlers) UpdateDraft(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) UpdateDraft(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID заметки"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID заметки"})
 		return
 	}
 	var req struct {
 		Content string `json:"content"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	content, err := draftContent(req.Content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 
 	n, err := h.App.Drafts.Update(context.Background(), sessData.Username, id, content)
 	if err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": "Заметка не найдена"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Заметка не найдена"})
 		return
 	}
-	c.JSON(http.StatusOK, n)
+	writeJSON(w, http.StatusOK, n)
 }
 
 // DeleteDraft удаляет заметку.
-func (h *Handlers) DeleteDraft(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) DeleteDraft(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID заметки"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID заметки"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	ok, err := h.App.Drafts.Delete(context.Background(), sessData.Username, id)
 	if err != nil || !ok {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": "Заметка не найдена"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Заметка не найдена"})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

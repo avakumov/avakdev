@@ -6,14 +6,13 @@ import (
 	"strings"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 	"avakumov/server/internal/store"
 )
 
 // userPayload — безопасное представление пользователя для JSON-ответов
 // (пароль не включается никогда).
-func userPayload(u store.User) httpkit.H {
-	return httpkit.H{
+func userPayload(u store.User) map[string]any {
+	return map[string]any{
 		"username":        u.Username,
 		"email":           u.Email,
 		"is_admin":        u.IsAdmin,
@@ -62,32 +61,31 @@ func (h *Handlers) userByUsername(username string) (store.User, bool) {
 func (h *Handlers) AuthRequired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.App.DB == nil {
-			httpkit.WriteJSON(w, http.StatusServiceUnavailable, httpkit.H{
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 				"error": "Авторизация отключена: база данных не настроена.",
 			})
 			return
 		}
 		token, err := r.Cookie(app.CookieName)
 		if err != nil {
-			httpkit.WriteJSON(w, http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Требуется вход"})
 			return
 		}
 		sessData, ok := h.App.Sess.Get(token.Value)
 		if !ok {
-			httpkit.WriteJSON(w, http.StatusUnauthorized, httpkit.H{"error": "Сессия истекла. Войдите снова."})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Сессия истекла. Войдите снова."})
 			return
 		}
-		next.ServeHTTP(w, httpkit.SetRequestValue(r, "session", sessData))
+		next.ServeHTTP(w, withSession(r, sessData))
 	})
 }
 
 // AdminRequired — middleware, требующий прав администратора.
 func (h *Handlers) AdminRequired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		v, _ := httpkit.NewContext(w, r).Get("session")
-		sessData, ok := v.(app.Session)
-		if !ok || !sessData.IsAdmin {
-			httpkit.WriteJSON(w, http.StatusForbidden, httpkit.H{"error": "Доступ только для администраторов"})
+		v, ok := sessionOf(r)
+		if !ok || !v.IsAdmin {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "Доступ только для администраторов"})
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -95,41 +93,47 @@ func (h *Handlers) AdminRequired(next http.Handler) http.Handler {
 }
 
 // Login аутентифицирует пользователя по username/password.
-func (h *Handlers) Login(c *httpkit.Context) {
+func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" || req.Password == "" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Логин и пароль обязательны"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Логин и пароль обязательны"})
 		return
 	}
 
 	if h.App.DB == nil {
-		c.JSON(http.StatusServiceUnavailable, httpkit.H{"error": "Авторизация временно недоступна"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "Авторизация временно недоступна"})
 		return
 	}
 
 	u, ok := h.App.Users.Credentials(context.Background(), req.Username)
 	if !ok || u.Password != req.Password {
-		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Неверный логин или пароль"})
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Неверный логин или пароль"})
 		return
 	}
 
 	token, err := h.App.Sess.Create(u.Username, u.IsAdmin, app.SessionTTL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось создать сессию"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось создать сессию"})
 		return
 	}
 	// HttpOnly + SameSite — защита от XSS/CSRF; cookie отдаётся только на api.
-	c.SetCookie(app.CookieName, token, int(app.SessionTTL.Seconds()), "/api", "", false, true)
+	http.SetCookie(w, &http.Cookie{
+		Name:     app.CookieName,
+		Value:    token,
+		MaxAge:   int(app.SessionTTL.Seconds()),
+		Path:     "/api",
+		HttpOnly: true,
+	})
 
-	c.JSON(http.StatusOK, httpkit.H{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"username": u.Username,
 		"email":    u.Email,
 		"is_admin": u.IsAdmin,
@@ -137,28 +141,34 @@ func (h *Handlers) Login(c *httpkit.Context) {
 }
 
 // Logout завершает сессию и удаляет cookie.
-func (h *Handlers) Logout(c *httpkit.Context) {
-	if token, err := c.Cookie(app.CookieName); err == nil {
+func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
+	if token, err := cookieValue(r, app.CookieName); err == nil {
 		h.App.Sess.Delete(token)
 	}
-	c.SetCookie(app.CookieName, "", -1, "/api", "", false, true)
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	http.SetCookie(w, &http.Cookie{
+		Name:     app.CookieName,
+		Value:    "",
+		MaxAge:   -1,
+		Path:     "/api",
+		HttpOnly: true,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // Me возвращает данные текущего пользователя (или 401).
-func (h *Handlers) Me(c *httpkit.Context) {
-	sessData, ok := c.MustGet("session").(app.Session)
+func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
+	sessData, ok := sessionOf(r)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Требуется вход"})
 		return
 	}
 	u, found := h.userByUsername(sessData.Username)
 	if !found {
 		// Пользователь удалён при живой сессии — считаем сессию недействительной.
-		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Сессия истекла. Войдите снова."})
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Сессия истекла. Войдите снова."})
 		return
 	}
-	c.JSON(http.StatusOK, userPayload(u))
+	writeJSON(w, http.StatusOK, userPayload(u))
 }
 
 // defaultCodeTheme — тема кода по умолчанию (совпадает с DEFAULT в миграции).
@@ -177,10 +187,10 @@ var validCodeThemes = map[string]bool{
 
 // UpdateMe сохраняет контактные данные текущего пользователя
 // (необязательные поля phone и telegram).
-func (h *Handlers) UpdateMe(c *httpkit.Context) {
-	sessData, ok := c.MustGet("session").(app.Session)
+func (h *Handlers) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	sessData, ok := sessionOf(r)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Требуется вход"})
 		return
 	}
 
@@ -190,14 +200,14 @@ func (h *Handlers) UpdateMe(c *httpkit.Context) {
 		ReadingSpeed *int    `json:"reading_speed"`
 		CodeTheme    *string `json:"code_theme"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	req.Phone = strings.TrimSpace(req.Phone)
 	req.Telegram = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(req.Telegram), "@"))
 	if len(req.Phone) > 32 || len(req.Telegram) > 64 {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Значение слишком длинное"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Значение слишком длинное"})
 		return
 	}
 	if req.ReadingSpeed != nil {
@@ -222,7 +232,7 @@ func (h *Handlers) UpdateMe(c *httpkit.Context) {
 			theme = defaultCodeTheme
 		}
 		if !validCodeThemes[theme] {
-			c.JSON(http.StatusBadRequest, httpkit.H{"error": "Неизвестная тема кода"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Неизвестная тема кода"})
 			return
 		}
 		req.CodeTheme = &theme
@@ -232,14 +242,14 @@ func (h *Handlers) UpdateMe(c *httpkit.Context) {
 	// не трогали — COALESCE в store оставляет текущее значение в БД.
 	if err := h.App.Users.UpdateContacts(context.Background(), sessData.Username,
 		req.Phone, req.Telegram, req.ReadingSpeed, req.CodeTheme); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить профиль"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить профиль"})
 		return
 	}
 
 	u, found := h.userByUsername(sessData.Username)
 	if !found {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Пользователь не найден"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Пользователь не найден"})
 		return
 	}
-	c.JSON(http.StatusOK, userPayload(u))
+	writeJSON(w, http.StatusOK, userPayload(u))
 }

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // goalTaskDraft — черновик задачи, который пользователь получил от ИИ или
@@ -43,18 +42,18 @@ func normalizeGoalTaskDraft(d goalTaskDraft) goalTaskDraft {
 }
 
 // ListGoals отдаёт цели пользователя с прогрессом, вычисленным из задач.
-func (h *Handlers) ListGoals(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
+func (h *Handlers) ListGoals(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
 	list := h.App.Goals.List(sessData.Username)
 	for i := range list {
 		h.App.Goals.ComputeProgress(&list[i])
 	}
-	c.JSON(http.StatusOK, httpkit.H{"goals": list})
+	writeJSON(w, http.StatusOK, map[string]any{"goals": list})
 }
 
 // CreateGoal создаёт новую цель и, если переданы черновики задач
 // (поле tasks, например из ИИ-генерации), сразу сохраняет их, привязав к цели.
-func (h *Handlers) CreateGoal(c *httpkit.Context) {
+func (h *Handlers) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title       string          `json:"title"`
 		Description string          `json:"description"`
@@ -62,8 +61,8 @@ func (h *Handlers) CreateGoal(c *httpkit.Context) {
 		Status      string          `json:"status"`
 		Tasks       []goalTaskDraft `json:"tasks"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	if req.Status == "" {
@@ -74,15 +73,15 @@ func (h *Handlers) CreateGoal(c *httpkit.Context) {
 	// столько и создаётся.
 	for _, d := range req.Tasks {
 		if strings.TrimSpace(d.Title) == "" {
-			c.JSON(http.StatusBadRequest, httpkit.H{"error": "У задачи цели пустой заголовок"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "У задачи цели пустой заголовок"})
 			return
 		}
 	}
 
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	g, err := h.App.Goals.Create(sessData.Username, req.Title, req.Description, req.TargetDate, req.Status)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 
@@ -90,7 +89,7 @@ func (h *Handlers) CreateGoal(c *httpkit.Context) {
 		d := normalizeGoalTaskDraft(draft)
 		if _, err := h.App.Tasks.Create(sessData.Username, d.Category, d.Title, d.Description,
 			d.PlannedHours, "", app.TaskTodo, &g.ID); err != nil {
-			c.JSON(http.StatusBadRequest, httpkit.H{
+			writeJSON(w, http.StatusBadRequest, map[string]any{
 				"error": "Не удалось создать задачу «" + d.Title + "»: " + err.Error(),
 			})
 			return
@@ -98,30 +97,30 @@ func (h *Handlers) CreateGoal(c *httpkit.Context) {
 	}
 
 	h.App.Goals.ComputeProgress(&g)
-	c.JSON(http.StatusOK, g)
+	writeJSON(w, http.StatusOK, g)
 }
 
 // GenerateGoalTasks генерирует черновики задач для новой цели через
 // DeepSeek. Ничего не сохраняет — только предлагает список, который показывается
 // в форме создания цели до её сохранения.
-func (h *Handlers) GenerateGoalTasks(c *httpkit.Context) {
+func (h *Handlers) GenerateGoalTasks(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	req.Title = strings.TrimSpace(req.Title)
 	if req.Title == "" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Сначала укажите название цели"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Сначала укажите название цели"})
 		return
 	}
 
 	apiKey := app.DeepSeekAPIKey()
 	if apiKey == "" {
-		c.JSON(http.StatusServiceUnavailable, httpkit.H{
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "Ключ DeepSeek не настроен (DEEPSEEK_API_KEY в .env)",
 		})
 		return
@@ -129,10 +128,10 @@ func (h *Handlers) GenerateGoalTasks(c *httpkit.Context) {
 
 	drafts, truncated, err := aiGenerateGoalTasks(req.Title, req.Description, apiKey)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"tasks": drafts, "truncated": truncated})
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": drafts, "truncated": truncated})
 }
 
 // taskCountRe — «28 задач», «на 12 шагов», «7 этапов» и т. п.
@@ -299,10 +298,10 @@ func parseGoalTaskDrafts(content string) ([]goalTaskDraft, error) {
 }
 
 // UpdateGoal обновляет цель.
-func (h *Handlers) UpdateGoal(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) UpdateGoal(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID цели"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID цели"})
 		return
 	}
 	var req struct {
@@ -311,71 +310,71 @@ func (h *Handlers) UpdateGoal(c *httpkit.Context) {
 		TargetDate  string `json:"target_date"`
 		Status      string `json:"status"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	g, err := h.App.Goals.Update(sessData.Username, id, req.Title, req.Description, req.TargetDate, req.Status)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, app.ErrGoalNotFound) {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, httpkit.H{"error": err.Error()})
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	h.App.Goals.ComputeProgress(&g)
-	c.JSON(http.StatusOK, g)
+	writeJSON(w, http.StatusOK, g)
 }
 
 // ReorderGoalTasks задаёт последовательность задач цели.
 // Тело: {"task_ids": [3, 1, 2]} — полный список задач цели в нужном порядке.
-func (h *Handlers) ReorderGoalTasks(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) ReorderGoalTasks(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID цели"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID цели"})
 		return
 	}
 	var req struct {
 		TaskIDs []int `json:"task_ids"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	if len(req.TaskIDs) == 0 {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Список задач пуст"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Список задач пуст"})
 		return
 	}
 
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	if _, ok := h.App.Goals.GetOwned(sessData.Username, id); !ok {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": app.ErrGoalNotFound.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": app.ErrGoalNotFound.Error()})
 		return
 	}
 	if err := h.App.Tasks.SetGoalOrder(sessData.Username, id, req.TaskIDs); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // DeleteGoal удаляет цель. Параметр ?delete_tasks=1 удаляет также
 // привязанные к цели задачи.
-func (h *Handlers) DeleteGoal(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) DeleteGoal(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID цели"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID цели"})
 		return
 	}
-	q := c.Query("delete_tasks")
+	q := r.URL.Query().Get("delete_tasks")
 	deleteTasks := q == "1" || strings.EqualFold(q, "true")
 
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	if err := h.App.Goals.Delete(sessData.Username, id, deleteTasks); err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

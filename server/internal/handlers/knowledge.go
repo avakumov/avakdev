@@ -11,14 +11,13 @@ import (
 	"time"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // ListNotes возвращает все конспекты с временем чтения, вычисленным
 // по скорости чтения текущего пользователя (см. app.ReadingMinutes).
-func (h *Handlers) ListNotes(c *httpkit.Context) {
+func (h *Handlers) ListNotes(w http.ResponseWriter, r *http.Request) {
 	username := ""
-	if sessData, ok := c.MustGet("session").(app.Session); ok {
+	if sessData, ok := sessionOf(r); ok {
 		username = sessData.Username
 	}
 	speed := h.App.ReadingSpeed(username)
@@ -29,18 +28,18 @@ func (h *Handlers) ListNotes(c *httpkit.Context) {
 		n.ReadingMinutes = app.ReadingMinutes(n.Content, speed)
 		out[i] = n
 	}
-	c.JSON(http.StatusOK, out)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // CreateNote создаёт новый конспект. Счётчик повторений стартует с нуля.
-func (h *Handlers) CreateNote(c *httpkit.Context) {
+func (h *Handlers) CreateNote(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Topic   string `json:"topic"`
 		Title   string `json:"title"`
 		Content string `json:"content"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	req.Topic = strings.TrimSpace(req.Topic)
@@ -49,24 +48,24 @@ func (h *Handlers) CreateNote(c *httpkit.Context) {
 		req.Title = req.Topic
 	}
 	if req.Title == "" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Укажите тему или заголовок конспекта"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Укажите тему или заголовок конспекта"})
 		return
 	}
 
 	n, err := h.App.Knowledge.Create(req.Topic, req.Title, req.Content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить конспект"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить конспект"})
 		return
 	}
-	c.JSON(http.StatusOK, n)
+	writeJSON(w, http.StatusOK, n)
 }
 
 // UpdateNote обновляет конспект по ID (title, content).
 // Счётчик повторений пользователь меняет только через RepeatNote.
-func (h *Handlers) UpdateNote(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) UpdateNote(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID"})
 		return
 	}
 
@@ -74,67 +73,67 @@ func (h *Handlers) UpdateNote(c *httpkit.Context) {
 		Title   string `json:"title"`
 		Content string `json:"content"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 
 	n, err := h.App.Knowledge.Update(id, strings.TrimSpace(req.Title), req.Content)
 	if err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, n)
+	writeJSON(w, http.StatusOK, n)
 }
 
 // RepeatNote увеличивает счётчик повторений конспекта на единицу.
-func (h *Handlers) RepeatNote(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) RepeatNote(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID"})
 		return
 	}
 
 	n, err := h.App.Knowledge.MarkRepeat(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, n)
+	writeJSON(w, http.StatusOK, n)
 }
 
 // DeleteNote удаляет конспект по ID.
-func (h *Handlers) DeleteNote(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) DeleteNote(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID"})
 		return
 	}
 	if err := h.App.Knowledge.DeleteByID(id); err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // GenerateNote вызывает DeepSeek для создания краткого конспекта по теме.
-func (h *Handlers) GenerateNote(c *httpkit.Context) {
+func (h *Handlers) GenerateNote(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Topic string `json:"topic"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	req.Topic = strings.TrimSpace(req.Topic)
 	if req.Topic == "" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Укажите тему"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Укажите тему"})
 		return
 	}
 
 	apiKey := app.DeepSeekAPIKey()
 	if apiKey == "" {
-		c.JSON(http.StatusServiceUnavailable, httpkit.H{
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "Ключ DeepSeek не настроен (DEEPSEEK_API_KEY в .env)",
 		})
 		return
@@ -142,11 +141,11 @@ func (h *Handlers) GenerateNote(c *httpkit.Context) {
 
 	content, err := generateNoteContent(req.Topic, apiKey)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, httpkit.H{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"topic":   req.Topic,
 		"title":   req.Topic,
 		"content": content,

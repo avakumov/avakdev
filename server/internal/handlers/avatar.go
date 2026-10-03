@@ -4,9 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strings"
-
-	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // validAvatarPresets — допустимые готовые варианты аватара (id).
@@ -34,10 +31,10 @@ const maxAvatarBytes = 512 << 10
 //   - preset — выбранный готовый вариант (тогда фото очищается);
 //   - photo_data + photo_mime — своё фото (тогда preset очищается);
 //   - если ни preset, ни photo нет — аватар сбрасывается (инициалы).
-func (h *Handlers) UpdateAvatar(c *httpkit.Context) {
-	sessData, ok := c.MustGet("session").(app.Session)
+func (h *Handlers) UpdateAvatar(w http.ResponseWriter, r *http.Request) {
+	sessData, ok := sessionOf(r)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, httpkit.H{"error": "Требуется вход"})
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Требуется вход"})
 		return
 	}
 
@@ -46,8 +43,8 @@ func (h *Handlers) UpdateAvatar(c *httpkit.Context) {
 		PhotoData string `json:"photo_data"`
 		PhotoMime string `json:"photo_mime"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 
@@ -65,15 +62,15 @@ func (h *Handlers) UpdateAvatar(c *httpkit.Context) {
 	req.PhotoData = strings.TrimSpace(req.PhotoData)
 
 	if req.Preset != "" && !validAvatarPresets[req.Preset] {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Неизвестный вариант аватара"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Неизвестный вариант аватара"})
 		return
 	}
 	if len(req.Preset) > 32 {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Значение слишком длинное"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Значение слишком длинное"})
 		return
 	}
 	if len(req.PhotoData) > maxAvatarBytes {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Фото слишком большое"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Фото слишком большое"})
 		return
 	}
 	if req.PhotoData == "" {
@@ -92,14 +89,14 @@ func (h *Handlers) UpdateAvatar(c *httpkit.Context) {
 	}
 
 	if err := h.App.Users.SetAvatar(context.Background(), sessData.Username, preset, photo, mime); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аватар"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить аватар"})
 		return
 	}
 
 	u, found := h.userByUsername(sessData.Username)
 	if !found {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Пользователь не найден"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Пользователь не найден"})
 		return
 	}
-	c.JSON(http.StatusOK, userPayload(u))
+	writeJSON(w, http.StatusOK, userPayload(u))
 }

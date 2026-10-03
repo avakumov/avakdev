@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
-	"avakumov/server/internal/httpkit"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"avakumov/server/internal/agent"
 	"avakumov/server/internal/app"
@@ -19,9 +20,7 @@ import (
 	"avakumov/server/internal/notifier"
 )
 
-// indexData читает index.html из переданной FS.
-// Содержимое кэшируется в памяти (печально известный 301 http.FileServer
-// на прямые запросы /index.html нас не трогает — отдаём файл напрямую).
+// subFrontendDist отдаёт подкаталог frontend-dist из встроенной статики.
 func subFrontendDist() fs.FS {
 	sub, err := fs.Sub(frontendDist, "frontend-dist")
 	if err != nil {
@@ -36,6 +35,15 @@ func indexData(fsys fs.FS) ([]byte, bool) {
 		return nil, false
 	}
 	return b, true
+}
+
+// writeJSON пишет JSON-ответ. HTML в строках не экранируется (как в хендлерах).
+func writeJSON(w http.ResponseWriter, status int, obj any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(obj)
 }
 
 func main() {
@@ -98,163 +106,150 @@ func main() {
 		agent.Start()
 	}
 
-	r := httpkit.Default()
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 
-	// ---- API ----
-	api := r.Group("/api")
+	r.Route("/api", func(api chi.Router) {
+		// Публичные маршруты (без авторизации).
+		api.Post("/login", h.Login)
 
-	// Публичные маршруты (без авторизации).
-	api.POST("/login", h.Login)
+		// Маршруты, требующие активной сессии.
+		api.Group(func(authed chi.Router) {
+			authed.Use(h.AuthRequired)
 
-	// Маршруты, требующие активной сессии.
-	authed := api.Group("")
-	authed.Use(h.AuthRequired)
-	authed.GET("/me", h.Me)
-	authed.PUT("/me", h.UpdateMe)
-	authed.PUT("/me/avatar", h.UpdateAvatar)
-	authed.POST("/me/telegram/link", h.LinkTelegram)
-	authed.POST("/me/telegram/unlink", h.UnlinkTelegram)
-	authed.POST("/logout", h.Logout)
+			authed.Get("/me", h.Me)
+			authed.Put("/me", h.UpdateMe)
+			authed.Put("/me/avatar", h.UpdateAvatar)
+			authed.Post("/me/telegram/link", h.LinkTelegram)
+			authed.Post("/me/telegram/unlink", h.UnlinkTelegram)
+			authed.Post("/logout", h.Logout)
 
-	// Маршруты, требующие прав администратора.
-	admin := authed.Group("")
-	admin.Use(h.AdminRequired)
-	admin.GET("/health", func(c *httpkit.Context) {
-		c.JSON(http.StatusOK, httpkit.H{
-			"status": "ok",
-			"time":   time.Now().Format(time.RFC3339),
+			// Маршруты, требующие прав администратора.
+			authed.Group(func(admin chi.Router) {
+				admin.Use(h.AdminRequired)
+				admin.Get("/health", h.Health)
+				admin.Get("/message", h.Message)
+				admin.Get("/metrics", h.ServerMetrics)
+				admin.Get("/db-schema", h.DBSchema)
+
+				// Задачи по модификации приложения (раздел «Приложение») —
+				// только для администраторов (запрос деплоя/отката изменений).
+				admin.Get("/app-tasks", h.ListAppTasks)
+				admin.Post("/app-tasks", h.CreateAppTask)
+				admin.Put("/app-tasks/{id}", h.UpdateAppTask)
+				admin.Delete("/app-tasks/{id}", h.DeleteAppTask)
+			})
+
+			// Отчёты за дни (создание, редактирование, список).
+			authed.Get("/reports", h.ListReports)
+			authed.Put("/reports/{date}", h.UpsertReport)
+
+			// Раздел «Чтение»: книги (fb2/epub → HTML).
+			authed.Get("/books", h.ListBooks)
+			authed.Post("/books", h.UploadBook)
+			authed.Get("/books/last-bookmark", h.LastBookmark)
+			authed.Get("/books/{id}", h.GetBook)
+			authed.Delete("/books/{id}", h.DeleteBook)
+			authed.Put("/books/{id}/finished", h.SetBookFinished)
+			authed.Get("/books/{id}/bookmarks", h.ListBookmarks)
+			authed.Post("/books/{id}/bookmarks", h.CreateBookmark)
+			authed.Delete("/books/{id}/bookmarks/{bookmarkId}", h.DeleteBookmark)
+
+			// Время чтения по дням и цель чтения на день.
+			authed.Get("/reading/time", h.GetReadingTime)
+			authed.Get("/reading/history", h.ReadingHistory)
+			authed.Post("/reading/time", h.AddReadingTime)
+			authed.Put("/reading/goal", h.SetReadingGoal)
+
+			// Конспекты знаний (создание, генерация, редактирование, удаление).
+			authed.Get("/knowledge", h.ListNotes)
+			authed.Post("/knowledge", h.CreateNote)
+			authed.Post("/knowledge/generate", h.GenerateNote)
+			authed.Put("/knowledge/{id}", h.UpdateNote)
+			authed.Post("/knowledge/{id}/repeat", h.RepeatNote)
+			authed.Delete("/knowledge/{id}", h.DeleteNote)
+
+			// Озвучка конспектов (Yandex SpeechKit).
+			// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.
+			authed.Post("/knowledge/{id}/tts", h.SynthesizeNote)
+			authed.Get("/knowledge/{id}/tts", h.GetNoteAudio)
+
+			// «Важное» сообщение: у каждого пользователя своё — просмотр, сохранение
+			// и отметка о прочтении доступны всем авторизованным.
+			authed.Get("/important", h.GetImportant)
+			authed.Put("/important", h.SaveImportant)
+			authed.Post("/important/seen", h.MarkImportantSeen)
+
+			// Раздел «Заметки»: быстрые записи-черновики.
+			authed.Get("/drafts", h.ListDrafts)
+			authed.Post("/drafts", h.CreateDraft)
+			authed.Put("/drafts/{id}", h.UpdateDraft)
+			authed.Delete("/drafts/{id}", h.DeleteDraft)
+
+			// Раздел «Лента»: элементы ленты (пока тип контента — «вопрос-ответ»).
+			// /view — счётчик показов, растёт когда элемент показан в ленте.
+			// /generate — черновики от ИИ (в БД не пишутся), /bulk — сохранить пачку.
+			authed.Get("/feed", h.ListFeed)
+			authed.Post("/feed", h.CreateFeedItem)
+			authed.Post("/feed/generate", h.GenerateFeedItems)
+			authed.Post("/feed/bulk", h.BulkCreateFeedItems)
+			authed.Put("/feed/{id}", h.UpdateFeedItem)
+			authed.Delete("/feed/{id}", h.DeleteFeedItem)
+			authed.Post("/feed/{id}/view", h.FeedItemView)
+			authed.Post("/feed/{id}/reaction", h.FeedItemReaction)
+
+			// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
+			// и значения — одно на (метрика, день).
+			authed.Get("/user-metrics", h.ListUserMetrics)
+			authed.Post("/user-metrics", h.CreateUserMetric)
+			authed.Put("/user-metrics/{id}", h.UpdateUserMetric)
+			authed.Delete("/user-metrics/{id}", h.DeleteUserMetric)
+			authed.Put("/user-metrics/{id}/{date}", h.SetUserMetricValue)
+			authed.Delete("/user-metrics/{id}/{date}", h.DeleteUserMetricValue)
+
+			// Цели (первый раздел, главная страница).
+			authed.Get("/goals", h.ListGoals)
+			authed.Post("/goals", h.CreateGoal)
+			authed.Post("/goals/generate-tasks", h.GenerateGoalTasks)
+			authed.Put("/goals/{id}", h.UpdateGoal)
+			authed.Put("/goals/{id}/tasks-order", h.ReorderGoalTasks)
+			authed.Delete("/goals/{id}", h.DeleteGoal)
+
+			// Задачи раздела «Задачи» (категории, время, дедлайн, статус).
+			authed.Get("/tasks", h.ListTasks)
+			authed.Post("/tasks", h.CreateTask)
+			authed.Put("/tasks/{id}", h.UpdateTask)
+			authed.Delete("/tasks/{id}", h.DeleteTask)
+
+			// Раздел «День»: ежедневный план (задачи + повторение знаний, метрики).
+			authed.Get("/day", h.GetDay)
+			authed.Post("/day/suggest", h.DaySuggest)
+			authed.Put("/day", h.SaveDay)
+			authed.Put("/day/done", h.SetDayItemDone)
+			authed.Put("/day/spent", h.SetDayItemSpent)
+			authed.Get("/day/history", h.DayHistory)
+
+			// Уведомления пользователя (колокольчик на странице профиля).
+			authed.Get("/notifications", h.ListNotifications)
+			authed.Post("/notifications", h.CreateNotification)
+			authed.Delete("/notifications/{id}", h.DeleteNotification)
+			// «Входящие»: наступившие по расписанию (колокольчик).
+			authed.Get("/notifications/inbox", h.ListNotificationInbox)
+			authed.Delete("/notifications/inbox/{id}", h.DismissNotification)
+
+			// Профиль и генерация резюме.
+			authed.Get("/profile", h.GetProfile)
+			authed.Put("/profile", h.SaveProfile)
+			authed.Post("/profile/generate", h.GenerateResume)
+			authed.Put("/profile/resume", h.SaveResume)
+			authed.Get("/profile/resume", h.ResumePage)
+
+			// Фото для резюме.
+			authed.Post("/profile/photo", h.UploadPhoto)
+			authed.Delete("/profile/photo", h.DeletePhoto)
 		})
 	})
-
-	admin.GET("/message", func(c *httpkit.Context) {
-		c.JSON(http.StatusOK, httpkit.H{
-			"message": "Привет! Это ответ от Go (net/http) сервера 🚀",
-			"server":  "net/http",
-		})
-	})
-
-	// Системные метрики сервера (CPU, память, диск, сеть).
-	admin.GET("/metrics", func(c *httpkit.Context) {
-		c.JSON(http.StatusOK, handlers.CollectServerMetrics())
-	})
-
-	// Схема БД (DDL) для раздела «База данных».
-	admin.GET("/db-schema", h.DBSchema)
-
-	// Задачи по модификации приложения (раздел «Приложение») —
-	// только для администраторов (запрос деплоя/отката изменений).
-	admin.GET("/app-tasks", h.ListAppTasks)
-	admin.POST("/app-tasks", h.CreateAppTask)
-	admin.PUT("/app-tasks/:id", h.UpdateAppTask)
-	admin.DELETE("/app-tasks/:id", h.DeleteAppTask)
-
-	// Отчёты за дни (создание, редактирование, список).
-	authed.GET("/reports", h.ListReports)
-	authed.PUT("/reports/:date", h.UpsertReport)
-
-	// Раздел «Чтение»: книги (fb2/epub → HTML).
-	authed.GET("/books", h.ListBooks)
-	authed.POST("/books", h.UploadBook)
-	authed.GET("/books/last-bookmark", h.LastBookmark)
-	authed.GET("/books/:id", h.GetBook)
-	authed.DELETE("/books/:id", h.DeleteBook)
-	authed.PUT("/books/:id/finished", h.SetBookFinished)
-	authed.GET("/books/:id/bookmarks", h.ListBookmarks)
-	authed.POST("/books/:id/bookmarks", h.CreateBookmark)
-	authed.DELETE("/books/:id/bookmarks/:bookmarkId", h.DeleteBookmark)
-
-	// Время чтения по дням и цель чтения на день.
-	authed.GET("/reading/time", h.GetReadingTime)
-	authed.GET("/reading/history", h.ReadingHistory)
-	authed.POST("/reading/time", h.AddReadingTime)
-	authed.PUT("/reading/goal", h.SetReadingGoal)
-
-	// Конспекты знаний (создание, генерация, редактирование, удаление).
-	authed.GET("/knowledge", h.ListNotes)
-	authed.POST("/knowledge", h.CreateNote)
-	authed.POST("/knowledge/generate", h.GenerateNote)
-	authed.PUT("/knowledge/:id", h.UpdateNote)
-	authed.POST("/knowledge/:id/repeat", h.RepeatNote)
-	authed.DELETE("/knowledge/:id", h.DeleteNote)
-
-	// Озвучка конспектов (Yandex SpeechKit).
-	// POST — сгенерировать и сохранить аудио, GET — получить уже готовое.
-	authed.POST("/knowledge/:id/tts", h.SynthesizeNote)
-	authed.GET("/knowledge/:id/tts", h.GetNoteAudio)
-
-	// «Важное» сообщение: у каждого пользователя своё — просмотр, сохранение
-	// и отметка о прочтении доступны всем авторизованным.
-	authed.GET("/important", h.GetImportant)
-	authed.PUT("/important", h.SaveImportant)
-	authed.POST("/important/seen", h.MarkImportantSeen)
-
-	// Раздел «Заметки»: быстрые записи-черновики.
-	authed.GET("/drafts", h.ListDrafts)
-	authed.POST("/drafts", h.CreateDraft)
-	authed.PUT("/drafts/:id", h.UpdateDraft)
-	authed.DELETE("/drafts/:id", h.DeleteDraft)
-
-	// Раздел «Лента»: элементы ленты (пока тип контента — «вопрос-ответ»).
-	// /view — счётчик показов, растёт когда элемент показан в ленте.
-	// /generate — черновики от ИИ (в БД не пишутся), /bulk — сохранить пачку.
-	authed.GET("/feed", h.ListFeed)
-	authed.POST("/feed", h.CreateFeedItem)
-	authed.POST("/feed/generate", h.GenerateFeedItems)
-	authed.POST("/feed/bulk", h.BulkCreateFeedItems)
-	authed.PUT("/feed/:id", h.UpdateFeedItem)
-	authed.DELETE("/feed/:id", h.DeleteFeedItem)
-	authed.POST("/feed/:id/view", h.FeedItemView)
-	authed.POST("/feed/:id/reaction", h.FeedItemReaction)
-
-	// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
-	// и значения — одно на (метрика, день).
-	authed.GET("/user-metrics", h.ListUserMetrics)
-	authed.POST("/user-metrics", h.CreateUserMetric)
-	authed.PUT("/user-metrics/:id", h.UpdateUserMetric)
-	authed.DELETE("/user-metrics/:id", h.DeleteUserMetric)
-	authed.PUT("/user-metrics/:id/:date", h.SetUserMetricValue)
-	authed.DELETE("/user-metrics/:id/:date", h.DeleteUserMetricValue)
-
-	// Цели (первый раздел, главная страница).
-	authed.GET("/goals", h.ListGoals)
-	authed.POST("/goals", h.CreateGoal)
-	authed.POST("/goals/generate-tasks", h.GenerateGoalTasks)
-	authed.PUT("/goals/:id", h.UpdateGoal)
-	authed.PUT("/goals/:id/tasks-order", h.ReorderGoalTasks)
-	authed.DELETE("/goals/:id", h.DeleteGoal)
-
-	// Задачи раздела «Задачи» (категории, время, дедлайн, статус).
-	authed.GET("/tasks", h.ListTasks)
-	authed.POST("/tasks", h.CreateTask)
-	authed.PUT("/tasks/:id", h.UpdateTask)
-	authed.DELETE("/tasks/:id", h.DeleteTask)
-
-	// Раздел «День»: ежедневный план (задачи + повторение знаний, метрики).
-	authed.GET("/day", h.GetDay)
-	authed.POST("/day/suggest", h.DaySuggest)
-	authed.PUT("/day", h.SaveDay)
-	authed.PUT("/day/done", h.SetDayItemDone)
-	authed.PUT("/day/spent", h.SetDayItemSpent)
-	authed.GET("/day/history", h.DayHistory)
-
-	// Уведомления пользователя (колокольчик на странице профиля).
-	authed.GET("/notifications", h.ListNotifications)
-	authed.POST("/notifications", h.CreateNotification)
-	authed.DELETE("/notifications/:id", h.DeleteNotification)
-	// «Входящие»: наступившие по расписанию (колокольчик).
-	authed.GET("/notifications/inbox", h.ListNotificationInbox)
-	authed.DELETE("/notifications/inbox/:id", h.DismissNotification)
-
-	// Профиль и генерация резюме.
-	authed.GET("/profile", h.GetProfile)
-	authed.PUT("/profile", h.SaveProfile)
-	authed.POST("/profile/generate", h.GenerateResume)
-	authed.PUT("/profile/resume", h.SaveResume)
-	authed.GET("/profile/resume", h.ResumePage)
-
-	// Фото для резюме.
-	authed.POST("/profile/photo", h.UploadPhoto)
-	authed.DELETE("/profile/photo", h.DeletePhoto)
 
 	// ---- Статика React ----
 	// В собранном бинарнике фронтенд встроен (embed).
@@ -267,29 +262,31 @@ func main() {
 		port = "8080"
 	}
 	log.Printf("Сервер запущен: http://localhost:%s", port)
-	if err := r.Run(":" + port); err != nil {
+	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// serveFrontend отдаёт React-статистику: сначала из встроенного
+// serveFrontend отдаёт React-статику: сначала из встроенного
 // бинарника (release), при его отсутствии — из фронтовой папки (dev).
-func serveFrontend(r *httpkit.Engine) {
+func serveFrontend(r chi.Router) {
 	// 1) Встроенный фронтенд (собран через deploy-скрипт)
 	if fsys := subFrontendDist(); hasIndex(fsys) {
 		index, ok := indexData(fsys)
 		if ok {
-			// Статику ассетов отдаём из подпапки assets: StaticFS после
+			// Статику ассетов отдаём из подпапки assets: FileServer после
 			// StripPrefix("/assets") ищет файлы прямо в корне переданной FS,
 			// поэтому передаём именно подкаталог assets.
 			if assetsFS, err := fs.Sub(fsys, "assets"); err == nil {
-				r.StaticFS("/assets", http.FS(assetsFS))
+				r.Handle("/assets/*", http.StripPrefix("/assets", http.FileServer(http.FS(assetsFS))))
 			}
 
-			r.NoRoute(func(c *httpkit.Context) {
+			r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 				// http.FileServer редиректит прямые запросы /index.html
 				// на ./ (301), поэтому отдаём HTML напрямую.
-				c.Data(http.StatusOK, "text/html; charset=utf-8", index)
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(index)
 			})
 			log.Printf("Frontend отдаётся из встроенного бинарника")
 		}
@@ -299,22 +296,25 @@ func serveFrontend(r *httpkit.Engine) {
 	// 2) Фолбэк: файловая система (для локальной разработки)
 	staticDir := filepath.Join("..", "frontend", "dist")
 	if _, err := os.Stat(staticDir); err == nil {
-		r.Static("/assets", filepath.Join(staticDir, "assets"))
-		r.NoRoute(func(c *httpkit.Context) {
+		r.Handle("/assets/*", http.StripPrefix("/assets",
+			http.FileServer(http.Dir(filepath.Join(staticDir, "assets")))))
+		r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 			index, err := os.ReadFile(filepath.Join(staticDir, "index.html"))
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, httpkit.H{"error": "no index.html"})
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "no index.html"})
 				return
 			}
-			c.Data(http.StatusOK, "text/html; charset=utf-8", index)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(index)
 		})
 		log.Printf("Frontend подключён из %s", staticDir)
 		return
 	}
 
 	// 3) Совсем нет фронтенда
-	r.NoRoute(func(c *httpkit.Context) {
-		c.JSON(http.StatusNotFound, httpkit.H{
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": "not found",
 			"hint":  "соберите фронтенд: cd frontend && npm run build",
 		})

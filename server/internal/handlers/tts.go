@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
-	"avakumov/server/internal/httpkit"
 )
 
 // Конфигурация Yandex SpeechKit для синтеза речи (TTS).
@@ -141,20 +139,20 @@ func yandexTTS(text string) ([]byte, string, error) {
 // SynthesizeNote генерирует аудио для конспекта по его полному тексту
 // и сохраняет его в БД. Если аудио уже есть — возвращает его без повторного
 // обращения к Yandex SpeechKit (экономия токенов/квоты).
-func (h *Handlers) SynthesizeNote(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) SynthesizeNote(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID"})
 		return
 	}
 
 	n, ok := h.App.Knowledge.Get(id)
 	if !ok {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": "Конспект не найден"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Конспект не найден"})
 		return
 	}
 	if strings.TrimSpace(n.Content) == "" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Конспект пуст — нечего озвучивать"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Конспект пуст — нечего озвучивать"})
 		return
 	}
 
@@ -162,14 +160,14 @@ func (h *Handlers) SynthesizeNote(c *httpkit.Context) {
 	// списки, ссылки, код), чтобы TTS читал чистый текст.
 	text := markdownToPlainText(n.Content)
 	if strings.TrimSpace(text) == "" {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Конспект пуст — нечего озвучивать"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Конспект пуст — нечего озвучивать"})
 		return
 	}
 
 	// Если уже есть сохранённое аудио — отдаём его, не тратя квоту.
 	if h.App.Knowledge.HasAudio(id) {
 		data, mime := h.App.Knowledge.GetAudio(id)
-		c.Data(http.StatusOK, mime, data)
+		writeData(w, http.StatusOK, mime, data)
 		return
 	}
 
@@ -178,35 +176,35 @@ func (h *Handlers) SynthesizeNote(c *httpkit.Context) {
 	// склеиваем в одно аудио (OGG — конкатенация кадров допустима).
 	audio, mime, err := synthesizeChunks(text)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
 	}
 
 	if err := h.App.Knowledge.SaveAudio(id, audio, mime); err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить аудио"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить аудио"})
 		return
 	}
 
-	c.Data(http.StatusOK, mime, audio)
+	writeData(w, http.StatusOK, mime, audio)
 }
 
 // GetNoteAudio возвращает ранее сгенерированное аудио конспекта.
 // Если аудио ещё нет, возвращает 404 — фронтенд может вызвать
 // POST /api/knowledge/:id/tts для генерации.
-func (h *Handlers) GetNoteAudio(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) GetNoteAudio(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID"})
 		return
 	}
 
 	if !h.App.Knowledge.HasAudio(id) {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": "Аудио ещё не сгенерировано"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Аудио ещё не сгенерировано"})
 		return
 	}
 
 	data, mime := h.App.Knowledge.GetAudio(id)
-	c.Data(http.StatusOK, mime, data)
+	writeData(w, http.StatusOK, mime, data)
 }
 
 // markdownToPlainText убирает из текста Markdown-разметку и возвращает

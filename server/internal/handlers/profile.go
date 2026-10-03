@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // imgWithID — regex, находящий тег <img> с атрибутом id="resume-photo".
@@ -147,58 +146,58 @@ func sanitizeHTMLAnswer(s string) string {
 }
 
 // GetProfile возвращает текущий профиль.
-func (h *Handlers) GetProfile(c *httpkit.Context) {
-	c.JSON(http.StatusOK, h.App.Profile.Get())
+func (h *Handlers) GetProfile(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.App.Profile.Get())
 }
 
 // SaveProfile сохраняет описание профиля.
-func (h *Handlers) SaveProfile(c *httpkit.Context) {
+func (h *Handlers) SaveProfile(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string `json:"description"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	p, err := h.App.Profile.SaveDescription(req.Description)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить профиль"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить профиль"})
 		return
 	}
-	c.JSON(http.StatusOK, p)
+	writeJSON(w, http.StatusOK, p)
 }
 
 // GenerateResume генерирует резюме на основе описания профиля.
-func (h *Handlers) GenerateResume(c *httpkit.Context) {
+func (h *Handlers) GenerateResume(w http.ResponseWriter, r *http.Request) {
 	p := h.App.Profile.Get()
 	resume, err := generateResume(p.Description)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	updated, err := h.App.Profile.SaveResume(resume)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить резюме"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить резюме"})
 		return
 	}
-	c.JSON(http.StatusOK, updated)
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // SaveResume сохраняет вручную отредактированный текст резюме.
-func (h *Handlers) SaveResume(c *httpkit.Context) {
+func (h *Handlers) SaveResume(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Resume string `json:"resume"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	p, err := h.App.Profile.SaveResume(req.Resume)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить резюме"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить резюме"})
 		return
 	}
-	c.JSON(http.StatusOK, p)
+	writeJSON(w, http.StatusOK, p)
 }
 
 // maxPhotoBytes — максимальный размер загружаемого фото (5 МБ).
@@ -213,60 +212,60 @@ var allowedPhotoTypes = map[string]bool{
 }
 
 // UploadPhoto загружает фото профиля из multipart-формы (поле "photo").
-func (h *Handlers) UploadPhoto(c *httpkit.Context) {
-	file, header, err := c.Request.FormFile("photo")
+func (h *Handlers) UploadPhoto(w http.ResponseWriter, r *http.Request) {
+	file, header, err := r.FormFile("photo")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось прочитать файл"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Не удалось прочитать файл"})
 		return
 	}
 	defer file.Close()
 
 	if header.Size > maxPhotoBytes {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Фото слишком большое (макс. 5 МБ)"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Фото слишком большое (макс. 5 МБ)"})
 		return
 	}
 	// Читаем файл в буфер для определения MIME.
 	buf := make([]byte, header.Size)
 	if _, err := io.ReadFull(file, buf); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Не удалось прочитать файл"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Не удалось прочитать файл"})
 		return
 	}
 	mime := http.DetectContentType(buf)
 	if !allowedPhotoTypes[mime] {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Формат фото не поддерживается (JPEG/PNG/WebP/GIF)"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Формат фото не поддерживается (JPEG/PNG/WebP/GIF)"})
 		return
 	}
 	data := base64.StdEncoding.EncodeToString(buf)
 	p, err := h.App.Profile.SavePhoto(data, mime)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось сохранить фото"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить фото"})
 		return
 	}
-	c.JSON(http.StatusOK, p)
+	writeJSON(w, http.StatusOK, p)
 }
 
 // DeletePhoto удаляет фото профиля.
-func (h *Handlers) DeletePhoto(c *httpkit.Context) {
+func (h *Handlers) DeletePhoto(w http.ResponseWriter, r *http.Request) {
 	p, err := h.App.Profile.ClearPhoto()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось удалить фото"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось удалить фото"})
 		return
 	}
-	c.JSON(http.StatusOK, p)
+	writeJSON(w, http.StatusOK, p)
 }
 
 // ResumePage отдаёт отдельную HTML-страницу с резюме.
 // Страница содержит только резюме (HTML+CSS), её можно открыть в браузере
 // и распечатать/сохранить в PDF. В HTML подставляется актуальное фото.
-func (h *Handlers) ResumePage(c *httpkit.Context) {
+func (h *Handlers) ResumePage(w http.ResponseWriter, r *http.Request) {
 	p := h.App.Profile.Get()
 	if strings.TrimSpace(p.Resume) == "" {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": "Резюме ещё не сгенерировано"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Резюме ещё не сгенерировано"})
 		return
 	}
 	html := applyPhotoToResume(p.Resume, p.PhotoData, p.PhotoMime)
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeData(w, http.StatusOK, "text/html; charset=utf-8", []byte(html))
 }
 
 // resumeTemplateCSS содержит CSS-шаблон резюме в одну человекочитаемую строку.

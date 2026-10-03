@@ -8,34 +8,33 @@ import (
 	"time"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // ListNotificationInbox отдаёт «входящие» (наступившие и не закрытые).
-func (h *Handlers) ListNotificationInbox(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
+func (h *Handlers) ListNotificationInbox(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
 
 	out, err := h.App.NotifDB.Inbox(context.Background(), sessData.Username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, httpkit.H{"error": "Не удалось загрузить уведомления"})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось загрузить уведомления"})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"inbox": out})
+	writeJSON(w, http.StatusOK, map[string]any{"inbox": out})
 }
 
 // DismissNotification закрывает «входящее» уведомление. Если это было
 // одноразовое — оно удаляется; периодическое — сдвигается на следующий период.
-func (h *Handlers) DismissNotification(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) DismissNotification(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID уведомления"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID уведомления"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 
 	notifID, err := h.App.NotifDB.DismissInbox(context.Background(), sessData.Username, id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": "Уведомление не найдено"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Уведомление не найдено"})
 		return
 	}
 
@@ -43,7 +42,7 @@ func (h *Handlers) DismissNotification(c *httpkit.Context) {
 	ntype, dueAt, unit, value, err := h.App.NotifDB.Meta(context.Background(), sessData.Username, notifID)
 	if err != nil {
 		// Родитель уже удалён — входящее закрыто, и этого достаточно.
-		c.JSON(http.StatusOK, httpkit.H{"ok": true})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
 
@@ -63,5 +62,5 @@ func (h *Handlers) DismissNotification(c *httpkit.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

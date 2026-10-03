@@ -5,17 +5,16 @@ import (
 	"strconv"
 
 	"avakumov/server/internal/app"
-	"avakumov/server/internal/httpkit"
 )
 
 // ListNotifications отдаёт уведомления пользователя.
-func (h *Handlers) ListNotifications(c *httpkit.Context) {
-	sessData, _ := c.MustGet("session").(app.Session)
-	c.JSON(http.StatusOK, httpkit.H{"notifications": h.App.Notifications.List(sessData.Username)})
+func (h *Handlers) ListNotifications(w http.ResponseWriter, r *http.Request) {
+	sessData, _ := sessionOf(r)
+	writeJSON(w, http.StatusOK, map[string]any{"notifications": h.App.Notifications.List(sessData.Username)})
 }
 
 // CreateNotification создаёт уведомление.
-func (h *Handlers) CreateNotification(c *httpkit.Context) {
+func (h *Handlers) CreateNotification(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text        string `json:"text"`
 		Type        string `json:"type"`
@@ -24,8 +23,8 @@ func (h *Handlers) CreateNotification(c *httpkit.Context) {
 		PeriodValue int    `json:"period_value"`
 		Channel     string `json:"channel"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный запрос"})
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
 		return
 	}
 	if req.Type == "" {
@@ -37,26 +36,26 @@ func (h *Handlers) CreateNotification(c *httpkit.Context) {
 	if req.PeriodValue == 0 {
 		req.PeriodValue = 1
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	n, err := h.App.Notifications.Create(sessData.Username, req.Text, req.Type, req.DueAt, req.PeriodUnit, req.PeriodValue, req.Channel)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, n)
+	writeJSON(w, http.StatusOK, n)
 }
 
 // DeleteNotification удаляет уведомление.
-func (h *Handlers) DeleteNotification(c *httpkit.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (h *Handlers) DeleteNotification(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, httpkit.H{"error": "Некорректный ID уведомления"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID уведомления"})
 		return
 	}
-	sessData, _ := c.MustGet("session").(app.Session)
+	sessData, _ := sessionOf(r)
 	if err := h.App.Notifications.Delete(sessData.Username, id); err != nil {
-		c.JSON(http.StatusNotFound, httpkit.H{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, httpkit.H{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
