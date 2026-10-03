@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,6 +23,11 @@ import (
 	"avakumov/server/internal/handlers"
 	"avakumov/server/internal/notifier"
 )
+
+// shutdownTimeout — сколько ждём завершения текущих запросов при остановке.
+// Меньше TimeoutStopSec в systemd-юните (deploy.sh), чтобы успеть закрыться
+// до принудительного SIGKILL.
+const shutdownTimeout = 25 * time.Second
 
 // subFrontendDist отдаёт подкаталог frontend-dist из встроенной статики.
 func subFrontendDist() fs.FS {
@@ -261,10 +270,33 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("Сервер запущен: http://localhost:%s", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatal(err)
+
+	srv := &http.Server{Addr: ":" + port, Handler: r}
+
+	// Перехватываем SIGINT/SIGTERM: даём серверу доработать текущие запросы
+	// (например, длительную ИИ-генерацию или конвертацию книги), затем
+	// закрываем пул БД отложенным вызовом database.Close.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Printf("Сервер запущен: http://localhost:%s", port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("HTTP-сервер: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop() // возвращаем сигналам поведение по умолчанию на время остановки
+	log.Println("Получен сигнал завершения — останавливаем сервер…")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Корректная остановка не удалась: %v", err)
+		_ = srv.Close()
 	}
+	log.Println("Сервер остановлен")
 }
 
 // serveFrontend отдаёт React-статику: сначала из встроенного

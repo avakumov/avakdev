@@ -310,6 +310,9 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=$BIN_PATH
 Restart=on-failure
 RestartSec=5
+# Даём приложению время корректно завершиться (graceful shutdown) до SIGKILL.
+TimeoutStopSec=30
+KillSignal=SIGTERM
 Environment=PORT=$APP_PORT
 Environment=APP_ENV=production
 # Читаем ключи из .env (DEEPSEEK_API_KEY, YANDEX_FOLDER_ID, YANDEX_API_KEY и т.д.)
