@@ -164,6 +164,19 @@ export function useMetrics(refetchInterval = 5000, enabled = true) {
   });
 }
 
+// Метрики рантайма приложения (куча, GC, горутины) с /api/runtime-metrics.
+// Как и /api/metrics — опрашиваем только когда открыт раздел «Сервер».
+export function useRuntimeMetrics(refetchInterval = 5000, enabled = true) {
+  return useQuery({
+    queryKey: ["runtime-metrics"],
+    queryFn: () => request("/api/runtime-metrics"),
+    staleTime: 2000,
+    refetchInterval: enabled ? refetchInterval : false,
+    enabled,
+    retry: 1,
+  });
+}
+
 // Схема БД (DDL) для админ-раздела «База данных» с /api/db-schema.
 // Запрашиваем только когда раздел открыт (enabled).
 // Возвращает { schema, generated_at }. Отдаём текст ошибки сервера, чтобы

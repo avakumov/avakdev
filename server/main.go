@@ -140,6 +140,7 @@ func main() {
 				admin.Get("/health", h.Health)
 				admin.Get("/message", h.Message)
 				admin.Get("/metrics", h.ServerMetrics)
+				admin.Get("/runtime-metrics", h.AppMetrics)
 				admin.Get("/db-schema", h.DBSchema)
 
 				// Задачи по модификации приложения (раздел «Приложение») —

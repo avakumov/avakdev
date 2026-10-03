@@ -3,6 +3,7 @@ import {
   useHealth,
   useMessage,
   useMetrics,
+  useRuntimeMetrics,
   useMe,
   useImportant,
   useNotificationInbox,
@@ -73,6 +74,7 @@ import {
   Loader2,
   AlertCircle,
   Bell,
+  Boxes,
 } from "lucide-react";
 
 // Пути в URL для разделов меню: рефреш страницы не сбрасывает раздел,
@@ -194,6 +196,30 @@ function MetricLine({ icon, label, value, suffix = "%", sub, tooltip }) {
     <Tooltip>
       <TooltipTrigger asChild>
         <div className="cursor-help">{bar}</div>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// Строка метрики без прогресс-бара: подпись слева, значение справа.
+function StatRow({ icon, label, value, tooltip }) {
+  const row = (
+    <div className="flex items-center justify-between gap-2">
+      <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+        {icon}
+        {label}
+      </span>
+      <span className="text-sm font-semibold tabular-nums">{value}</span>
+    </div>
+  );
+
+  if (!tooltip) return row;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="cursor-help">{row}</div>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
@@ -351,6 +377,7 @@ function App() {
   const healthQuery = useHealth(serverOpen);
   const messageQuery = useMessage(serverOpen);
   const metricsQuery = useMetrics(5000, serverOpen);
+  const runtimeMetricsQuery = useRuntimeMetrics(5000, serverOpen);
 
   // Если раздел в URL оказался недоступен — приводим URL обратно к главной.
   useEffect(() => {
@@ -415,6 +442,7 @@ function App() {
           queryClient.removeQueries({ queryKey: ["health"] });
           queryClient.removeQueries({ queryKey: ["message"] });
           queryClient.removeQueries({ queryKey: ["metrics"] });
+          queryClient.removeQueries({ queryKey: ["runtime-metrics"] });
           queryClient.removeQueries({ queryKey: ["important"] });
           queryClient.removeQueries({ queryKey: ["user-metrics"] });
           queryClient.removeQueries({ queryKey: ["app-tasks"] });
@@ -452,6 +480,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["health"] });
     queryClient.removeQueries({ queryKey: ["message"] });
     queryClient.removeQueries({ queryKey: ["metrics"] });
+    queryClient.removeQueries({ queryKey: ["runtime-metrics"] });
     queryClient.removeQueries({ queryKey: ["important"] });
     queryClient.removeQueries({ queryKey: ["user-metrics"] });
     queryClient.removeQueries({ queryKey: ["app-tasks"] });
@@ -466,6 +495,7 @@ function App() {
       queryClient.refetchQueries(["health"]),
       queryClient.refetchQueries(["message"]),
       queryClient.refetchQueries(["metrics"]),
+      queryClient.refetchQueries(["runtime-metrics"]),
     ]);
     setLastUpdatedAt(new Date().toLocaleTimeString());
   };
@@ -473,9 +503,11 @@ function App() {
   const isRefreshing =
     healthQuery.isFetching ||
     messageQuery.isFetching ||
-    metricsQuery.isFetching;
+    metricsQuery.isFetching ||
+    runtimeMetricsQuery.isFetching;
 
   const m = metricsQuery.data;
+  const rm = runtimeMetricsQuery.data;
 
   return (
     // min-h-dvh, а не min-h-screen: в мобильных браузерах 100vh — это «большой»
@@ -657,6 +689,114 @@ function App() {
                     </span>
                     <span className="text-xs text-muted-foreground tabular-nums">
                       обновлено: <DateDisplay date={m.timestamp} withTime />
+                    </span>
+                  </CardFooter>
+                )}
+              </Card>
+
+              {/* Блок метрик приложения (runtime/metrics): куча, GC, горутины */}
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Boxes className="size-4 text-muted-foreground" />
+                    Метрики приложения
+                  </CardTitle>
+                  <CardAction>
+                    <RefreshButton
+                      onClick={() =>
+                        queryClient.refetchQueries(["runtime-metrics"])
+                      }
+                      refreshing={runtimeMetricsQuery.isFetching}
+                    />
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  {runtimeMetricsQuery.isLoading ? (
+                    <LoadingSkeleton />
+                  ) : runtimeMetricsQuery.isError ? (
+                    <p className="text-sm text-destructive">
+                      Ошибка: {runtimeMetricsQuery.error?.message}
+                    </p>
+                  ) : rm ? (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <StatRow
+                        icon={<Activity className="size-4 text-muted-foreground" />}
+                        label="Горутины"
+                        value={rm.goroutines}
+                        tooltip={`Всего горутин: ${rm.goroutines} (в работе ${rm.goroutines_running}, готовы ${rm.goroutines_runnable})`}
+                      />
+                      <StatRow
+                        icon={<Cpu className="size-4 text-muted-foreground" />}
+                        label="GOMAXPROCS"
+                        value={rm.gomaxprocs}
+                        tooltip="Число потоков планировщика Go"
+                      />
+                      <StatRow
+                        icon={
+                          <MemoryStick className="size-4 text-muted-foreground" />
+                        }
+                        label="Память процесса"
+                        value={fmtBytes(rm.process_memory_bytes)}
+                        tooltip="Память, занятая процессом (runtime/metrics)"
+                      />
+                      <StatRow
+                        icon={
+                          <MemoryStick className="size-4 text-muted-foreground" />
+                        }
+                        label="Живая куча"
+                        value={fmtBytes(rm.heap_live_bytes)}
+                        tooltip="Байты живой кучи после последнего GC"
+                      />
+                      <StatRow
+                        icon={<Boxes className="size-4 text-muted-foreground" />}
+                        label="Объектов в куче"
+                        value={rm.heap_objects.toLocaleString("ru-RU")}
+                        tooltip="Живых объектов в куче"
+                      />
+                      <StatRow
+                        icon={<Boxes className="size-4 text-muted-foreground" />}
+                        label="Следующий GC"
+                        value={fmtBytes(rm.next_gc_bytes)}
+                        tooltip="Цель по размеру кучи до следующего GC"
+                      />
+                      <StatRow
+                        icon={
+                          <RefreshCw className="size-4 text-muted-foreground" />
+                        }
+                        label="Циклов GC"
+                        value={rm.gc_cycles}
+                        tooltip="Число завершённых циклов сборки мусора"
+                      />
+                      <StatRow
+                        icon={
+                          <RefreshCw className="size-4 text-muted-foreground" />
+                        }
+                        label="CPU в GC"
+                        value={`${rm.gc_cpu_percent.toFixed(1)} %`}
+                        tooltip="Доля CPU, ушедшая на GC, от начала работы"
+                      />
+                      <StatRow
+                        icon={<Clock className="size-4 text-muted-foreground" />}
+                        label="Паузы GC"
+                        value={`${(rm.gc_pause_seconds * 1000).toFixed(1)} мс`}
+                        tooltip={`Суммарное время пауз GC (${rm.gc_pause_count} пауз)`}
+                      />
+                      <StatRow
+                        icon={<Clock className="size-4 text-muted-foreground" />}
+                        label="Задержки планировщика"
+                        value={rm.sched_latency_count}
+                        tooltip={`Суммарно ${(rm.sched_latency_seconds * 1000).toFixed(1)} мс`}
+                      />
+                    </div>
+                  ) : null}
+                </CardContent>
+                {rm && (
+                  <CardFooter className="justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      GOGC: {rm.gogc} · аллоцировано: {fmtBytes(rm.alloc_bytes_total)}
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      обновлено: <DateDisplay date={rm.timestamp} withTime />
                     </span>
                   </CardFooter>
                 )}
