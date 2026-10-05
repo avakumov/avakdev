@@ -1,0 +1,4 @@
+{
+  "title": "Градусы Цельсия в Фаренгейты",
+  "description": "CelsiusToFahrenheit(c float64) float64 — перевести температуру из градусов Цельсия в градусы Фаренгейта по формуле F = C*9/5 + 32. Например, CelsiusToFahrenheit(100) == 212."
+}

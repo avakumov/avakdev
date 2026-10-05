@@ -1,0 +1,4 @@
+{
+  "title": "Битовые флаги",
+  "description": "Флаги доступа заданы константами через iota со сдвигом: FlagRead = 1 << iota, FlagWrite, FlagExec. HasFlag(flags, flag int) bool проверяет, установлен ли флаг flag в наборе flags (побитовое И не равно нулю)."
+}

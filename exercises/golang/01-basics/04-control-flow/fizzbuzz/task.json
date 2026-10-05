@@ -1,0 +1,4 @@
+{
+  "title": "FizzBuzz",
+  "description": "FizzBuzz(n int) string — числа от 1 до n через пробел: кратные 3 → Fizz, кратные 5 → Buzz, кратные 15 → FizzBuzz, остальные — само число. Для n <= 0 вернуть пустую строку."
+}

@@ -16,6 +16,7 @@ import {
   StickyNote,
   Rss,
   Database,
+  GraduationCap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IS_LOCAL_DEV } from "@/lib/env";
@@ -35,6 +36,7 @@ export const NAV_ITEMS = [
   { key: "reports", label: "Отчеты", icon: FileText },
   { key: "knowledge", label: "Знания", icon: BookOpen },
   { key: "reading", label: "Чтение", icon: BookOpenText },
+  { key: "exercises", label: "Практика", icon: GraduationCap },
   { key: "metrics", label: "Метрики", icon: BarChart3 },
   { key: "profile", label: "Резюме", icon: User },
   { key: "important", label: "Важное", icon: Megaphone },

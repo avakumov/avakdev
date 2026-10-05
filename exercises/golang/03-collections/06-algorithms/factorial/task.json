@@ -1,0 +1,4 @@
+{
+  "title": "Факториал",
+  "description": "Factorial(n int) int — факториал n! для n >= 0. Factorial(0) = 1."
+}

@@ -1,0 +1,4 @@
+{
+  "title": "HTTP-запрос",
+  "description": "GetUser(url string) (User, error) — сделайте GET-запрос через Client, верните ошибку при статусе не 200 (ErrBadStatus) и декодируйте JSON-ответ в User. Тесты поднимают локальный сервер через httptest — интернет не нужен."
+}

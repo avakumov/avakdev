@@ -1,0 +1,4 @@
+{
+  "title": "Метка приоритета",
+  "description": "Уровни приоритета заданы константами через iota: PriorityLow, PriorityMedium, PriorityHigh. PriorityLabel(p int) string возвращает русскую метку уровня, а для неизвестного значения — пустую строку \"\"."
+}

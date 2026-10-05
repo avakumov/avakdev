@@ -196,6 +196,20 @@ export function useDBSchema(enabled = true) {
   });
 }
 
+// Учебные задания раздела «Практика» с /api/exercises.
+// Сервер объединяет каталог заданий (tasks.json) с результатами последнего
+// прогона тестов (report.json, генерируется `make exercises`). Запрашиваем
+// только когда раздел открыт (enabled).
+export function useExercises(enabled = true) {
+  return useQuery({
+    queryKey: ["exercises"],
+    queryFn: () => request("/api/exercises"),
+    staleTime: 0,
+    enabled,
+    retry: false,
+  });
+}
+
 // ==== «Важное» сообщение ====
 
 // Текущее «важное» сообщение с /api/important.

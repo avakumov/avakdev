@@ -17,3 +17,6 @@ frontend/dist/
 .go-cache/
 
 books/
+
+# Результаты прогонов учебных заданий (пишутся тестами в exercises/.results)
+exercises/.results/

@@ -1,0 +1,4 @@
+{
+  "title": "Множитель",
+  "description": "MakeMultiplier(factor int) func(int) int — возвращает функцию, умножающую аргумент на factor."
+}

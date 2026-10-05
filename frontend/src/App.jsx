@@ -30,6 +30,7 @@ import Notes from "./Notes.jsx";
 import Feed from "./Feed.jsx";
 import FeedEdit from "./FeedEdit.jsx";
 import DBSchema from "./DBSchema.jsx";
+import Exercises from "./Exercises.jsx";
 import NotesDock from "./NotesDock.jsx";
 import Tasks from "./Tasks.jsx";
 import AppTasks from "./AppTasks.jsx";
@@ -91,6 +92,7 @@ const VIEW_PATHS = {
   reports: "/reports",
   knowledge: "/knowledge",
   reading: "/reading",
+  exercises: "/exercises",
   metrics: "/metrics",
   profile: "/profile",
   important: "/important",
@@ -449,6 +451,7 @@ function App() {
           queryClient.removeQueries({ queryKey: ["tasks"] });
           queryClient.removeQueries({ queryKey: ["notifications"] });
           queryClient.removeQueries({ queryKey: ["notifications-inbox"] });
+          queryClient.removeQueries({ queryKey: ["exercises"] });
           queryClient.invalidateQueries({ queryKey: ["me"] });
         }}
       />
@@ -487,6 +490,7 @@ function App() {
     queryClient.removeQueries({ queryKey: ["tasks"] });
     queryClient.removeQueries({ queryKey: ["notifications"] });
     queryClient.removeQueries({ queryKey: ["notifications-inbox"] });
+    queryClient.removeQueries({ queryKey: ["exercises"] });
     await queryClient.invalidateQueries({ queryKey: ["me"] });
   };
 
@@ -602,6 +606,7 @@ function App() {
           {view === "reports" && <Reports />}
           {view === "knowledge" && <Knowledge />}
           {view === "reading" && <Reading />}
+          {view === "exercises" && <Exercises />}
           {view === "metrics" && <Metrics />}
           {view === "profile" && <Profile />}
           {view === "important" && <Important />}

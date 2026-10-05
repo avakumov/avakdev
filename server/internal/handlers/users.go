@@ -36,7 +36,7 @@ var (
 	authedSections = []string{
 		"day", "goals", "tasks", "reports", "knowledge",
 		"reading", "metrics", "profile", "important", "notes", "feed-edit",
-		"user",
+		"user", "exercises",
 	}
 	adminSections = []string{"server", "app", "db"}
 )

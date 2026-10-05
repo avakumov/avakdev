@@ -10,7 +10,7 @@
 # Конфигурация
 # ---------------------------------------------------------------------------
 .PHONY: help dev dev-backend dev-frontend install build build-frontend build-binary run \
-        run-with-db run-without-db deploy deploy-deps \
+        run-with-db run-without-db deploy deploy-deps exercises \
         pg-status pg-start pg-stop pg-setup pg-init db-pull
 
 # По умолчанию `make` без аргументов показывает справку
@@ -37,8 +37,9 @@ help:
 	@echo "    make install              — установить зависимости (go mod tidy + npm install)"
 	@echo "    make build                — полная сборка: фронтенд + бинарник (server/server)"
 	@echo "    make build-binary         — то же, что make build"
-	@echo "    make build-frontend       — только фронтенд в frontend/dist"
-	@echo "    make run                  — «прод»-запуск: Go отдаёт статику и API на :8080"
+	    @echo "    make build-frontend       — только фронтенд в frontend/dist"
+	    @echo "    make run                  — «прод»-запуск: Go отдаёт статику и API на :8080"
+	    @echo "    make exercises            — прогнать все тесты заданий (Практика); статус пишется сам"
 	@echo ""
 	@echo "  Деплой:"
 	@echo "    make deploy               — собрать и задеплоить через ./deploy.sh"
@@ -145,6 +146,18 @@ dev-frontend:
 install:
 	cd server && go mod tidy
 	cd frontend && npm install
+
+# ---------------------------------------------------------------------------
+# Практика (учебные задания). Результат каждого прогона тесты записывают сами
+# (см. exercises/internal/exercise), поэтому достаточно обычного go test —
+# статус в разделе «Практика» обновится автоматически:
+#
+#   cd exercises && go test ./...                 — все задания
+#   cd exercises && go test ./golang/osnovy/sum/  — одно задание/тему
+#
+# Эта цель — просто удобный запуск всех тестов.
+exercises:
+	@cd exercises && go test ./...
 
 # Фронтенд (vite) → frontend/dist.
 build-frontend:

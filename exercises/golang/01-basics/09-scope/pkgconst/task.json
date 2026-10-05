@@ -1,0 +1,4 @@
+{
+  "title": "Пакетная константа",
+  "description": "Greeting(name string) string — возвращает \"Привет, \" + name, используя пакетную константу-префикс greetingPrefix."
+}

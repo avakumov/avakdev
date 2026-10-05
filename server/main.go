@@ -255,6 +255,9 @@ func main() {
 			authed.Put("/profile/resume", h.SaveResume)
 			authed.Get("/profile/resume", h.ResumePage)
 
+			// Раздел «Практика»: учебные задания по языкам (результаты go test).
+			authed.Get("/exercises", h.Exercises)
+
 			// Фото для резюме.
 			authed.Post("/profile/photo", h.UploadPhoto)
 			authed.Delete("/profile/photo", h.DeletePhoto)
