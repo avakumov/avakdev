@@ -179,6 +179,13 @@ build-binary: build-frontend
 	else \
 		echo "Фронтенд не собран. Сначала: make build-frontend"; exit 1; \
 	fi
+	@# Метаданные практики (структура тем/заданий + результаты) → server/practice-dist,
+	@# оттуда они встраиваются в бинарник. Код заданий (*.go) НЕ копируется.
+	@rm -rf server/practice-dist/golang server/practice-dist/.results
+	@mkdir -p server/practice-dist
+	@cd exercises && find . -type f \( -name topic.json -o -name task.json \) -exec cp --parents {} ../server/practice-dist/ \;
+	@cd exercises && if [ -d .results ]; then find .results -type f -name '*.json' -exec cp --parents {} ../server/practice-dist/ \; ; fi
+	@echo "Практика: метаданные собраны в server/practice-dist"
 	cd server && CGO_ENABLED=0 go build -trimpath -tags 'embed' -ldflags '-s -w' -o server .
 
 # Полная сборка (для деплоя) — фронтенд + бинарник со встроенной статикой.

@@ -5,6 +5,10 @@ server/static/
 server/frontend-dist/
 !server/frontend-dist/.gitkeep
 
+# Метаданные практики, встраиваемые в бинарник (собираются `make build`)
+server/practice-dist/*
+!server/practice-dist/.gitkeep
+
 # Node
 node_modules/
 frontend/dist/

@@ -8,18 +8,20 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"avakumov/server/internal/env"
 )
 
 // Раздел «Практика»: сервер ничего не исполняет. Он строит иерархию заданий
-// прямо из дерева каталогов EXERCISES_DIR (вложенность папок = темы/подтемы,
-// папка с *_test.go = задание) и подмешивает результаты прогонов тестов.
+// из дерева каталогов EXERCISES_DIR (вложенность папок = темы/подтемы, папка с
+// task.json = задание) и подмешивает результаты прогонов тестов.
 //
-// Результаты пишут САМИ тесты (см. exercises/internal/exercise + TestMain в
-// тест-файлах) в EXERCISES_DIR/.results/<путь>.json, поэтому статус обновляется
-// при любом `go test` — в терминале или из редактора.
+// В dev-режиме дерево читается с диска. На production каталога нет — тогда
+// main разворачивает во временный каталог ВСТРОЕННЫЕ метаданные практики
+// (структура + .results, без кода заданий) и направляет туда EXERCISES_DIR.
+//
+// Результаты пишут САМИ тесты (см. exercises/internal/exercise + TestMain),
+// поэтому статус обновляется при любом `go test` — в терминале или редакторе.
 //
 // Названия тем берутся из topic.json, заданий — из task.json (заголовок и
 // описание); если файла нет, заголовок выводится из имени папки.
@@ -128,18 +130,12 @@ func walkExercises(root, resultsDir, dir, rel string) []exerciseNode {
 	return nodes
 }
 
-// isTaskDir сообщает, что каталог — это задание: в нём есть тестовый файл.
+// isTaskDir сообщает, что каталог — это задание: в нём есть task.json.
+// Маркер по метаданным (а не по *_test.go) выбран специально: на production
+// до сервера доезжают только метаданные (*.json), без кода заданий.
 func isTaskDir(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
-			return true
-		}
-	}
-	return false
+	fi, err := os.Stat(filepath.Join(dir, "task.json"))
+	return err == nil && !fi.IsDir()
 }
 
 // isTopicDir сообщает, что каталог — это тема: в нём есть topic.json.
@@ -197,23 +193,22 @@ func topicNode(dir, key string, children []exerciseNode) exerciseNode {
 	return n
 }
 
-// latestResultTime возвращает время последнего прогона (самый свежий файл
-// в .results). Пусто, если результатов ещё нет.
+// latestResultTime возвращает время последнего прогона — максимум поля `at`
+// по всем файлам .results. Пусто, если результатов ещё нет.
+// (Строки RFC3339 в UTC сравниваются лексикографически.)
 func latestResultTime(dir string) string {
-	var latest time.Time
+	latest := ""
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
 			return nil
 		}
-		if fi, err := d.Info(); err == nil && fi.ModTime().After(latest) {
-			latest = fi.ModTime()
+		var run exerciseRun
+		if readJSONFile(path, &run) == nil && run.At > latest {
+			latest = run.At
 		}
 		return nil
 	})
-	if latest.IsZero() {
-		return ""
-	}
-	return latest.UTC().Format(time.RFC3339)
+	return latest
 }
 
 // readMeta читает topic.json/task.json; при любой ошибке возвращает пустые

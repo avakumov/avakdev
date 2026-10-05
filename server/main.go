@@ -46,6 +46,53 @@ func indexData(fsys fs.FS) ([]byte, bool) {
 	return b, true
 }
 
+// setupPracticeFS разворачивает встроенные метаданные практики во временный
+// каталог, если каталога упражнений на диске нет (production, куда попадает
+// только бинарник). Тогда EXERCISES_DIR начинает указывать на этот каталог.
+// Возвращает функцию очистки (no-op, если разворачивать нечего/не нужно).
+func setupPracticeFS() func() {
+	root := env.GetenvOrEnvFile("EXERCISES_DIR", "../exercises")
+	if _, err := os.Stat(root); err == nil {
+		return func() {} // есть живой каталог (dev) — встроенное не трогаем
+	}
+	sub, err := fs.Sub(practiceDist, "practice-dist")
+	if err != nil {
+		return func() {} // встроенных метаданных нет (dev-сборка без тега embed)
+	}
+
+	dir, err := os.MkdirTemp("", "avakumov-practice-")
+	if err != nil {
+		log.Printf("Практика: не удалось создать временный каталог: %v", err)
+		return func() {}
+	}
+	err = fs.WalkDir(sub, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dir, filepath.FromSlash(path))
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := fs.ReadFile(sub, path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		log.Printf("Практика: не удалось развернуть встроенные метаданные: %v", err)
+		os.RemoveAll(dir)
+		return func() {}
+	}
+
+	os.Setenv("EXERCISES_DIR", dir)
+	log.Printf("Практика: встроенные метаданные развёрнуты в %s", dir)
+	return func() { os.RemoveAll(dir) }
+}
+
 // writeJSON пишет JSON-ответ. HTML в строках не экранируется (как в хендлерах).
 func writeJSON(w http.ResponseWriter, status int, obj any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -69,6 +116,11 @@ func main() {
 		}
 		return
 	}
+
+	// Практика: на production (нет каталога exercises/) разворачиваем встроенные
+	// метаданные во временный каталог и направляем туда EXERCISES_DIR.
+	cleanupPractice := setupPracticeFS()
+	defer cleanupPractice()
 
 	// Подключаемся к PostgreSQL (если задана DATABASE_URL).
 	if err := initDB(); err != nil {
