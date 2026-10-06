@@ -104,7 +104,7 @@ go install github.com/air-verse/air@latest
 | PUT   | `/api/important`       | Сохранить своё «важное» сообщение (у каждого пользователя своё) |
 | POST  | `/api/important/seen`  | Отметить прочтение своего «важного» сообщения на сегодня |
 | GET   | `/api/user-metrics`    | Метрики пользователя: определения + значения за дни |
-| POST  | `/api/user-metrics`    | Создать метрику (`type`: `int`/`float`/`bool`, `unit` — единица) |
+| POST  | `/api/user-metrics`    | Создать метрику (`type`: `int`/`float`/`bool`; числовые — неотрицательные, `unit` — единица) |
 | PUT   | `/api/user-metrics/:id` | Переименовать метрику / сменить единицу измерения |
 | DELETE| `/api/user-metrics/:id` | Удалить метрику со значениями |
 | PUT   | `/api/user-metrics/:id/:date` | Сохранить показатель за день (один на день, перезаписывает) |

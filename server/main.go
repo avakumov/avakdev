@@ -261,8 +261,8 @@ func main() {
 			authed.Post("/feed/{id}/view", h.FeedItemView)
 			authed.Post("/feed/{id}/reaction", h.FeedItemReaction)
 
-			// Пользовательские метрики: определения (тип: целое/дробное/да-нет)
-			// и значения — одно на (метрика, день).
+			// Пользовательские метрики: определения (положительное целое/
+			// положительное дробное/да-нет) и значения — одно на (метрика, день).
 			authed.Get("/user-metrics", h.ListUserMetrics)
 			authed.Post("/user-metrics", h.CreateUserMetric)
 			authed.Put("/user-metrics/{id}", h.UpdateUserMetric)

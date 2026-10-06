@@ -75,6 +75,16 @@ func TestMetricStore(t *testing.T) {
 	if err := userMetrics.SetValue("admin", pushUps.ID, "2026-08-23", "10.5"); err == nil {
 		t.Fatal("int-метрика должна принимать только целые числа")
 	}
+	// Числовые метрики — неотрицательные: минус отклоняется, ноль допустим.
+	if err := userMetrics.SetValue("admin", pushUps.ID, "2026-08-23", "-5"); err == nil {
+		t.Fatal("int-метрика не должна принимать отрицательные значения")
+	}
+	if err := userMetrics.SetValue("admin", weight.ID, "2026-08-23", "-1.5"); err == nil {
+		t.Fatal("float-метрика не должна принимать отрицательные значения")
+	}
+	if err := userMetrics.SetValue("admin", pushUps.ID, "2026-08-23", "0"); err != nil {
+		t.Fatalf("нулевое значение должно приниматься: %v", err)
+	}
 	if err := userMetrics.SetValue("admin", smoked.ID, "2026-08-23", "может быть"); err == nil {
 		t.Fatal("bool-метрика должна принимать только да/нет")
 	}

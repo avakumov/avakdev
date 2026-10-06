@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,7 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Типы метрик: целое число, дробное число, да/нет (boolean).
+// Типы метрик: положительное целое число, положительное дробное число,
+// да/нет (boolean).
 const (
 	MetricTypeInt   = "int"
 	MetricTypeFloat = "float"
@@ -331,19 +333,29 @@ func (s *MetricStore) DeleteValue(username string, id int, date string) error {
 }
 
 // NormalizeMetricValue приводит введённое значение к каноническому виду
-// в зависимости от типа метрики.
+// в зависимости от типа метрики. Числовые метрики — неотрицательные:
+// отрицательные значения отклоняются.
 func NormalizeMetricValue(metricType, value string) (string, error) {
 	switch metricType {
 	case MetricTypeInt:
 		v, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil {
-			return "", errors.New("введите целое число")
+			return "", errors.New("введите положительное целое число")
+		}
+		if v < 0 {
+			return "", errors.New("значение не может быть отрицательным")
 		}
 		return strconv.Itoa(v), nil
 	case MetricTypeFloat:
 		v, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 		if err != nil {
-			return "", errors.New("введите число (можно дробное)")
+			return "", errors.New("введите положительное число (можно дробное)")
+		}
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return "", errors.New("введите положительное число (можно дробное)")
+		}
+		if v < 0 {
+			return "", errors.New("значение не может быть отрицательным")
 		}
 		return strconv.FormatFloat(v, 'f', -1, 64), nil
 	case MetricTypeBool:

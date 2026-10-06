@@ -54,18 +54,34 @@ import {
   BookOpen,
 } from "lucide-react";
 
-// Типы метрик: целое число, дробное число, да/нет.
+// Типы метрик: положительное целое число, положительное дробное число, да/нет.
 const TYPE_LABELS = {
-  int: "Целое число",
-  float: "Дробное число",
+  int: "Положительное целое число",
+  float: "Положительное дробное число",
   bool: "Да / Нет",
 };
 
 const TYPE_OPTIONS = [
-  { value: "float", label: "Дробное число" },
-  { value: "int", label: "Целое число" },
+  { value: "float", label: "Положительное дробное число" },
+  { value: "int", label: "Положительное целое число" },
   { value: "bool", label: "Да / Нет" },
 ];
+
+// Проверка значения числовой метрики. Пусто — допустимо (значение удаляется).
+// Числа неотрицательные: отрицательные и не-числа возвращают текст ошибки.
+function validateMetricInput(type, text) {
+  if (type === "bool") return "";
+  // Запятая как десятичный разделитель — допускаем (мобильные клавиатуры).
+  const t = (text ?? "").trim().replace(",", ".");
+  if (t === "") return "";
+  const n = Number(t);
+  if (!Number.isFinite(n)) return "Введите положительное число";
+  if (n < 0) return "Значение не может быть отрицательным";
+  if (type === "int" && !Number.isInteger(n)) {
+    return "Введите положительное целое число";
+  }
+  return "";
+}
 
 // Ширина колонки с названиями метрик (w-44 = 11rem = 176px). От неё же
 // начинается горизонтальная полоса прокрутки таблицы — под названиями её нет.
@@ -358,30 +374,40 @@ function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
 function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
   const [editDate, setEditDate] = useState(null); // дата редактируемой ячейки
   const [editText, setEditText] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(""); // ошибки bool-ячеек (показ под названием)
+  const [cellError, setCellError] = useState(""); // ошибки сохранения числа (у поля)
+
+  // Немедленная проверка числового ввода: отрицательные/не-числа — ошибка.
+  const inputError = validateMetricInput(def.type, editText);
 
   const startCellEdit = (d) => {
     if (def.type === "bool") return; // да/нет переключается кликом
     setEditDate(d);
     setEditText(values[d] ?? "");
     setError("");
+    setCellError("");
   };
 
   // Сохранение числового значения: пустое поле удаляет показатель за день.
+  // Невалидный ввод не отправляем и не закрываем ячейку — ошибка видна у поля.
   const commitCell = async (d) => {
-    const text = editText.trim();
-    setEditDate(null);
-    if (text === "" && values[d] === undefined) return; // ничего не вводили
-    setError("");
+    const text = editText.trim().replace(",", ".");
+    if (inputError) return;
+    setCellError("");
     try {
       if (text === "") {
+        if (values[d] === undefined) {
+          setEditDate(null);
+          return;
+        }
         await deleteUserMetricValue(def.id, d);
       } else {
         await setUserMetricValue(def.id, d, text);
       }
+      setEditDate(null);
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить показатель");
+      setCellError(err.message || "Не удалось сохранить показатель");
     }
   };
 
@@ -485,11 +511,15 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                 )}
               >
                 <OverlayInput
-                  type="number"
-                  step={def.type === "int" ? 1 : "any"}
+                  type="text"
+                  inputMode={def.type === "int" ? "numeric" : "decimal"}
+                  autoComplete="off"
                   value={editText}
                   autoFocus
-                  onChange={(e) => setEditText(e.target.value)}
+                  onChange={(e) => {
+                    setEditText(e.target.value);
+                    setCellError("");
+                  }}
                   onBlur={() => commitCell(d)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") commitCell(d);
@@ -497,6 +527,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                   }}
                   aria-label={`Значение ${def.name} за день`}
                   wrapperClassName="h-7"
+                  error={inputError || cellError}
                   className="px-1 text-center text-sm tabular-nums"
                 />
               </td>
@@ -604,17 +635,19 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
   const [error, setError] = useState("");
 
   const hasValue = value !== undefined && value !== "";
+  // Немедленная проверка ввода: отрицательные/не-числа — ошибка.
+  const inputError = validateMetricInput(def.type, draft);
   const canSave =
     def.type === "bool"
       ? draft === "true" || draft === "false"
-      : draft.trim() !== "";
+      : draft.trim() !== "" && !inputError;
 
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
     setError("");
     try {
-      await setUserMetricValue(def.id, date, draft);
+      await setUserMetricValue(def.id, date, draft.trim().replace(",", "."));
       onSaved();
       onClose();
     } catch (err) {
@@ -663,22 +696,27 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
               <BoolToggle value={draft} onChange={setDraft} />
             ) : (
               <Input
-                type="number"
-                step={def.type === "int" ? 1 : "any"}
+                type="text"
+                inputMode={def.type === "int" ? "numeric" : "decimal"}
+                autoComplete="off"
                 value={draft}
                 autoFocus
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={def.type === "int" ? "Целое число" : "Число"}
+                aria-invalid={inputError ? true : undefined}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setError("");
+                }}
+                placeholder="Положительное число"
               />
             )}
           </div>
-          {error && (
+          {(inputError || error) && (
             <p
               className="flex items-center gap-1.5 text-sm text-destructive"
               role="alert"
             >
               <AlertCircle className="size-4" />
-              {error}
+              {inputError || error}
             </p>
           )}
         </CardContent>

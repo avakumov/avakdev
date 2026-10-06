@@ -12,7 +12,9 @@ import { cn } from "@/lib/utils";
 // введённого текста. Как только фокус уходит — поле исчезает.
 //
 // Пропсы совпадают с обычным <input/>; wrapperClassName задаёт размер подложки
-// (высоту), чтобы ячейка не «схлопывалась».
+// (высоту). Если передан непустой error — поле краснеет, а ПОД ним показывается
+// сообщение. Сообщение вынесено из потока (absolute) и не меняет размер поля,
+// поэтому инпут не смещается при его появлении.
 function OverlayInput({
   value,
   onChange,
@@ -22,6 +24,7 @@ function OverlayInput({
   type = "text",
   className,
   wrapperClassName,
+  error,
   ...props
 }) {
   const anchorRef = useRef(null);
@@ -61,8 +64,8 @@ function OverlayInput({
   const alignRight = rect ? rect.left > vw / 2 : false;
   const pos = rect
     ? alignRight
-      ? { right: Math.max(0, vw - rect.right), top: rect.top, height: rect.height }
-      : { left: rect.left, top: rect.top, height: rect.height }
+      ? { right: Math.max(0, vw - rect.right), top: rect.top }
+      : { left: rect.left, top: rect.top }
     : null;
 
   return (
@@ -74,20 +77,38 @@ function OverlayInput({
       />
       {pos &&
         createPortal(
-          <input
-            ref={inputRef}
-            {...props}
-            type={type}
-            value={value}
-            onChange={onChange}
-            onKeyDown={onKeyDown}
-            onBlur={onBlur}
-            style={{ ...pos, width: `${widthCh}ch` }}
-            className={cn(
-              "fixed z-50 min-w-0 rounded-md border border-ring bg-background px-1 text-center text-sm tabular-nums shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-              className,
+          <div
+            className="fixed z-50"
+            style={{ ...pos, width: `${widthCh}ch`, height: rect.height }}
+          >
+            <input
+              ref={inputRef}
+              {...props}
+              type={type}
+              value={value}
+              onChange={onChange}
+              onKeyDown={onKeyDown}
+              onBlur={onBlur}
+              aria-invalid={error ? true : undefined}
+              className={cn(
+                "h-full w-full min-w-0 rounded-md border bg-background px-1 text-center text-sm tabular-nums shadow-lg outline-none focus-visible:ring-2",
+                error
+                  ? "border-destructive focus-visible:ring-destructive/30"
+                  : "border-ring focus-visible:ring-ring/40",
+                className,
+              )}
+            />
+            {error && (
+              <span
+                className={cn(
+                  "absolute top-full mt-1 rounded bg-destructive px-1.5 py-0.5 text-xs whitespace-nowrap text-white shadow",
+                  alignRight ? "right-0" : "left-0",
+                )}
+              >
+                {error}
+              </span>
             )}
-          />,
+          </div>,
           document.body,
         )}
     </>
