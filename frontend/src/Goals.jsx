@@ -534,7 +534,8 @@ function GoalCard({
 }) {
   const meta = statusMeta(goal.status);
   // Сворачивание карточки: в шапке всегда видны название, прогресс и часы.
-  const [open, setOpen] = useState(true);
+  // По умолчанию цели свёрнуты.
+  const [open, setOpen] = useState(false);
 
   // Прогресс цели считается на сервере по задачам; здесь — подписи для бара.
   const orderedTasks = [...goalTasks].sort(byGoalOrder);
@@ -916,6 +917,12 @@ function Goals() {
   const categories = tasksQuery.data?.categories || [];
   const goals = tasksQuery.data?.goals || [];
 
+  // Достигнутые цели показываем ниже остальных (порядок внутри групп — прежний).
+  const orderedItems = [...items].sort(
+    (a, b) =>
+      (a.status === "achieved" ? 1 : 0) - (b.status === "achieved" ? 1 : 0),
+  );
+
   return (
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -929,7 +936,7 @@ function Goals() {
         </Button>
       </div>
 
-      {items.length === 0 ? (
+      {orderedItems.length === 0 ? (
         <Card className="my-3" size="sm">
           <CardContent>
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -939,7 +946,7 @@ function Goals() {
           </CardContent>
         </Card>
       ) : (
-        items.map((g) => (
+        orderedItems.map((g) => (
           <GoalCard
             key={g.id}
             goal={g}
