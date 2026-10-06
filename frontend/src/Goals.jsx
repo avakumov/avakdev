@@ -65,6 +65,20 @@ const STATUSES = [
 
 const statusMeta = (s) => STATUSES.find((x) => x.value === s) || STATUSES[0];
 
+// Сегодняшняя дата (локально) в формате YYYY-MM-DD — для сравнения с дедлайном.
+function todayYmd() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// Просрочена ли цель: дедлайн уже прошёл, а цель ещё не достигнута/не отменена.
+function isGoalOverdue(goal) {
+  if (!goal.target_date) return false;
+  if (goal.status === "achieved" || goal.status === "cancelled") return false;
+  return goal.target_date < todayYmd();
+}
+
 // Сортировка задач цели по последовательности выполнения (position, затем id).
 const byGoalOrder = (a, b) =>
   (a.position ?? 0) - (b.position ?? 0) || a.id - b.id;
@@ -533,6 +547,9 @@ function GoalCard({
   onMoveTask,
 }) {
   const meta = statusMeta(goal.status);
+  // Просроченные цели подсвечиваем красным, достигнутые — зелёным.
+  const overdue = isGoalOverdue(goal);
+  const achieved = goal.status === "achieved";
   // Сворачивание карточки: в шапке всегда видны название, прогресс и часы.
   // По умолчанию цели свёрнуты.
   const [open, setOpen] = useState(false);
@@ -622,8 +639,37 @@ function GoalCard({
     onMoveTask(goal, items.map((x) => x.id));
   };
 
+  // Достигнутая цель в свёрнутом виде — короткая строка: название и часы.
+  // Клик раскрывает обычную карточку (там можно сменить статус/редактировать).
+  if (achieved && !open) {
+    return (
+      <div
+        className="my-2 flex cursor-pointer items-center gap-1.5 rounded-xl bg-emerald-500/5 px-3 py-2 text-sm ring-1 ring-foreground/10 transition-colors hover:bg-emerald-500/10"
+        onClick={() => setOpen(true)}
+        title="Показать цель"
+      >
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+          {goal.title}
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">
+          {fmtHours(spentHours)} / {fmtHours(totalHours)} ч
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <Card className="my-3" size="sm">
+    <Card
+      className={cn(
+        "my-3",
+        // Рамка у всех карточек одинаковая (как у активной задачи),
+        // просроченные/достигнутые выделяются только лёгким фоном.
+        overdue && "bg-destructive/5",
+        achieved && "bg-emerald-500/5",
+      )}
+      size="sm"
+    >
       {/* Шапка цели: название, статус, прогресс и часы. Клик сворачивает/разворачивает. */}
       <CardHeader
         className="cursor-pointer select-none"
@@ -643,22 +689,34 @@ function GoalCard({
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <Badge variant={meta.variant}>{meta.label}</Badge>
                 {goal.target_date && (
-                  <Badge variant="outline">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      overdue && "border-destructive/60 text-destructive",
+                    )}
+                  >
                     <CalendarDays className="mr-1 size-3" />
                     Дедлайн: <DateDisplay date={goal.target_date} />
                   </Badge>
                 )}
+                {overdue && <Badge variant="destructive">Просрочено</Badge>}
               </div>
             </div>
           </div>
-          <div
-            className="flex shrink-0 gap-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Button variant="outline" size="icon-sm" onClick={() => onEdit(goal)}>
-              <Edit />
-            </Button>
-          </div>
+          {open && (
+            <div
+              className="flex shrink-0 gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Button
+                variant="outline"
+                size="icon-sm"
+                onClick={() => onEdit(goal)}
+              >
+                <Edit />
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="space-y-1">
@@ -917,11 +975,11 @@ function Goals() {
   const categories = tasksQuery.data?.categories || [];
   const goals = tasksQuery.data?.goals || [];
 
-  // Достигнутые цели показываем ниже остальных (порядок внутри групп — прежний).
-  const orderedItems = [...items].sort(
-    (a, b) =>
-      (a.status === "achieved" ? 1 : 0) - (b.status === "achieved" ? 1 : 0),
-  );
+  // Порядок: просроченные — сверху, затем обычные, достигнутые — внизу
+  // (внутри групп прежний порядок сохраняется).
+  const rankGoal = (g) =>
+    isGoalOverdue(g) ? 0 : g.status === "achieved" ? 2 : 1;
+  const orderedItems = [...items].sort((a, b) => rankGoal(a) - rankGoal(b));
 
   return (
     <section>
