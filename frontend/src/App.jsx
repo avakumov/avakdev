@@ -362,8 +362,11 @@ function App() {
   // «Лента» — клиентский экран (в sections его нет), остальные недоступные
   // разделы (например, «Сервер» для обычного пользователя) мягко сводим
   // к главной — сами данные всё равно защищены на сервере.
+  // Пока /api/me не ответил (isAuthed === false) — не трогаем раздел: иначе
+  // на первой отрисовке список sections ещё пуст, и раздел ошибочно свёлся бы
+  // к главной (URL сбрасывался в «/») до загрузки сессии.
   const view =
-    viewState === "feed" || allowedSections.has(viewState)
+    viewState === "feed" || !isAuthed || allowedSections.has(viewState)
       ? viewState
       : "day";
 
@@ -381,10 +384,12 @@ function App() {
   const metricsQuery = useMetrics(5000, serverOpen);
   const runtimeMetricsQuery = useRuntimeMetrics(5000, serverOpen);
 
-  // Если раздел в URL оказался недоступен — приводим URL обратно к главной.
+  // Если после загрузки /api/me раздел в URL оказался недоступен — приводим и
+  // URL, и состояние обратно к главной.
   useEffect(() => {
     if (view !== viewState) {
       window.history.replaceState({}, "", VIEW_PATHS.day);
+      setViewState("day");
     }
   }, [view, viewState]);
 
