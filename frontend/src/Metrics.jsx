@@ -11,6 +11,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import ModalClose from "@/components/ModalClose.jsx";
+import OverlayInput from "@/components/OverlayInput.jsx";
 import {
   Tooltip,
   TooltipContent,
@@ -483,7 +484,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                   isBoundary && "border-r border-border/70",
                 )}
               >
-                <Input
+                <OverlayInput
                   type="number"
                   step={def.type === "int" ? 1 : "any"}
                   value={editText}
@@ -495,7 +496,8 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                     if (e.key === "Escape") setEditDate(null);
                   }}
                   aria-label={`Значение ${def.name} за день`}
-                  className="h-7 w-full min-w-0 px-1 text-center text-sm tabular-nums"
+                  wrapperClassName="h-7"
+                  className="px-1 text-center text-sm tabular-nums"
                 />
               </td>
             );
