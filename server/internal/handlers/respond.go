@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"avakumov/server/internal/app"
+	"avakumov/server/internal/store"
 )
 
 // ---- Сессия в контексте запроса ----
@@ -18,13 +18,13 @@ type ctxKey string
 const sessionKey ctxKey = "session"
 
 // withSession кладёт сессию в контекст запроса (используется middleware).
-func withSession(r *http.Request, s app.Session) *http.Request {
+func withSession(r *http.Request, s store.Session) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), sessionKey, s))
 }
 
 // sessionOf извлекает сессию, положенную middleware AuthRequired.
-func sessionOf(r *http.Request) (app.Session, bool) {
-	s, ok := r.Context().Value(sessionKey).(app.Session)
+func sessionOf(r *http.Request) (store.Session, bool) {
+	s, ok := r.Context().Value(sessionKey).(store.Session)
 	return s, ok
 }
 

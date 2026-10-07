@@ -71,7 +71,7 @@ func (h *Handlers) AuthRequired(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Требуется вход"})
 			return
 		}
-		sessData, ok := h.App.Sess.Get(token.Value)
+		sessData, ok := h.App.Sess.Get(r.Context(), token.Value)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Сессия истекла. Войдите снова."})
 			return
@@ -119,7 +119,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.App.Sess.Create(u.Username, u.IsAdmin, app.SessionTTL)
+	token, err := h.App.Sess.Create(r.Context(), u.Username, app.SessionTTL)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось создать сессию"})
 		return
@@ -143,7 +143,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 // Logout завершает сессию и удаляет cookie.
 func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	if token, err := cookieValue(r, app.CookieName); err == nil {
-		h.App.Sess.Delete(token)
+		h.App.Sess.Delete(r.Context(), token)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     app.CookieName,
