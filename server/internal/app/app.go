@@ -13,14 +13,15 @@ type App struct {
 	DB   *pgxpool.Pool
 	Sess *store.Sessions
 
-	Users     *store.Users
-	Reading   *store.Reading
-	Drafts    *store.Drafts
-	Bookmarks *store.Bookmarks
-	Reports   *store.Reports
-	Feed      *store.Feed
-	Books     *store.Books
-	Day       *store.Day
+	Users      *store.Users
+	Reading    *store.Reading
+	Drafts     *store.Drafts
+	Bookmarks  *store.Bookmarks
+	Highlights *store.Highlights
+	Reports    *store.Reports
+	Feed       *store.Feed
+	Books      *store.Books
+	Day        *store.Day
 
 	// NotifDB — SQL уведомлений; Notifications — in-memory кэш поверх NotifDB.
 	NotifDB       *store.Notifications
@@ -55,6 +56,7 @@ func New(db *pgxpool.Pool) *App {
 		a.Reading = store.NewReading(db)
 		a.Drafts = store.NewDrafts(db)
 		a.Bookmarks = store.NewBookmarks(db)
+		a.Highlights = store.NewHighlights(db)
 		a.Reports = store.NewReports(db)
 		a.Feed = store.NewFeed(db)
 		a.Books = store.NewBooks(db)

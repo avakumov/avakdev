@@ -217,6 +217,9 @@ func main() {
 			authed.Get("/books/{id}/bookmarks", h.ListBookmarks)
 			authed.Post("/books/{id}/bookmarks", h.CreateBookmark)
 			authed.Delete("/books/{id}/bookmarks/{bookmarkId}", h.DeleteBookmark)
+			authed.Get("/books/{id}/highlights", h.ListHighlights)
+			authed.Post("/books/{id}/highlights", h.CreateHighlight)
+			authed.Delete("/books/{id}/highlights/{highlightId}", h.DeleteHighlight)
 
 			// Время чтения по дням и цель чтения на день.
 			authed.Get("/reading/time", h.GetReadingTime)
