@@ -11,6 +11,7 @@ import {
 } from "./api.js";
 import MarkdownView from "./MarkdownView.jsx";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Card,
   CardHeader,
@@ -26,7 +27,6 @@ import {
   Sparkles,
   Save,
   Loader2,
-  AlertCircle,
   BookOpen,
   Clock,
   Trash2,
@@ -58,22 +58,18 @@ function GenerateForm({ onSaved }) {
   const [generated, setGenerated] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   const canGenerate = Boolean(topic.trim());
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
     setGenerating(true);
-    setError("");
-    setNotice("");
     setGenerated(null);
     try {
       const data = await generateKnowledge(topic);
       setGenerated(data);
     } catch (err) {
-      setError(err.message || "Не удалось сгенерировать конспект");
+      toast.error(err.message || "Не удалось сгенерировать конспект");
     } finally {
       setGenerating(false);
     }
@@ -82,19 +78,18 @@ function GenerateForm({ onSaved }) {
   const handleSave = async () => {
     if (!generated) return;
     setSaving(true);
-    setError("");
     try {
       await createKnowledge({
         topic,
         title: generated.title || topic,
         content: generated.content,
       });
-      setNotice("Конспект сохранён.");
+      toast.success("Конспект сохранён.");
       setGenerated(null);
       setTopic("");
       onSaved();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить конспект");
+      toast.error(err.message || "Не удалось сохранить конспект");
     } finally {
       setSaving(false);
     }
@@ -128,22 +123,6 @@ function GenerateForm({ onSaved }) {
             {generating ? "Генерирую…" : "Сгенерировать"}
           </Button>
         </div>
-
-        {notice && (
-          <p className="flex items-center gap-1.5 text-sm text-emerald-600">
-            <Check className="size-4" />
-            {notice}
-          </p>
-        )}
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
-        )}
 
         {generated && (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
@@ -181,7 +160,6 @@ function NoteCard({ note, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [repeating, setRepeating] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
   const [audioUrl, setAudioUrl] = useState(null); // blob-URL сгенерированного аудио
   const [ttsLoading, setTtsLoading] = useState(false);
   const [audioCheck, setAudioCheck] = useState(false); // уже проверяли наличие аудио
@@ -196,7 +174,6 @@ function NoteCard({ note, onSaved }) {
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await updateKnowledge(note.id, {
         title: note.title,
@@ -205,7 +182,7 @@ function NoteCard({ note, onSaved }) {
       setEditing(false);
       onSaved();
     } catch (err) {
-      setError(err.message || "Не удалось обновить конспект");
+      toast.error(err.message || "Не удалось обновить конспект");
     } finally {
       setSaving(false);
     }
@@ -213,12 +190,11 @@ function NoteCard({ note, onSaved }) {
 
   const handleRepeat = async () => {
     setRepeating(true);
-    setError("");
     try {
       await repeatKnowledge(note.id);
       onSaved();
     } catch (err) {
-      setError(err.message || "Не удалось отметить повторение");
+      toast.error(err.message || "Не удалось отметить повторение");
     } finally {
       setRepeating(false);
     }
@@ -227,12 +203,11 @@ function NoteCard({ note, onSaved }) {
   const handleDelete = async () => {
     if (!window.confirm("Удалить этот конспект?")) return;
     setDeleting(true);
-    setError("");
     try {
       await deleteKnowledge(note.id);
       onSaved();
     } catch (err) {
-      setError(err.message || "Не удалось удалить конспект");
+      toast.error(err.message || "Не удалось удалить конспект");
     } finally {
       setDeleting(false);
     }
@@ -270,7 +245,6 @@ function NoteCard({ note, onSaved }) {
   // Генерируем аудио через Yandex SpeechKit.
   const handleSynthesize = async () => {
     setTtsLoading(true);
-    setError("");
     try {
       const blob = await synthesizeNoteAudio(note.id);
       const url = URL.createObjectURL(blob);
@@ -279,7 +253,7 @@ function NoteCard({ note, onSaved }) {
       audioUrlRef.current = url;
       setAudioUrl(url);
     } catch (err) {
-      setError(err.message || "Не удалось сгенерировать аудио");
+      toast.error(err.message || "Не удалось сгенерировать аудио");
     } finally {
       setTtsLoading(false);
     }
@@ -315,16 +289,6 @@ function NoteCard({ note, onSaved }) {
 
       {open && (
         <CardContent className="space-y-3">
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
-
           {editing ? (
             <div className="space-y-3">
               <Textarea
@@ -341,7 +305,6 @@ function NoteCard({ note, onSaved }) {
                   onClick={() => {
                     setEditing(false);
                     setDraft(note.content);
-                    setError("");
                   }}
                 >
                   <X />

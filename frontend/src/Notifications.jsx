@@ -7,6 +7,7 @@ import {
   dismissNotification,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
 import TimeInput from "@/components/TimeInput.jsx";
@@ -147,10 +148,11 @@ export function CreateNotificationModal({ onClose, onCreated }) {
     setSaving(true);
     try {
       await createNotification(payload);
+      toast.success("Уведомление создано");
       onCreated();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось создать уведомление");
+      toast.error(err.message || "Не удалось создать уведомление");
       setSaving(false);
     }
   };
@@ -308,9 +310,10 @@ function NotificationRows({ onChanged }) {
     if (!window.confirm("Удалить уведомление?")) return;
     try {
       await deleteNotification(id);
+      toast.success("Уведомление удалено");
       onChanged();
     } catch (err) {
-      window.alert(err.message || "Не удалось удалить уведомление");
+      toast.error(err.message || "Не удалось удалить уведомление");
     }
   };
 
@@ -405,9 +408,10 @@ export function NotificationsModal({ onClose }) {
   const dismiss = async (id) => {
     try {
       await dismissNotification(id);
+      toast.success("Уведомление закрыто");
       refreshAll();
     } catch (err) {
-      window.alert(err.message || "Не удалось закрыть уведомление");
+      toast.error(err.message || "Не удалось закрыть уведомление");
     }
   };
 

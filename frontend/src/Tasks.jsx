@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTasks, createTask, updateTask, deleteTask, setDayItemSpent } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
 import { todayStr } from "@/lib/formatDate.js";
@@ -32,7 +33,6 @@ import {
   Save,
   Trash2,
   Loader2,
-  AlertCircle,
   Clock,
   CalendarDays,
   Hourglass,
@@ -141,7 +141,6 @@ export function TaskFormModal({
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
 
   // Потраченное время: итог и разбивка по дням — только для чтения.
   // Факт «за сегодня» можно задать прямо здесь: он пишется в позицию
@@ -178,7 +177,6 @@ export function TaskFormModal({
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     const payload = {
       category: category || "Прочее",
       title,
@@ -198,10 +196,11 @@ export function TaskFormModal({
       if (saved?.id != null && enteredMinutes !== serverTodayMinutes) {
         await setDayItemSpent(today, "task", saved.id, enteredMinutes);
       }
+      toast.success(initial ? "Задача сохранена" : "Задача создана");
       onSaved(saved);
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить задачу");
+      toast.error(err.message || "Не удалось сохранить задачу");
       setSaving(false);
     }
   };
@@ -210,13 +209,13 @@ export function TaskFormModal({
   const handleDelete = async () => {
     if (!window.confirm(`Удалить задачу «${initial.title}»?`)) return;
     setDeleting(true);
-    setError("");
     try {
       await deleteTask(initial.id);
+      toast.success("Задача удалена");
       (onDeleted || onSaved)?.();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось удалить задачу");
+      toast.error(err.message || "Не удалось удалить задачу");
       setDeleting(false);
     }
   };
@@ -389,16 +388,6 @@ export function TaskFormModal({
                 если забыли отметить вовремя.
               </p>
             </div>
-          )}
-
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
           )}
         </CardContent>
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useImportant, saveImportantMessage } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import MarkdownView from "./MarkdownView.jsx";
 import MarkdownHelp from "./MarkdownHelp.jsx";
@@ -21,7 +22,6 @@ import {
   Edit,
   X,
   Loader2,
-  AlertCircle,
   HelpCircle,
   Eye,
   PenLine,
@@ -79,7 +79,6 @@ function Important() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["important"] });
@@ -91,23 +90,20 @@ function Important() {
     setDraft(data?.content || "");
     setTab("edit");
     setEditing(true);
-    setError("");
   };
 
   const cancelEdit = () => {
     setEditing(false);
-    setError("");
   };
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await saveImportantMessage(draft);
       setEditing(false);
       refresh();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить сообщение");
+      toast.error(err.message || "Не удалось сохранить сообщение");
     } finally {
       setSaving(false);
     }
@@ -158,15 +154,6 @@ function Important() {
                 ) : (
                   <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
                     Превью пустое — напишите текст сообщения.
-                  </p>
-                )}
-                {error && (
-                  <p
-                    className="flex items-center gap-1.5 text-sm text-destructive"
-                    role="alert"
-                  >
-                    <AlertCircle className="size-4" />
-                    {error}
                   </p>
                 )}
                 <div className="flex gap-2">

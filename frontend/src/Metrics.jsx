@@ -9,6 +9,7 @@ import {
   deleteUserMetricValue,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import ModalClose from "@/components/ModalClose.jsx";
 import OverlayInput from "@/components/OverlayInput.jsx";
@@ -139,18 +140,17 @@ function NewMetricForm({ onSaved }) {
   const [type, setType] = useState("float");
   const [unit, setUnit] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const handleAdd = async () => {
     setSaving(true);
-    setError("");
     try {
       await createUserMetric(name, type, unit);
       setName("");
       setUnit("");
+      toast.success("Метрика создана");
       onSaved();
     } catch (err) {
-      setError(err.message || "Не удалось создать метрику");
+      toast.error(err.message || "Не удалось создать метрику");
     } finally {
       setSaving(false);
     }
@@ -199,15 +199,6 @@ function NewMetricForm({ onSaved }) {
             />
           )}
         </div>
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
-        )}
         <Button onClick={handleAdd} disabled={saving || !name.trim()}>
           {saving ? <Loader2 className="animate-spin" /> : <Plus />}
           {saving ? "Добавляю…" : "Добавить метрику"}
@@ -265,17 +256,16 @@ function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
   const [editUnit, setEditUnit] = useState(def.unit || "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await updateUserMetric(def.id, editName, editUnit);
+      toast.success("Метрика сохранена");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось изменить метрику");
+      toast.error(err.message || "Не удалось изменить метрику");
       setSaving(false);
     }
   };
@@ -286,14 +276,14 @@ function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
       return;
     }
     setDeleting(true);
-    setError("");
     try {
       await deleteUserMetric(def.id);
+      toast.success("Метрика удалена");
       onSaved();
       onDeleted?.();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось удалить метрику");
+      toast.error(err.message || "Не удалось удалить метрику");
       setDeleting(false);
     }
   };
@@ -334,15 +324,6 @@ function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
               />
             </div>
           )}
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
         </CardContent>
         <div className="flex items-center justify-between gap-2 border-t p-4">
           <Button
@@ -374,8 +355,6 @@ function MetricEditModal({ def, onSaved, onClose, onDeleted }) {
 function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
   const [editDate, setEditDate] = useState(null); // дата редактируемой ячейки
   const [editText, setEditText] = useState("");
-  const [error, setError] = useState(""); // ошибки bool-ячеек (показ под названием)
-  const [cellError, setCellError] = useState(""); // ошибки сохранения числа (у поля)
 
   // Немедленная проверка числового ввода: отрицательные/не-числа — ошибка.
   const inputError = validateMetricInput(def.type, editText);
@@ -384,8 +363,6 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
     if (def.type === "bool") return; // да/нет переключается кликом
     setEditDate(d);
     setEditText(values[d] ?? "");
-    setError("");
-    setCellError("");
   };
 
   // Сохранение числового значения: пустое поле удаляет показатель за день.
@@ -393,7 +370,6 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
   const commitCell = async (d) => {
     const text = editText.trim().replace(",", ".");
     if (inputError) return;
-    setCellError("");
     try {
       if (text === "") {
         if (values[d] === undefined) {
@@ -407,7 +383,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
       setEditDate(null);
       onChanged();
     } catch (err) {
-      setCellError(err.message || "Не удалось сохранить показатель");
+      toast.error(err.message || "Не удалось сохранить показатель");
     }
   };
 
@@ -415,7 +391,6 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
   const cycleBool = async (d) => {
     const cur = values[d];
     const next = cur === undefined ? "true" : cur === "true" ? "false" : undefined;
-    setError("");
     try {
       if (next === undefined) {
         await deleteUserMetricValue(def.id, d);
@@ -424,7 +399,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
       }
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить показатель");
+      toast.error(err.message || "Не удалось сохранить показатель");
     }
   };
 
@@ -447,15 +422,6 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
             </span>
           </span>
         </button>
-        {error && (
-          <p
-            className="mt-1 flex items-center gap-1 text-xs text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-3.5" />
-            {error}
-          </p>
-        )}
       </td>
 
         {columns.map((d) => {
@@ -518,7 +484,6 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                   autoFocus
                   onChange={(e) => {
                     setEditText(e.target.value);
-                    setCellError("");
                   }}
                   onBlur={() => commitCell(d)}
                   onKeyDown={(e) => {
@@ -527,7 +492,7 @@ function MetricRow({ def, values, columns, borders, onChanged, onOpenDetail }) {
                   }}
                   aria-label={`Значение ${def.name} за день`}
                   wrapperClassName="h-7"
-                  error={inputError || cellError}
+                  error={inputError}
                   className="px-1 text-center text-sm tabular-nums"
                 />
               </td>
@@ -632,7 +597,6 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
   const [draft, setDraft] = useState(value ?? "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
 
   const hasValue = value !== undefined && value !== "";
   // Немедленная проверка ввода: отрицательные/не-числа — ошибка.
@@ -645,26 +609,26 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
-    setError("");
     try {
       await setUserMetricValue(def.id, date, draft.trim().replace(",", "."));
+      toast.success("Значение сохранено");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить значение");
+      toast.error(err.message || "Не удалось сохранить значение");
       setSaving(false);
     }
   };
 
   const handleDelete = async () => {
     setDeleting(true);
-    setError("");
     try {
       await deleteUserMetricValue(def.id, date);
+      toast.success("Значение удалено");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось удалить значение");
+      toast.error(err.message || "Не удалось удалить значение");
       setDeleting(false);
     }
   };
@@ -704,19 +668,18 @@ function MetricValueModal({ def, date, value, onSaved, onClose }) {
                 aria-invalid={inputError ? true : undefined}
                 onChange={(e) => {
                   setDraft(e.target.value);
-                  setError("");
                 }}
                 placeholder="Положительное число"
               />
             )}
           </div>
-          {(inputError || error) && (
+          {inputError && (
             <p
               className="flex items-center gap-1.5 text-sm text-destructive"
               role="alert"
             >
               <AlertCircle className="size-4" />
-              {inputError || error}
+              {inputError}
             </p>
           )}
         </CardContent>

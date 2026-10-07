@@ -9,6 +9,7 @@ import {
   deleteProfilePhoto,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Card,
   CardHeader,
@@ -27,7 +28,6 @@ import {
   Save,
   X,
   Loader2,
-  AlertCircle,
   User,
   ImagePlus,
   Trash2,
@@ -72,16 +72,14 @@ function applyPhotoToHtml(html, photoData, photoMime) {
 function DescriptionForm({ initial, onSaved }) {
   const [description, setDescription] = useState(initial || "");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await saveProfile(description);
       onSaved();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить описание");
+      toast.error(err.message || "Не удалось сохранить описание");
     } finally {
       setSaving(false);
     }
@@ -104,15 +102,6 @@ function DescriptionForm({ initial, onSaved }) {
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Например: backend-разработчик, 5 лет опыта с Go и PostgreSQL, люблю автоматизацию…"
         />
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
-        )}
         <div className="flex gap-2">
           <Button onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 className="animate-spin" /> : <Save />}
@@ -129,7 +118,6 @@ function PhotoForm({ photoData, photoMime, onChanged }) {
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
 
   const hasPhoto = Boolean(photoData);
 
@@ -138,12 +126,11 @@ function PhotoForm({ photoData, photoMime, onChanged }) {
     e.target.value = ""; // разрешить повторный выбор того же файла
     if (!file) return;
     setUploading(true);
-    setError("");
     try {
       await uploadProfilePhoto(file);
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось загрузить фото");
+      toast.error(err.message || "Не удалось загрузить фото");
     } finally {
       setUploading(false);
     }
@@ -151,12 +138,11 @@ function PhotoForm({ photoData, photoMime, onChanged }) {
 
   const handleDelete = async () => {
     setDeleting(true);
-    setError("");
     try {
       await deleteProfilePhoto();
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось удалить фото");
+      toast.error(err.message || "Не удалось удалить фото");
     } finally {
       setDeleting(false);
     }
@@ -188,15 +174,6 @@ function PhotoForm({ photoData, photoMime, onChanged }) {
           className="hidden"
           onChange={handleFile}
         />
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
-        )}
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
@@ -229,19 +206,15 @@ function PhotoForm({ photoData, photoMime, onChanged }) {
 // Карточка генерации: запускает DeepSeek из сохранённого описания.
 function GenerateForm({ description, onGenerated }) {
   const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   const handleGenerate = async () => {
     setGenerating(true);
-    setError("");
-    setNotice("");
     try {
       await generateResume();
-      setNotice("Резюме успешно сгенерировано.");
+      toast.success("Резюме успешно сгенерировано.");
       onGenerated();
     } catch (err) {
-      setError(err.message || "Не удалось сгенерировать резюме");
+      toast.error(err.message || "Не удалось сгенерировать резюме");
     } finally {
       setGenerating(false);
     }
@@ -262,21 +235,6 @@ function GenerateForm({ description, onGenerated }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {notice && (
-          <p className="flex items-center gap-1.5 text-sm text-emerald-600">
-            <Sparkles className="size-4" />
-            {notice}
-          </p>
-        )}
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
-        )}
         <Button onClick={handleGenerate} disabled={generating || !canGenerate}>
           {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
           {generating ? "Генерирую…" : "Сгенерировать резюме"}
@@ -296,17 +254,15 @@ function ResumeView({ resume, photoData, photoMime, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(resume);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await saveResumeText(draft);
       setEditing(false);
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить резюме");
+      toast.error(err.message || "Не удалось сохранить резюме");
     } finally {
       setSaving(false);
     }
@@ -355,15 +311,6 @@ function ResumeView({ resume, photoData, photoMime, onChanged }) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
             />
-            {error && (
-              <p
-                className="flex items-center gap-1.5 text-sm text-destructive"
-                role="alert"
-              >
-                <AlertCircle className="size-4" />
-                {error}
-              </p>
-            )}
             <div className="flex flex-wrap gap-2">
               <Button onClick={handleSave} disabled={saving}>
                 {saving ? <Loader2 className="animate-spin" /> : <Save />}
@@ -373,7 +320,6 @@ function ResumeView({ resume, photoData, photoMime, onChanged }) {
                 variant="ghost"
                 onClick={() => {
                   setEditing(false);
-                  setError("");
                 }}
               >
                 <X />

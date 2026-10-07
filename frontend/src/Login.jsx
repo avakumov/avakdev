@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { login } from "./api.js";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,18 +12,16 @@ import { ShieldCheck, Loader2 } from "lucide-react";
 function Login({ onSuccess }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
     try {
       await login(username, password);
       onSuccess();
     } catch (err) {
-      setError(err.message || "Не удалось войти");
+      toast.error(err.message || "Не удалось войти");
     } finally {
       setLoading(false);
     }
@@ -66,12 +65,6 @@ function Login({ onSuccess }) {
                 required
               />
             </div>
-
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
 
             <Button type="submit" className="w-full" disabled={loading}>
               {loading && <Loader2 className="animate-spin" />}

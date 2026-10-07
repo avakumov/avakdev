@@ -16,6 +16,7 @@ import {
   setReadingGoal,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useAppStore } from "./store.js";
 import { todayStr, formatClock } from "@/lib/formatDate.js";
 import DateDisplay from "@/components/DateDisplay.jsx";
@@ -298,7 +299,7 @@ function MetricsBlock({ date }) {
       await setUserMetricValue(id, date, value);
       queryClient.invalidateQueries({ queryKey: ["user-metrics"] });
     } catch (err) {
-      window.alert(err.message || "Не удалось сохранить метрику");
+      toast.error(err.message || "Не удалось сохранить метрику");
     } finally {
       setBusyId(null);
     }
@@ -447,7 +448,6 @@ function Day({ onNavigate }) {
   const [saving, setSaving] = useState(false);
   const [suggest, setSuggest] = useState(null); // результат «сформировать»
   const [savedPlan, setSavedPlan] = useState(null);
-  const [error, setError] = useState("");
   // Модалки из списка кандидатов: редактирование задачи / чтение конспекта.
   const [openTask, setOpenTask] = useState(null);
   const [openNote, setOpenNote] = useState(null);
@@ -496,7 +496,7 @@ function Day({ onNavigate }) {
       await queryClient.invalidateQueries({ queryKey: ["reading-time", date] });
       setGoalDraft(null);
     } catch (err) {
-      setGoalError(err.message || "Не удалось сохранить цель");
+      toast.error(err.message || "Не удалось сохранить цель");
     } finally {
       setSavingGoal(false);
     }
@@ -622,7 +622,7 @@ function Day({ onNavigate }) {
       await markPlanItem("note", note.id, true);
       await reloadPlan();
     } catch (err) {
-      window.alert(err.message || "Не удалось отметить повторение");
+      toast.error(err.message || "Не удалось отметить повторение");
     }
   };
 
@@ -647,12 +647,11 @@ function Day({ onNavigate }) {
       return;
     }
     setLoading(true);
-    setError("");
     try {
       const data = await suggestDay({ date, minutes });
       setSuggest(data);
     } catch (err) {
-      setError(err.message || "Не удалось сформировать день");
+      toast.error(err.message || "Не удалось сформировать день");
     } finally {
       setLoading(false);
     }
@@ -674,7 +673,6 @@ function Day({ onNavigate }) {
       .filter((c) => c.selected)
       .map((c) => ({ kind: c.kind, ref_id: c.id }));
     setSaving(true);
-    setError("");
     try {
       const plan = await saveDay({
         date,
@@ -684,7 +682,7 @@ function Day({ onNavigate }) {
       setSavedPlan(plan);
       setSuggest(null);
     } catch (err) {
-      setError(err.message || "Не удалось сохранить день");
+      toast.error(err.message || "Не удалось сохранить день");
     } finally {
       setSaving(false);
     }
@@ -753,13 +751,6 @@ function Day({ onNavigate }) {
           </span>
         </CardContent>
       </Card>
-
-      {error && (
-        <p className="my-2 flex items-center gap-1.5 text-sm text-destructive" role="alert">
-          <AlertCircle className="size-4" />
-          {error}
-        </p>
-      )}
 
       {suggest ? (
         <>

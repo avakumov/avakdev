@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import {
   useHealth,
   useMessage,
@@ -73,7 +74,6 @@ import {
   AlertTriangle,
   Check,
   Loader2,
-  AlertCircle,
   Bell,
   Boxes,
 } from "lucide-react";
@@ -265,16 +265,14 @@ function RefreshButton({ onClick, refreshing }) {
 // и не чаще раза в сутки (проверка на сервере).
 function ImportantGate({ content, onDone }) {
   const [marking, setMarking] = useState(false);
-  const [error, setError] = useState("");
 
   const handleRead = async () => {
     setMarking(true);
-    setError("");
     try {
       await markImportantSeen();
       onDone();
     } catch (err) {
-      setError(err.message || "Не удалось подтвердить прочтение");
+      toast.error(err.message || "Не удалось подтвердить прочтение");
       setMarking(false);
     }
   };
@@ -297,15 +295,6 @@ function ImportantGate({ content, onDone }) {
         <CardContent className="space-y-4">
           {/* Сообщение показывается целиком, без внутреннего скролла */}
           <MarkdownView>{content}</MarkdownView>
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
           <Button onClick={handleRead} disabled={marking} className="w-full">
             {marking ? <Loader2 className="animate-spin" /> : <Check />}
             {marking ? "Подтверждаю…" : "Прочитал(а), продолжить"}

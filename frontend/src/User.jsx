@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { updateMe, updateAvatar, linkTelegram, unlinkTelegram } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppStore, applyCodeTheme, CODE_THEME_DEFAULT } from "./store.js";
@@ -163,7 +164,7 @@ function AvatarModal({ user, onClose, onSaved }) {
       setPhotoMime("image/jpeg");
       setPreset(""); // своё фото отменяет готовый вариант
     } catch (err) {
-      setError(err.message || "Не удалось загрузить фото");
+      toast.error(err.message || "Не удалось загрузить фото");
     } finally {
       setBusy(false);
     }
@@ -181,7 +182,7 @@ function AvatarModal({ user, onClose, onSaved }) {
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить аватар");
+      toast.error(err.message || "Не удалось сохранить аватар");
       setBusy(false);
     }
   };
@@ -371,7 +372,6 @@ function User({ user, onLogout }) {
 
   // Привязка Telegram.
   const [tgBusy, setTgBusy] = useState(false);
-  const [tgError, setTgError] = useState("");
   const [tgStep, setTgStep] = useState(false);
 
   // Необязательные контакты (черновик формы).
@@ -386,8 +386,6 @@ function User({ user, onLogout }) {
     user?.code_theme || CODE_THEME_DEFAULT
   );
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
 
   // При обновлении данных пользователя (после сохранения/входа) — синхронизируем.
   useEffect(() => {
@@ -402,8 +400,6 @@ function User({ user, onLogout }) {
 
   const handleSaveContacts = async () => {
     setSaving(true);
-    setError("");
-    setSaved(false);
     try {
       await updateMe({
         phone: phone.trim(),
@@ -412,9 +408,9 @@ function User({ user, onLogout }) {
         code_theme: codeTheme,
       });
       await refreshMe();
-      setSaved(true);
+      toast.success("Сохранено");
     } catch (err) {
-      setError(err.message || "Не удалось сохранить профиль");
+      toast.error(err.message || "Не удалось сохранить профиль");
     } finally {
       setSaving(false);
     }
@@ -422,13 +418,12 @@ function User({ user, onLogout }) {
 
   const handleLinkTg = async () => {
     setTgBusy(true);
-    setTgError("");
     try {
       const { url } = await linkTelegram();
       setTgStep(true);
       window.open(url, "_blank", "noopener");
     } catch (err) {
-      setTgError(err.message || "Не удалось создать ссылку привязки");
+      toast.error(err.message || "Не удалось создать ссылку привязки");
     } finally {
       setTgBusy(false);
     }
@@ -436,13 +431,12 @@ function User({ user, onLogout }) {
 
   const handleUnlinkTg = async () => {
     setTgBusy(true);
-    setTgError("");
     try {
       await unlinkTelegram();
       setTgStep(false);
       await refreshMe();
     } catch (err) {
-      setTgError(err.message || "Не удалось отключить Telegram");
+      toast.error(err.message || "Не удалось отключить Telegram");
     } finally {
       setTgBusy(false);
     }
@@ -627,15 +621,6 @@ function User({ user, onLogout }) {
                   ? `Подключено${user?.telegram ? ` (@${user.telegram})` : ""} — сюда придут уведомления`
                   : "Не подключено — нажмите кнопку и запустите бота"}
               </p>
-              {tgError && (
-                <p
-                  className="flex items-center gap-1 text-xs text-destructive"
-                  role="alert"
-                >
-                  <AlertCircle className="size-3.5" />
-                  {tgError}
-                </p>
-              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {user?.telegram_linked ? (
@@ -675,27 +660,11 @@ function User({ user, onLogout }) {
             </div>
           </div>
 
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
-
           <div className="flex items-center gap-3">
             <Button onClick={handleSaveContacts} disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}
               {saving ? "Сохраняю…" : "Сохранить"}
             </Button>
-            {saved && (
-              <span className="flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
-                <Check className="size-4" />
-                Сохранено
-              </span>
-            )}
           </div>
 
         </CardContent>

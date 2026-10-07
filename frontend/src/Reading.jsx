@@ -1021,8 +1021,6 @@ function Reading() {
   const clearReadingRequest = useAppStore((s) => s.clearReadingRequest);
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [openBook, setOpenBook] = useState(null);
   const [openJump, setOpenJump] = useState(null); // закладка для перехода
   const [deletingId, setDeletingId] = useState(null);
@@ -1038,14 +1036,12 @@ function Reading() {
     e.target.value = "";
     if (!file) return;
     setBusy(true);
-    setError("");
-    setNotice("");
     try {
       const book = await uploadBook(file);
-      setNotice(`Книга «${book.title}» добавлена.`);
+      toast.success(`Книга «${book.title}» добавлена.`);
       refresh();
     } catch (err) {
-      setError(err.message || "Не удалось добавить книгу");
+      toast.error(err.message || "Не удалось добавить книгу");
     } finally {
       setBusy(false);
     }
@@ -1054,12 +1050,11 @@ function Reading() {
   const handleDelete = async (book) => {
     if (!window.confirm(`Удалить книгу «${book.title}»?`)) return;
     setDeletingId(book.id);
-    setError("");
     try {
       await deleteBook(book.id);
       refresh();
     } catch (err) {
-      setError(err.message || "Не удалось удалить книгу");
+      toast.error(err.message || "Не удалось удалить книгу");
     } finally {
       setDeletingId(null);
     }
@@ -1126,21 +1121,6 @@ function Reading() {
               Максимальный размер — 40 МБ
             </span>
           </div>
-
-          {notice && (
-            <p className="text-sm text-emerald-600 dark:text-emerald-400">
-              {notice}
-            </p>
-          )}
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
         </CardContent>
       </Card>
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { createDraft, updateDraft, deleteDraft } from "./api.js";
 import { useAppStore } from "./store.js";
 import { Button } from "@/components/ui/button";
@@ -104,9 +105,10 @@ function NotesDock() {
       if (editor.id) await updateDraft(editor.id, text);
       else await createDraft(text);
       await queryClient.invalidateQueries({ queryKey: ["drafts"] });
+      toast.success("Заметка сохранена");
       closeEditor();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить заметку");
+      toast.error(err.message || "Не удалось сохранить заметку");
     } finally {
       setSaving(false);
     }
@@ -121,9 +123,10 @@ function NotesDock() {
     try {
       await deleteDraft(editor.id);
       await queryClient.invalidateQueries({ queryKey: ["drafts"] });
+      toast.success("Заметка удалена");
       closeEditor();
     } catch (err) {
-      setError(err.message || "Не удалось удалить заметку");
+      toast.error(err.message || "Не удалось удалить заметку");
     } finally {
       setDeleting(false);
     }

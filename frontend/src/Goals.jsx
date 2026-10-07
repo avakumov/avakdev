@@ -11,6 +11,7 @@ import {
 } from "./api.js";
 import { TaskFormModal, taskPayload, statusLabel, statusVariant, fmtHours } from "./Tasks.jsx";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import DateInput from "@/components/DateInput.jsx";
 import { cn } from "@/lib/utils";
@@ -99,7 +100,6 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteTasks, setDeleteTasks] = useState(false); // удалить задачи вместе с целью
-  const [error, setError] = useState("");
 
   const removeDraft = (index) =>
     setDrafts((prev) => prev.filter((_, i) => i !== index));
@@ -112,7 +112,6 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
     )
       return;
     setGenerating(true);
-    setError("");
     setTruncated(false);
     try {
       const data = await generateGoalTasks({ title, description });
@@ -127,7 +126,7 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
       // Сервер сообщает, если ответ модели обрезан по лимиту длины.
       setTruncated(Boolean(data.truncated));
     } catch (err) {
-      setError(err.message || "Не удалось сгенерировать задачи");
+      toast.error(err.message || "Не удалось сгенерировать задачи");
     } finally {
       setGenerating(false);
     }
@@ -135,7 +134,6 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     const payload = {
       title,
       description,
@@ -158,10 +156,11 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
       } else {
         await createGoal(payload);
       }
+      toast.success(isCreate ? "Цель создана" : "Цель сохранена");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить цель");
+      toast.error(err.message || "Не удалось сохранить цель");
       setSaving(false);
     }
   };
@@ -170,13 +169,13 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
   const handleDelete = async () => {
     if (!window.confirm(`Удалить цель «${initial.title}»?`)) return;
     setDeleting(true);
-    setError("");
     try {
       await deleteGoal(initial.id, deleteTasks);
+      toast.success("Цель удалена");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось удалить цель");
+      toast.error(err.message || "Не удалось удалить цель");
       setDeleting(false);
     }
   };
@@ -363,16 +362,6 @@ function GoalFormModal({ initial, taskCount = 0, onClose, onSaved }) {
               </p>
             </div>
           )}
-
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
         </CardContent>
 
         <div className="flex items-center justify-between gap-2 border-t p-4">
@@ -416,7 +405,6 @@ function AttachTasksModal({ goal, tasks, onClose, onSaved }) {
       ),
   );
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const toggle = (id) =>
     setSelected((prev) => {
@@ -428,7 +416,6 @@ function AttachTasksModal({ goal, tasks, onClose, onSaved }) {
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     const changed = candidates.filter(
       (t) => selected.has(t.id) !== (t.goal_id === goal.id),
     );
@@ -439,10 +426,11 @@ function AttachTasksModal({ goal, tasks, onClose, onSaved }) {
           taskPayload(t, { goal_id: selected.has(t.id) ? goal.id : null }),
         );
       }
+      toast.success("Изменения сохранены");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить изменения");
+      toast.error(err.message || "Не удалось сохранить изменения");
       setSaving(false);
     }
   };
@@ -507,16 +495,6 @@ function AttachTasksModal({ goal, tasks, onClose, onSaved }) {
                 </button>
               );
             })
-          )}
-
-          {error && (
-            <p
-              className="flex items-center gap-1.5 pt-1 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
           )}
         </CardContent>
 
@@ -923,7 +901,7 @@ function Goals() {
       });
       refreshGoals();
     } catch (err) {
-      window.alert(err.message || "Не удалось изменить статус");
+      toast.error(err.message || "Не удалось изменить статус");
     }
   };
 
@@ -933,7 +911,7 @@ function Goals() {
       await updateTask(task.id, taskPayload(task, { goal_id: null }));
       refreshAll(); // состав задач влияет на прогресс цели
     } catch (err) {
-      window.alert(err.message || "Не удалось отвязать задачу");
+      toast.error(err.message || "Не удалось отвязать задачу");
     }
   };
 
@@ -943,7 +921,7 @@ function Goals() {
       await reorderGoalTasks(goal.id, orderedIds);
       refreshAll();
     } catch (err) {
-      window.alert(err.message || "Не удалось изменить порядок задач");
+      toast.error(err.message || "Не удалось изменить порядок задач");
     }
   };
 

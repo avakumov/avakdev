@@ -43,6 +43,7 @@ import {
   Check,
   Play,
 } from "lucide-react";
+import { toast } from "sonner";
 
 // Типы контента ленты. Пока один — «вопрос-ответ» (размеры полей проверяет
 // сервер).
@@ -61,7 +62,6 @@ function FeedItemModal({ initial, onClose, onSaved }) {
   const [details, setDetails] = useState(initial?.details || "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
 
   // Раздел, вопрос и ответ обязательны; объяснение и примеры — нет.
   const ready =
@@ -69,15 +69,15 @@ function FeedItemModal({ initial, onClose, onSaved }) {
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     const payload = { kind, topic, question, answer, details };
     try {
       if (initial) await updateFeedItem(initial.id, payload);
       else await createFeedItem(payload);
+      toast.success(initial ? "Элемент сохранён" : "Элемент добавлен");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить элемент ленты");
+      toast.error(err.message || "Не удалось сохранить элемент ленты");
       setSaving(false);
     }
   };
@@ -89,13 +89,13 @@ function FeedItemModal({ initial, onClose, onSaved }) {
       return;
     }
     setDeleting(true);
-    setError("");
     try {
       await deleteFeedItem(initial.id);
+      toast.success("Элемент удалён");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось удалить элемент ленты");
+      toast.error(err.message || "Не удалось удалить элемент ленты");
       setDeleting(false);
     }
   };
@@ -204,16 +204,6 @@ function FeedItemModal({ initial, onClose, onSaved }) {
               </p>
             </div>
           )}
-
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
         </CardContent>
 
         <div className="flex items-center justify-between gap-2 border-t p-4">
@@ -255,7 +245,6 @@ function FeedGenerateModal({ onClose, onSaved }) {
   const [truncated, setTruncated] = useState(false); // ответ модели обрезан
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const busy = generating || saving;
 
@@ -271,7 +260,6 @@ function FeedGenerateModal({ onClose, onSaved }) {
       return;
     }
     setGenerating(true);
-    setError("");
     setTruncated(false);
     try {
       const data = await generateFeedItems({
@@ -290,7 +278,7 @@ function FeedGenerateModal({ onClose, onSaved }) {
       // Сервер сообщает, если ответ модели обрезан по лимиту длины.
       setTruncated(Boolean(data.truncated));
     } catch (err) {
-      setError(err.message || "Не удалось сгенерировать элементы");
+      toast.error(err.message || "Не удалось сгенерировать элементы");
     } finally {
       setGenerating(false);
     }
@@ -298,7 +286,6 @@ function FeedGenerateModal({ onClose, onSaved }) {
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await createFeedItemsBulk(
         drafts
@@ -310,10 +297,11 @@ function FeedGenerateModal({ onClose, onSaved }) {
           }))
           .filter((d) => d.topic && d.question && d.answer),
       );
+      toast.success("Элементы сохранены");
       onSaved();
       onClose();
     } catch (err) {
-      setError(err.message || "Не удалось сохранить элементы ленты");
+      toast.error(err.message || "Не удалось сохранить элементы ленты");
       setSaving(false);
     }
   };
@@ -439,16 +427,6 @@ function FeedGenerateModal({ onClose, onSaved }) {
               </ul>
             </div>
           )}
-
-          {error && (
-            <p
-              className="flex items-center gap-1.5 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="size-4" />
-              {error}
-            </p>
-          )}
         </CardContent>
 
         <div className="flex justify-end gap-2 border-t p-4">
@@ -478,7 +456,6 @@ function FeedEdit({ onLaunch }) {
   // Выделение строк в таблице (desktop) для операций над пачкой.
   const [selected, setSelected] = useState(() => new Set());
   const [deleting, setDeleting] = useState(false);
-  const [listError, setListError] = useState("");
 
   const items = feedQuery.data || [];
 
@@ -512,7 +489,6 @@ function FeedEdit({ onLaunch }) {
     if (ids.length === 0) return;
     if (!window.confirm(`Удалить выбранные элементы (${ids.length})?`)) return;
     setDeleting(true);
-    setListError("");
     const failed = [];
     for (const id of ids) {
       try {
@@ -525,9 +501,11 @@ function FeedEdit({ onLaunch }) {
     refresh();
     setDeleting(false);
     if (failed.length > 0) {
-      setListError(
+      toast.error(
         `Не удалось удалить ${failed.length} из ${ids.length}: ${failed[0]}`,
       );
+    } else {
+      toast.success(`Удалено элементов: ${ids.length}`);
     }
   };
 
@@ -604,12 +582,6 @@ function FeedEdit({ onLaunch }) {
                 <X />
                 Снять выделение
               </Button>
-              {listError && (
-                <span className="flex items-center gap-1 text-sm text-destructive">
-                  <AlertCircle className="size-3.5 shrink-0" />
-                  {listError}
-                </span>
-              )}
             </div>
           )}
 

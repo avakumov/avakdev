@@ -8,6 +8,7 @@ import {
   requestTaskRollback,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import DateDisplay from "@/components/DateDisplay.jsx";
 
 import {
@@ -33,7 +34,6 @@ import {
   Save,
   Trash2,
   Loader2,
-  AlertCircle,
   Wrench,
   Edit,
   X,
@@ -68,18 +68,17 @@ function NewTaskForm({ onSaved }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   const handleAdd = async () => {
     setSaving(true);
-    setError("");
     try {
       await createAppTask(title, description);
       setTitle("");
       setDescription("");
+      toast.success("Задача добавлена");
       onSaved();
     } catch (err) {
-      setError(err.message || "Не удалось создать задачу");
+      toast.error(err.message || "Не удалось создать задачу");
     } finally {
       setSaving(false);
     }
@@ -108,15 +107,6 @@ function NewTaskForm({ onSaved }) {
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Подробности (необязательно): что именно и где исправить…"
         />
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
-        )}
         <Button onClick={handleAdd} disabled={saving || !title.trim()}>
           {saving ? <Loader2 className="animate-spin" /> : <Plus />}
           {saving ? "Добавляю…" : "Добавить задачу"}
@@ -136,23 +126,19 @@ function TaskCard({ task, onChanged }) {
   const [deleting, setDeleting] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
-  const [error, setError] = useState("");
 
   const startEdit = () => {
     setEditTitle(task.title);
     setEditDescription(task.description || "");
-    setError("");
     setEditing(true);
   };
 
   const cancelEdit = () => {
     setEditing(false);
-    setError("");
   };
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await updateAppTask(task.id, {
         title: editTitle,
@@ -162,14 +148,13 @@ function TaskCard({ task, onChanged }) {
       setEditing(false);
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось обновить задачу");
+      toast.error(err.message || "Не удалось обновить задачу");
     } finally {
       setSaving(false);
     }
   };
 
   const handleStatusChange = async (status) => {
-    setError("");
     try {
       await updateAppTask(task.id, {
         title: task.title,
@@ -178,19 +163,19 @@ function TaskCard({ task, onChanged }) {
       });
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось изменить статус");
+      toast.error(err.message || "Не удалось изменить статус");
     }
   };
 
   const handleDelete = async () => {
     if (!window.confirm(`Удалить задачу «${task.title}»?`)) return;
     setDeleting(true);
-    setError("");
     try {
       await deleteAppTask(task.id);
+      toast.success("Задача удалена");
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось удалить задачу");
+      toast.error(err.message || "Не удалось удалить задачу");
       setDeleting(false);
     }
   };
@@ -204,12 +189,11 @@ function TaskCard({ task, onChanged }) {
       return;
     }
     setDeploying(true);
-    setError("");
     try {
       await requestTaskDeploy(task);
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось запросить деплой");
+      toast.error(err.message || "Не удалось запросить деплой");
       setDeploying(false);
     }
   };
@@ -236,12 +220,11 @@ function TaskCard({ task, onChanged }) {
       return;
     }
     setRollingBack(true);
-    setError("");
     try {
       await requestTaskRollback(task);
       onChanged();
     } catch (err) {
-      setError(err.message || "Не удалось запросить откат");
+      toast.error(err.message || "Не удалось запросить откат");
       setRollingBack(false);
     }
   };
@@ -391,16 +374,6 @@ function TaskCard({ task, onChanged }) {
               )}
             </div>
           </>
-        )}
-
-        {error && (
-          <p
-            className="flex items-center gap-1.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="size-4" />
-            {error}
-          </p>
         )}
       </CardContent>
     </Card>
