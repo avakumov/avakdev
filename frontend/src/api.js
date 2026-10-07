@@ -782,6 +782,37 @@ export async function deleteBookmark(id, bookmarkId) {
   return data;
 }
 
+// Выделения книги (GET /api/books/:id/highlights).
+export async function fetchHighlights(id) {
+  const res = await fetch(`${BASE}/api/books/${id}/highlights`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось загрузить выделения");
+  return data;
+}
+
+// Добавить выделение (POST /api/books/:id/highlights).
+// start/end — позиции в символах от начала текста книги, color — id палитры.
+export async function addHighlight(id, start, end, color, excerpt) {
+  const res = await fetch(`${BASE}/api/books/${id}/highlights`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start, end, color, excerpt }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить выделение");
+  return data;
+}
+
+// Удалить выделение (DELETE /api/books/:id/highlights/:highlightId).
+export async function deleteHighlight(id, highlightId) {
+  const res = await fetch(`${BASE}/api/books/${id}/highlights/${highlightId}`, {
+    method: "DELETE",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось удалить выделение");
+  return data;
+}
+
 // Время чтения за день (GET /api/reading/time?date=ГГГГ-ММ-ДД).
 // Ответ: { date, seconds, goal_seconds }.
 export async function fetchReadingTime(date) {

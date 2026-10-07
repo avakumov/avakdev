@@ -7,13 +7,18 @@ import {
   fetchBookmarks,
   addBookmark,
   deleteBookmark,
+  fetchHighlights,
+  addHighlight,
+  deleteHighlight,
   fetchReadingTime,
   addReadingTime,
   setBookFinished,
 } from "./api.js";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useAppStore } from "./store.js";
 import { cn } from "@/lib/utils";
+import { IS_LOCAL_DEV } from "@/lib/env";
 import { todayStr, formatClock } from "@/lib/formatDate.js";
 import DateDisplay from "@/components/DateDisplay.jsx";
 import {
@@ -154,8 +159,78 @@ function flashRange(range, layer) {
   }
 }
 
+// ==== Постоянные выделения цветом ====
+// Текст книги React не перерисовывает (dangerouslySetInnerHTML), поэтому
+// выделения рисуем сами: оборачиваем нужные куски текста в <span class="book-hl">.
+// Обёртка не меняет сам текст, поэтому смещения в символах остаются валидными.
+
+// Снять прежние выделения и слить обратно разделённые текстовые узлы.
+function clearHighlightSpans(root) {
+  for (const el of root.querySelectorAll("span.book-hl")) {
+    const parent = el.parentNode;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+  }
+  root.normalize();
+}
+
+// Обернуть диапазон [start, end) в <span class="book-hl"> заданного цвета.
+function wrapHighlight(root, start, end, id, color) {
+  // Сначала (не меняя DOM) собираем текстовые узлы, попадающие в диапазон.
+  const targets = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let acc = 0;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const nodeStart = acc;
+    const nodeEnd = acc + node.nodeValue.length;
+    acc = nodeEnd;
+    if (nodeEnd <= start || nodeStart >= end) continue;
+    targets.push({
+      node,
+      from: Math.max(start, nodeStart) - nodeStart,
+      to: Math.min(end, nodeEnd) - nodeStart,
+    });
+  }
+  // Затем отделяем нужные куски и оборачиваем их.
+  for (const { node, from, to } of targets) {
+    if (to < node.nodeValue.length) node.splitText(to);
+    let mid = node;
+    if (from > 0) mid = node.splitText(from);
+    const span = document.createElement("span");
+    span.className = "book-hl";
+    span.dataset.hlId = String(id);
+    span.dataset.color = color;
+    mid.parentNode.insertBefore(span, mid);
+    span.appendChild(mid);
+  }
+}
+
 // Порог «дошли до конца книги» для вопроса о прочтении (px).
 const BOOK_END_THRESHOLD = 40;
+
+// Ширина всплывающего меню выделения (px) — задана явно, чтобы не вылезти за
+// границы текста при расчёте позиции.
+const SELECTION_MENU_W = 236;
+
+// Палитра подсветки. Пока только визуальная заготовка: цвета не сохраняются.
+const HIGHLIGHT_COLORS = [
+  { id: "yellow", label: "жёлтый", className: "bg-amber-300" },
+  { id: "green", label: "зелёный", className: "bg-emerald-300" },
+  { id: "blue", label: "голубой", className: "bg-sky-300" },
+  { id: "pink", label: "розовый", className: "bg-pink-300" },
+];
+
+// Позиция меню выделения — всегда снизу: от курсора (при протяжке) или от
+// прямоугольника выделения. По горизонтали — по центру, с зажимом внутрь
+// границ текста.
+function selectionMenuStyle(sel, pos) {
+  const desired =
+    (pos ? pos.left : sel.left + sel.width / 2) - SELECTION_MENU_W / 2;
+  const maxLeft = Math.max(8, sel.layerWidth - SELECTION_MENU_W - 8);
+  const left = Math.min(Math.max(8, desired), maxLeft);
+  const top = pos ? pos.top + 16 : sel.bottom + 6;
+  return { left, top, width: SELECTION_MENU_W };
+}
 
 // Модалка чтения книги: занимает всё окно, сверху — название, автор,
 // кнопки размера шрифта и закрытие, ниже — прокручиваемый текст.
@@ -168,12 +243,17 @@ function BookModal({ book, initialJump = null, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [fontSize, setFontSize] = useState(FONT_DEFAULT);
-  // Закладки книги и текущее выделение в тексте ({ anchor, text }).
+  // Закладки книги и текущее выделение в тексте (позиция, текст и геометрия
+  // для всплывающего меню — см. readSelection).
   const [bookmarks, setBookmarks] = useState([]);
   const [sel, setSel] = useState(null);
+  // Позиция меню выделения в координатах слоя текста (у курсора при протяжке).
+  const [menuPos, setMenuPos] = useState(null);
+  // Постоянные выделения книги и меню действий над выбранным выделением.
+  const [highlights, setHighlights] = useState([]);
+  const [hlMenu, setHlMenu] = useState(null); // { id, left, top }
   const [panelOpen, setPanelOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState(null); // { text, error }
   const [pendingJump, setPendingJump] = useState(initialJump); // закладка для перехода
   // Прочитана ли книга и спрашиваем ли об этом (дошли до конца текста).
   const [finished, setFinished] = useState(Boolean(book.finished_at));
@@ -183,7 +263,8 @@ function BookModal({ book, initialJump = null, onClose }) {
   const scrollRef = useRef(null);
   const layerRef = useRef(null);
   const textRef = useRef(null);
-  const noticeTimer = useRef(null);
+  // Зажата ли кнопка указателя — пока да, меню следует за курсором.
+  const pointerDownRef = useRef(false);
   // Счётчик чтения: секунды этой сессии, сумма за сегодня и цель дня.
   // Сумма за сегодня берётся из базы при открытии книги (см. эффект ниже).
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -198,14 +279,11 @@ function BookModal({ book, initialJump = null, onClose }) {
   const sentSecondsRef = useRef(0); // сколько секунд сессии уже отправлено
   const dayRef = useRef(todayStr());
 
-  // Сообщение над текстом («закладка добавлена», «не удалось сохранить…»).
+  // Уведомления показываем всплывающими (Sonner) — они не сдвигают текст книги.
   const showNotice = (text, isError = false) => {
-    setNotice({ text, error: isError });
-    clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(null), 2500);
+    if (isError) toast.error(text);
+    else toast.success(text);
   };
-
-  useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
   // Накопленное время сессии, секунды (включая идущий отсчёт).
   const sessionMs = () =>
@@ -393,10 +471,12 @@ function BookModal({ book, initialJump = null, onClose }) {
     };
   }, [onClose, draftOpen]);
 
-  // Загрузка закладок при открытии книги.
+  // Загрузка закладок и выделений при открытии книги.
   useEffect(() => {
     let alive = true;
     setBookmarks([]);
+    setHighlights([]);
+    setHlMenu(null);
     setSel(null);
     setPanelOpen(false);
     fetchBookmarks(book.id)
@@ -406,6 +486,13 @@ function BookModal({ book, initialJump = null, onClose }) {
       .catch(() => {
         // Закладки не критичны для чтения — молча оставляем список пустым.
       });
+    fetchHighlights(book.id)
+      .then((list) => {
+        if (alive) setHighlights(list);
+      })
+      .catch(() => {
+        // Выделения тоже не критичны — оставляем список пустым.
+      });
     return () => {
       alive = false;
     };
@@ -414,22 +501,106 @@ function BookModal({ book, initialJump = null, onClose }) {
   // Текущее выделение внутри текста книги (или null).
   const readSelection = () => {
     const root = textRef.current;
+    const layer = layerRef.current;
     const s = window.getSelection();
-    if (!root || !s || s.rangeCount === 0 || s.isCollapsed) return null;
+    if (!root || !layer || !s || s.rangeCount === 0 || s.isCollapsed) return null;
     const range = s.getRangeAt(0);
     if (!root.contains(range.commonAncestorContainer)) return null;
+    // Позицию считаем в координатах слоя текста (layerRef), поэтому меню
+    // «приклеено» к тексту и не уезжает при прокрутке.
+    const r = range.getBoundingClientRect();
+    const lr = layer.getBoundingClientRect();
     return {
       anchor: offsetOfPoint(root, range.startContainer, range.startOffset),
+      end: offsetOfPoint(root, range.endContainer, range.endOffset),
       text: s.toString(),
+      left: r.left - lr.left,
+      bottom: r.bottom - lr.top,
+      width: r.width,
+      layerWidth: layer.clientWidth,
     };
   };
 
   // Следим за выделением: мышь, клавиатура, тач — всё приходит сюда.
   useEffect(() => {
-    const track = () => setSel(readSelection());
+    const track = () => {
+      const next = readSelection();
+      setSel(next);
+      // Началось новое выделение — меню существующей подсветки закрываем.
+      if (next) setHlMenu(null);
+    };
     document.addEventListener("selectionchange", track);
     return () => document.removeEventListener("selectionchange", track);
   }, []);
+
+  // Смена кегля меняет раскладку текста — прежняя позиция меню станет неверной.
+  useEffect(() => {
+    setSel(null);
+  }, [fontSize]);
+
+  // Держим актуальным состояние «кнопка указателя нажата».
+  useEffect(() => {
+    const down = () => {
+      pointerDownRef.current = true;
+    };
+    const up = () => {
+      pointerDownRef.current = false;
+    };
+    window.addEventListener("pointerdown", down);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, []);
+
+  const selActive = Boolean(sel);
+
+  // Пока выделение активно, при протяжке держим меню у курсора (в координатах
+  // слоя текста). После отпускания кнопки меню остаётся на последней позиции.
+  useEffect(() => {
+    if (!selActive) {
+      setMenuPos(null);
+      return;
+    }
+    const layer = layerRef.current;
+    if (!layer) return;
+    const onMove = (e) => {
+      if (!pointerDownRef.current) return;
+      const lr = layer.getBoundingClientRect();
+      setMenuPos({ left: e.clientX - lr.left, top: e.clientY - lr.top });
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [selActive]);
+
+  // Рисуем постоянные выделения: снимаем прежние <span> и навешиваем заново.
+  useEffect(() => {
+    const root = textRef.current;
+    if (!root) return;
+    clearHighlightSpans(root);
+    const sorted = [...highlights].sort(
+      (a, b) => a.start - b.start || a.end - b.end,
+    );
+    for (const h of sorted) {
+      if (h.end > h.start) wrapHighlight(root, h.start, h.end, h.id, h.color);
+    }
+  }, [data, highlights]);
+
+  // Закрываем меню выделения при клике вне него и вне самой подсветки.
+  useEffect(() => {
+    if (!hlMenu) return;
+    const onDown = (e) => {
+      if (e.target.closest?.(".book-hl") || e.target.closest?.("[data-hl-menu]")) {
+        return;
+      }
+      setHlMenu(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [hlMenu]);
 
   // Поставить закладку на выделенном фрагменте.
   const handleAddBookmark = async () => {
@@ -495,6 +666,63 @@ function BookModal({ book, initialJump = null, onClose }) {
     }
   };
 
+  // Поставить выделение цветом на текущем фрагменте.
+  const handleAddHighlight = async (color) => {
+    const current = sel || readSelection();
+    if (!current || saving || current.end <= current.anchor) return;
+    setSaving(true);
+    try {
+      const created = await addHighlight(
+        book.id,
+        current.anchor,
+        current.end,
+        color,
+        current.text,
+      );
+      setHighlights((list) =>
+        [...list, created].sort((a, b) => a.start - b.start),
+      );
+      setSel(null);
+      window.getSelection()?.removeAllRanges();
+      showNotice("Выделение добавлено");
+    } catch (err) {
+      showNotice(err.message || "Не удалось сохранить выделение", true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Удалить выделение (по клику на подсветку).
+  const handleDeleteHighlight = async (id) => {
+    setHlMenu(null);
+    try {
+      await deleteHighlight(book.id, id);
+      setHighlights((list) => list.filter((h) => h.id !== id));
+    } catch (err) {
+      showNotice(err.message || "Не удалось удалить выделение", true);
+    }
+  };
+
+  // Клик по тексту: по подсветке — открываем меню действий (удалить), иначе
+  // закрываем его. Во время выделения текста меню не трогаем.
+  const handleTextClick = (e) => {
+    const s = window.getSelection();
+    if (s && !s.isCollapsed) return;
+    const layer = layerRef.current;
+    const el = e.target.closest?.(".book-hl");
+    if (!el || !layer) {
+      setHlMenu(null);
+      return;
+    }
+    const lr = layer.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    setHlMenu({
+      id: Number(el.dataset.hlId),
+      left: Math.min(r.left - lr.left, Math.max(8, layer.clientWidth - 200)),
+      top: r.bottom - lr.top,
+    });
+  };
+
   // Дошли до конца книги — спрашиваем, прочитана ли она (один раз за сессию).
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -529,7 +757,14 @@ function BookModal({ book, initialJump = null, onClose }) {
     !dayUnknown && daySeconds + sessionSeconds >= goalSeconds;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[color-mix(in_oklch,var(--background)_90%,var(--foreground))] text-[color-mix(in_oklch,var(--foreground)_85%,var(--background))]">
+    // В dev сверху висит жёлтая полоса (DevBanner, z-60). Начинаем модалку под
+    // ней (top-7), иначе полоса перекрывает шапку чтения.
+    <div
+      className={cn(
+        "fixed inset-x-0 z-50 flex flex-col bg-[color-mix(in_oklch,var(--background)_90%,var(--foreground))] text-[color-mix(in_oklch,var(--foreground)_85%,var(--background))]",
+        IS_LOCAL_DEV ? "top-7 bottom-0" : "inset-y-0",
+      )}
+    >
       {/* Шапка чтения */}
       <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -580,23 +815,6 @@ function BookModal({ book, initialJump = null, onClose }) {
           aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
         >
           {theme === "dark" ? <Sun /> : <Moon />}
-        </Button>
-
-        {/* Закладка на выделенном фрагменте текста */}
-        <Button
-          variant="outline"
-          size="icon"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={handleAddBookmark}
-          disabled={!sel || saving}
-          title={
-            sel
-              ? "Поставить закладку на выделенном тексте"
-              : "Выделите текст в книге, чтобы поставить закладку"
-          }
-          aria-label="Поставить закладку"
-        >
-          {saving ? <Loader2 className="animate-spin" /> : <BookmarkPlus />}
         </Button>
 
         {/* Список закладок */}
@@ -666,21 +884,6 @@ function BookModal({ book, initialJump = null, onClose }) {
         </div>
       )}
 
-      {/* Сообщение над текстом */}
-      {notice && (
-        <div
-          className={
-            "shrink-0 border-b px-4 py-1.5 text-xs " +
-            (notice.error
-              ? "text-destructive"
-              : "text-emerald-600 dark:text-emerald-400")
-          }
-          role={notice.error ? "alert" : undefined}
-        >
-          {notice.text}
-        </div>
-      )}
-
       {/* Список закладок книги */}
       {panelOpen && (
         <div className="shrink-0 border-b px-4 py-2">
@@ -741,8 +944,66 @@ function BookModal({ book, initialJump = null, onClose }) {
               ref={textRef}
               className={BOOK_TEXT_CLASS}
               style={{ fontSize: `${fontSize}px` }}
+              onClick={handleTextClick}
               dangerouslySetInnerHTML={{ __html: data.html }}
             />
+          )}
+
+          {/* Меню у выделения: закладка и палитра (цвета — пока заготовка).
+              onMouseDown preventDefault — чтобы клик по меню не сбрасывал
+              выделение (закладка берёт позицию из него). */}
+          {sel && (
+            <div
+              className="absolute z-10 flex select-none items-center gap-1 border bg-background p-1 text-foreground shadow-md"
+              style={selectionMenuStyle(sel, menuPos)}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleAddBookmark}
+                disabled={saving}
+                title="Добавить закладку"
+              >
+                {saving ? <Loader2 className="animate-spin" /> : <BookmarkPlus />}
+                Закладка
+              </Button>
+              <span className="mx-0.5 h-5 w-px bg-border" />
+              {HIGHLIGHT_COLORS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  title={`Выделить: ${c.label}`}
+                  aria-label={`Выделить цветом: ${c.label}`}
+                  onClick={() => handleAddHighlight(c.id)}
+                  disabled={saving}
+                  className={cn(
+                    "size-5 border border-black/10 disabled:opacity-50",
+                    c.className,
+                  )}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Меню существующего выделения: удалить (клик по подсветке). */}
+          {hlMenu && (
+            <div
+              data-hl-menu
+              className="absolute z-10 flex select-none items-center gap-1 border bg-background p-1 text-foreground shadow-md"
+              style={{ left: hlMenu.left, top: hlMenu.top + 6 }}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleDeleteHighlight(hlMenu.id)}
+                title="Удалить выделение"
+              >
+                <Trash2 />
+                Удалить
+              </Button>
+            </div>
           )}
         </div>
       </div>

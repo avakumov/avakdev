@@ -5,6 +5,7 @@ import App from "./App.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { initTheme } from "./store.js";
 import DevBanner from "./components/DevBanner.jsx";
+import AppToaster from "./components/AppToaster.jsx";
 import "./index.css";
 import "./highlight.css";
 
@@ -27,6 +28,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       <TooltipProvider>
         <DevBanner />
         <App />
+        <AppToaster />
       </TooltipProvider>
     </QueryClientProvider>
   </React.StrictMode>,
