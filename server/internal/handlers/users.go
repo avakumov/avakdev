@@ -113,8 +113,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, ok := h.App.Users.Credentials(context.Background(), req.Username)
-	if !ok || u.Password != req.Password {
+	u, ok := h.App.Users.VerifyCredentials(context.Background(), req.Username, req.Password)
+	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Неверный логин или пароль"})
 		return
 	}

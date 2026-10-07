@@ -15,6 +15,11 @@ func TestConvertLocalBooks(t *testing.T) {
 		t.Skip("нет папки ../books с книгами для теста")
 	}
 	for _, f := range files {
+		// Папка books/ может содержать и другие файлы (например, PDF) —
+		// проверяем только то, что умеет конвертировать convertBook.
+		if !isSupportedBookFile(f) {
+			continue
+		}
 		data, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatalf("не удалось прочитать %s: %v", filepath.Base(f), err)
@@ -37,6 +42,15 @@ func TestConvertLocalBooks(t *testing.T) {
 		t.Logf("%s: format=%s title=%q author=%q html=%d",
 			filepath.Base(f), format, title, author, len([]rune(body)))
 	}
+}
+
+// isSupportedBookFile сообщает, что файл можно конвертировать (FB2/EPUB/fb2.zip).
+func isSupportedBookFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".fb2", ".epub", ".zip":
+		return true
+	}
+	return false
 }
 
 // Нормализация XHTML: самозакрытые теги разворачиваются в пары, иначе

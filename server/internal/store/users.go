@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User — запись таблицы users.
@@ -58,9 +60,11 @@ func (s *Users) ByUsername(ctx context.Context, username string) (User, bool) {
 	return u, true
 }
 
-// Credentials возвращает пользователя для входа (id, username, password,
-// email, is_admin).
-func (s *Users) Credentials(ctx context.Context, username string) (User, bool) {
+// VerifyCredentials проверяет логин и пароль. Поддерживает «ленивую» миграцию:
+// если в БД пароль лежит в открытом виде (наследие старой схемы), он сверяется
+// как есть и при совпадении СРАЗУ заменяется на bcrypt-хэш. Возвращает
+// пользователя без пароля (хэш наружу не отдаём).
+func (s *Users) VerifyCredentials(ctx context.Context, username, password string) (User, bool) {
 	if s.pool == nil {
 		return User{}, false
 	}
@@ -71,7 +75,39 @@ func (s *Users) Credentials(ctx context.Context, username string) (User, bool) {
 	if err != nil {
 		return User{}, false
 	}
+
+	ok, newHash := checkPassword(u.Password, password)
+	if !ok {
+		return User{}, false
+	}
+	if newHash != "" {
+		// Ленивая домиграция: заменяем открытый пароль на хэш.
+		_, _ = s.pool.Exec(ctx, `UPDATE users SET password = $1 WHERE id = $2`, newHash, u.ID)
+	}
+	u.Password = ""
 	return u, true
+}
+
+// checkPassword сверяет пароль с сохранённым значением. Если в БД ещё открытый
+// текст (не bcrypt), при совпадении возвращает новый bcrypt-хэш для записи.
+func checkPassword(stored, provided string) (ok bool, newHash string) {
+	if isBcryptHash(stored) {
+		return bcrypt.CompareHashAndPassword([]byte(stored), []byte(provided)) == nil, ""
+	}
+	if stored != provided {
+		return false, ""
+	}
+	if h, err := bcrypt.GenerateFromPassword([]byte(provided), bcrypt.DefaultCost); err == nil {
+		return true, string(h)
+	}
+	return true, ""
+}
+
+// isBcryptHash сообщает, похоже ли значение на bcrypt-хэш.
+func isBcryptHash(s string) bool {
+	return strings.HasPrefix(s, "$2a$") ||
+		strings.HasPrefix(s, "$2b$") ||
+		strings.HasPrefix(s, "$2y$")
 }
 
 // UpdateContacts сохраняет контактные данные; readingSpeed/codeTheme — nil,
