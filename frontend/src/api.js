@@ -719,6 +719,24 @@ export async function deleteBook(id) {
   return data;
 }
 
+// URL файла книги (PDF) для чтения во встроенном вьюере
+// (GET /api/books/:id/file, отдаётся под cookie-авторизацией).
+export function bookFileUrl(id) {
+  return `${BASE}/api/books/${id}/file`;
+}
+
+// Сохранить число страниц PDF (PUT /api/books/:id/pages) — его сообщает pdf.js.
+export async function setBookPages(id, pages) {
+  const res = await fetch(`${BASE}/api/books/${id}/pages`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pages }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Не удалось сохранить число страниц");
+  return data;
+}
+
 // Отметить книгу прочитанной или вернуть в чтение
 // (PUT /api/books/:id/finished). Прочитанные книги уезжают в конец списка
 // и не предлагаются для чтения в «Дне».
@@ -791,12 +809,12 @@ export async function fetchHighlights(id) {
 }
 
 // Добавить выделение (POST /api/books/:id/highlights).
-// start/end — позиции в символах от начала текста книги, color — id палитры.
-export async function addHighlight(id, start, end, color, excerpt) {
+// start/end — позиции в символах (для PDF — в тексте страницы page), color — id палитры.
+export async function addHighlight(id, start, end, color, excerpt, page = 0) {
   const res = await fetch(`${BASE}/api/books/${id}/highlights`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ start, end, color, excerpt }),
+    body: JSON.stringify({ page, start, end, color, excerpt }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Не удалось сохранить выделение");

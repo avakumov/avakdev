@@ -10,6 +10,8 @@ import {
   fetchHighlights,
   addHighlight,
   deleteHighlight,
+  bookFileUrl,
+  setBookPages,
   fetchReadingTime,
   addReadingTime,
   setBookFinished,
@@ -21,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { IS_LOCAL_DEV } from "@/lib/env";
 import { todayStr, formatClock } from "@/lib/formatDate.js";
 import DateDisplay from "@/components/DateDisplay.jsx";
+import PdfReader from "@/components/PdfReader.jsx";
 import {
   Card,
   CardHeader,
@@ -252,6 +255,12 @@ function BookModal({ book, initialJump = null, onClose }) {
   // Постоянные выделения книги и меню действий над выбранным выделением.
   const [highlights, setHighlights] = useState([]);
   const [hlMenu, setHlMenu] = useState(null); // { id, left, top }
+  // PDF: текущая страница и всего страниц (число страниц сообщает pdf.js).
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  // Если pdf.js не смог открыть файл — переходим на нативный просмотрщик.
+  const [pdfError, setPdfError] = useState(false);
+  const pdfRef = useRef(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingJump, setPendingJump] = useState(initialJump); // закладка для перехода
@@ -265,6 +274,10 @@ function BookModal({ book, initialJump = null, onClose }) {
   const textRef = useRef(null);
   // Зажата ли кнопка указателя — пока да, меню следует за курсором.
   const pointerDownRef = useRef(false);
+  // PDF-книга (страницы рендерит PdfReader) или обычная (HTML-текст).
+  const isPdf = (data?.format || book.format) === "pdf";
+  const isPdfRef = useRef(isPdf);
+  isPdfRef.current = isPdf;
   // Счётчик чтения: секунды этой сессии, сумма за сегодня и цель дня.
   // Сумма за сегодня берётся из базы при открытии книги (см. эффект ниже).
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -500,6 +513,8 @@ function BookModal({ book, initialJump = null, onClose }) {
 
   // Текущее выделение внутри текста книги (или null).
   const readSelection = () => {
+    // PDF: выделение считаем внутри страницы (см. PdfReader.readSelection).
+    if (isPdfRef.current) return pdfRef.current?.readSelection() || null;
     const root = textRef.current;
     const layer = layerRef.current;
     const s = window.getSelection();
@@ -610,7 +625,8 @@ function BookModal({ book, initialJump = null, onClose }) {
     if (!current || saving) return;
     setSaving(true);
     try {
-      const created = await addBookmark(book.id, current.anchor, current.text);
+      const anchor = isPdfRef.current ? current.page : current.anchor;
+      const created = await addBookmark(book.id, anchor, current.text);
       setBookmarks((list) =>
         [...list, created].sort((a, b) => a.anchor - b.anchor),
       );
@@ -632,11 +648,17 @@ function BookModal({ book, initialJump = null, onClose }) {
   // текста книги, если переход запрошен в момент открытия.
   useEffect(() => {
     if (!pendingJump || !data) return;
+    const bm = pendingJump;
+    // PDF: закладка хранит номер страницы — просто переходим к ней.
+    if (isPdfRef.current) {
+      setPendingJump(null);
+      pdfRef.current?.goToPage(bm.anchor || 1);
+      return;
+    }
     const root = textRef.current;
     const scroller = scrollRef.current;
     if (!root || !scroller) return;
 
-    const bm = pendingJump;
     setPendingJump(null);
     const start = pointAtOffset(root, bm.anchor);
     if (!start) return;
@@ -669,18 +691,26 @@ function BookModal({ book, initialJump = null, onClose }) {
   // Поставить выделение цветом на текущем фрагменте.
   const handleAddHighlight = async (color) => {
     const current = sel || readSelection();
-    if (!current || saving || current.end <= current.anchor) return;
+    const start = current
+      ? isPdfRef.current
+        ? current.start
+        : current.anchor
+      : 0;
+    if (!current || saving || current.end <= start) return;
     setSaving(true);
     try {
       const created = await addHighlight(
         book.id,
-        current.anchor,
+        start,
         current.end,
         color,
         current.text,
+        isPdfRef.current ? current.page : 0,
       );
       setHighlights((list) =>
-        [...list, created].sort((a, b) => a.start - b.start),
+        [...list, created].sort(
+          (a, b) => a.page - b.page || a.start - b.start,
+        ),
       );
       setSel(null);
       window.getSelection()?.removeAllRanges();
@@ -690,6 +720,13 @@ function BookModal({ book, initialJump = null, onClose }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  // PDF: запоминаем число страниц (для прогресса и «Стр. N / M»).
+  const handlePages = (n) => {
+    if (!n) return;
+    setTotalPages(n);
+    setBookPages(book.id, n).catch(() => {});
   };
 
   // Удалить выделение (по клику на подсветку).
@@ -828,30 +865,40 @@ function BookModal({ book, initialJump = null, onClose }) {
           <Bookmark />
         </Button>
 
-        {/* Размер шрифта */}
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setFontSize((s) => Math.max(FONT_MIN, s - FONT_STEP))}
-          disabled={fontSize <= FONT_MIN}
-          title="Уменьшить шрифт"
-          aria-label="Уменьшить шрифт"
-        >
-          <Minus />
-        </Button>
-        <span className="w-8 text-center text-xs tabular-nums text-muted-foreground">
-          {fontSize}
-        </span>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setFontSize((s) => Math.min(FONT_MAX, s + FONT_STEP))}
-          disabled={fontSize >= FONT_MAX}
-          title="Увеличить шрифт"
-          aria-label="Увеличить шрифт"
-        >
-          <Plus />
-        </Button>
+        {isPdf && totalPages > 0 && (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            Стр. {currentPage} / {totalPages}
+          </span>
+        )}
+
+        {/* Размер шрифта (только для текстовых книг, у PDF он не применяется) */}
+        {!isPdf && (
+          <>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setFontSize((s) => Math.max(FONT_MIN, s - FONT_STEP))}
+              disabled={fontSize <= FONT_MIN}
+              title="Уменьшить шрифт"
+              aria-label="Уменьшить шрифт"
+            >
+              <Minus />
+            </Button>
+            <span className="w-8 text-center text-xs tabular-nums text-muted-foreground">
+              {fontSize}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setFontSize((s) => Math.min(FONT_MAX, s + FONT_STEP))}
+              disabled={fontSize >= FONT_MAX}
+              title="Увеличить шрифт"
+              aria-label="Увеличить шрифт"
+            >
+              <Plus />
+            </Button>
+          </>
+        )}
 
         <Button
           variant="ghost"
@@ -924,8 +971,18 @@ function BookModal({ book, initialJump = null, onClose }) {
       )}
 
       {/* Текст книги — во всю ширину окна */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll}>
-        <div ref={layerRef} className="relative w-full px-6 py-6">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+        onScroll={handleScroll}
+      >
+        <div
+          ref={layerRef}
+          className={cn(
+            "relative w-full",
+            isPdf ? "py-2" : "px-6 py-6",
+          )}
+        >
           {error ? (
             <p
               className="flex items-center gap-1.5 text-sm text-destructive"
@@ -934,6 +991,29 @@ function BookModal({ book, initialJump = null, onClose }) {
               <AlertCircle className="size-4" />
               {error}
             </p>
+          ) : isPdf ? (
+            pdfError ? (
+              <iframe
+                src={bookFileUrl(book.id)}
+                title={book.title}
+                className="block h-[calc(100dvh-4rem)] w-full border-0"
+              />
+            ) : (
+              <PdfReader
+                ref={pdfRef}
+                url={bookFileUrl(book.id)}
+                highlights={highlights}
+                scrollerRef={scrollRef}
+                layerRef={layerRef}
+                onPages={handlePages}
+                onPage={setCurrentPage}
+                onError={(e) => {
+                  console.warn("[pdf] fallback iframe:", e);
+                  setPdfError(true);
+                }}
+                onHighlightClick={(id, pos) => setHlMenu({ id, ...pos })}
+              />
+            )
           ) : !data ? (
             <p className="text-sm text-muted-foreground">
               <Loader2 className="mr-1 inline size-4 animate-spin" />
@@ -1097,15 +1177,15 @@ function Reading() {
             Добавить книгу
           </CardTitle>
           <CardDescription>
-            Поддерживаются FB2 (.fb2, .fb2.zip) и EPUB — сервер преобразует
-            книгу в HTML вместе с картинками.
+            Поддерживаются FB2 (.fb2, .fb2.zip), EPUB и PDF. FB2/EPUB сервер
+            преобразует в HTML с картинками; PDF читается как есть.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <input
             ref={fileRef}
             type="file"
-            accept=".fb2,.zip,.epub,application/epub+zip"
+            accept=".fb2,.zip,.epub,application/epub+zip,.pdf,application/pdf"
             className="hidden"
             onChange={handlePick}
           />

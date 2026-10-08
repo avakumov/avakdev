@@ -6,10 +6,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// BookHighlight — цветное выделение диапазона текста книги. Позиции Start/End
-// — в символах от начала текста (как считает JS: единицы UTF-16).
+// BookHighlight — цветное выделение диапазона текста книги. Для fb2/epub
+// Start/End — смещения в символах от начала текста; для PDF Page — номер
+// страницы, а Start/End — смещения в тексте этой страницы.
 type BookHighlight struct {
 	ID      int    `json:"id"`
+	Page    int    `json:"page"`
 	Start   int    `json:"start"`
 	End     int    `json:"end"`
 	Color   string `json:"color"`
@@ -43,10 +45,10 @@ func (s *Highlights) List(ctx context.Context, username string, bookID int) ([]B
 		return nil, ErrNoDB
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, start_offset, end_offset, color, excerpt, `+bookHighlightCreatedExpr+`
+		`SELECT id, page, start_offset, end_offset, color, excerpt, `+bookHighlightCreatedExpr+`
 		 FROM book_highlights
 		 WHERE username = $1 AND book_id = $2
-		 ORDER BY start_offset, id`,
+		 ORDER BY page, start_offset, id`,
 		username, bookID)
 	if err != nil {
 		return nil, err
@@ -56,25 +58,26 @@ func (s *Highlights) List(ctx context.Context, username string, bookID int) ([]B
 	out := make([]BookHighlight, 0)
 	for rows.Next() {
 		var h BookHighlight
-		if err := rows.Scan(&h.ID, &h.Start, &h.End, &h.Color, &h.Excerpt, &h.Created); err == nil {
+		if err := rows.Scan(&h.ID, &h.Page, &h.Start, &h.End, &h.Color, &h.Excerpt, &h.Created); err == nil {
 			out = append(out, h)
 		}
 	}
 	return out, rows.Err()
 }
 
-// Create сохраняет выделение диапазона [start, end) указанным цветом.
-func (s *Highlights) Create(ctx context.Context, username string, bookID, start, end int, color, excerpt string) (BookHighlight, error) {
+// Create сохраняет выделение диапазона [start, end) указанным цветом. Для PDF
+// задаётся номер страницы page (для fb2/epub — 0).
+func (s *Highlights) Create(ctx context.Context, username string, bookID, page, start, end int, color, excerpt string) (BookHighlight, error) {
 	if s.pool == nil {
 		return BookHighlight{}, ErrNoDB
 	}
 	var h BookHighlight
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO book_highlights (username, book_id, start_offset, end_offset, color, excerpt)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, start_offset, end_offset, color, excerpt, `+bookHighlightCreatedExpr,
-		username, bookID, start, end, color, excerpt).
-		Scan(&h.ID, &h.Start, &h.End, &h.Color, &h.Excerpt, &h.Created)
+		`INSERT INTO book_highlights (username, book_id, page, start_offset, end_offset, color, excerpt)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, page, start_offset, end_offset, color, excerpt, `+bookHighlightCreatedExpr,
+		username, bookID, page, start, end, color, excerpt).
+		Scan(&h.ID, &h.Page, &h.Start, &h.End, &h.Color, &h.Excerpt, &h.Created)
 	return h, err
 }
 

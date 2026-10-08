@@ -19,6 +19,8 @@ type Book struct {
 	StartedAt string `json:"started_at,omitempty"`
 	// ReadPercent — сколько книги прочитано (0–100) по последней закладке.
 	ReadPercent int `json:"read_percent,omitempty"`
+	// Pages — число страниц PDF (у fb2/epub 0).
+	Pages int `json:"pages,omitempty"`
 	// HTML — сконвертированный текст; в списке не отдаётся (omitempty).
 	HTML string `json:"html,omitempty"`
 }
@@ -61,7 +63,8 @@ func (s *Books) List(ctx context.Context, username string) ([]Book, error) {
 	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT b.id, b.title, b.author, b.format, `+bookCreatedExpr+`, `+bookFinishedExpr+`, `+bookStartedExpr+`,
-		        b.text_len,
+		        b.pages,
+		        CASE WHEN b.format = 'pdf' THEN b.pages ELSE b.text_len END,
 		        COALESCE((SELECT MAX(bm.anchor) FROM book_bookmarks bm
 		                  WHERE bm.book_id = b.id AND bm.username = b.username), 0)
 		 FROM books b
@@ -76,12 +79,12 @@ func (s *Books) List(ctx context.Context, username string) ([]Book, error) {
 	out := make([]Book, 0)
 	for rows.Next() {
 		var b Book
-		var textLen, lastAnchor int
+		var denom, lastAnchor int
 		if err := rows.Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.Created, &b.FinishedAt,
-			&b.StartedAt, &textLen, &lastAnchor); err != nil {
+			&b.StartedAt, &b.Pages, &denom, &lastAnchor); err != nil {
 			continue
 		}
-		b.ReadPercent = bookReadPercent(textLen, lastAnchor, b.FinishedAt != "")
+		b.ReadPercent = bookReadPercent(denom, lastAnchor, b.FinishedAt != "")
 		out = append(out, b)
 	}
 	return out, rows.Err()
@@ -94,10 +97,10 @@ func (s *Books) Get(ctx context.Context, username string, id int) (Book, bool) {
 	}
 	var b Book
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, title, author, format, html, `+bookCreatedExpr+`, `+bookFinishedExpr+`
+		`SELECT id, title, author, format, html, pages, `+bookCreatedExpr+`, `+bookFinishedExpr+`
 		 FROM books WHERE id = $1 AND username = $2`,
 		id, username).
-		Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.HTML, &b.Created, &b.FinishedAt)
+		Scan(&b.ID, &b.Title, &b.Author, &b.Format, &b.HTML, &b.Pages, &b.Created, &b.FinishedAt)
 	if err != nil {
 		return Book{}, false
 	}
@@ -117,6 +120,72 @@ func (s *Books) Create(ctx context.Context, username, title, author, format, htm
 		username, title, author, format, html).
 		Scan(&b.ID, &b.Created)
 	return b, err
+}
+
+// CreateFile сохраняет книгу-файл (PDF) как есть: строку books и байты в
+// book_files — в одной транзакции.
+func (s *Books) CreateFile(ctx context.Context, username, title, author, format, mime string, data []byte) (Book, error) {
+	if s.pool == nil {
+		return Book{}, ErrNoDB
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Book{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	b := Book{Title: title, Author: author, Format: format}
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO books (username, title, author, format, html, text_len)
+		 VALUES ($1, $2, $3, $4, '', 0)
+		 RETURNING id, `+bookCreatedExpr,
+		username, title, author, format).Scan(&b.ID, &b.Created); err != nil {
+		return Book{}, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO book_files (book_id, data, mime) VALUES ($1, $2, $3)`,
+		b.ID, data, mime); err != nil {
+		return Book{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Book{}, err
+	}
+	return b, nil
+}
+
+// SetPages сохраняет число страниц PDF (сообщает клиент). Мусорные значения
+// (<= 0) игнорируем. ok=false — книги нет.
+func (s *Books) SetPages(ctx context.Context, username string, id, pages int) (bool, error) {
+	if s.pool == nil {
+		return false, ErrNoDB
+	}
+	if pages <= 0 {
+		return false, nil
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE books SET pages = $3 WHERE id = $1 AND username = $2`,
+		id, username, pages)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// File возвращает байты PDF и MIME книги. ok=false — книги/файла нет.
+func (s *Books) File(ctx context.Context, username string, id int) (data []byte, mime string, ok bool) {
+	if s.pool == nil {
+		return nil, "", false
+	}
+	err := s.pool.QueryRow(ctx,
+		`SELECT f.data, f.mime
+		   FROM book_files f
+		   JOIN books b ON b.id = f.book_id
+		  WHERE b.id = $1 AND b.username = $2`,
+		id, username).Scan(&data, &mime)
+	if err != nil {
+		return nil, "", false
+	}
+	return data, mime, true
 }
 
 // Delete удаляет книгу. ok=false — книги не было.

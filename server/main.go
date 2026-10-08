@@ -214,6 +214,8 @@ func main() {
 			authed.Get("/books/{id}", h.GetBook)
 			authed.Delete("/books/{id}", h.DeleteBook)
 			authed.Put("/books/{id}/finished", h.SetBookFinished)
+			authed.Get("/books/{id}/file", h.GetBookFile)
+			authed.Put("/books/{id}/pages", h.SetBookPages)
 			authed.Get("/books/{id}/bookmarks", h.ListBookmarks)
 			authed.Post("/books/{id}/bookmarks", h.CreateBookmark)
 			authed.Delete("/books/{id}/bookmarks/{bookmarkId}", h.DeleteBookmark)

@@ -54,6 +54,7 @@ func (h *Handlers) CreateHighlight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		Page    int    `json:"page"`
 		Start   *int   `json:"start"`
 		End     *int   `json:"end"`
 		Color   string `json:"color"`
@@ -74,7 +75,11 @@ func (h *Handlers) CreateHighlight(w http.ResponseWriter, r *http.Request) {
 		excerpt = string(runes[:maxHighlightExcerpt])
 	}
 
-	hl, err := h.App.Highlights.Create(context.Background(), sessData.Username, bookID, *req.Start, *req.End, req.Color, excerpt)
+	page := req.Page
+	if page < 0 {
+		page = 0
+	}
+	hl, err := h.App.Highlights.Create(context.Background(), sessData.Username, bookID, page, *req.Start, *req.End, req.Color, excerpt)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить выделение"})
 		return

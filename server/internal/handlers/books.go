@@ -14,10 +14,12 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	xhtml "golang.org/x/net/html"
 	"golang.org/x/text/encoding/charmap"
@@ -89,6 +91,20 @@ func (h *Handlers) UploadBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessData, _ := sessionOf(r)
+
+	// PDF не конвертируем — храним как есть и отдаём отдельным эндпоинтом.
+	if isPDF(fileHeader.Filename, data) {
+		title := strings.TrimSuffix(fileHeader.Filename, filepath.Ext(fileHeader.Filename))
+		b, err := h.App.Books.CreateFile(context.Background(), sessData.Username, title, "", "pdf", "application/pdf", data)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить книгу"})
+			return
+		}
+		writeJSON(w, http.StatusOK, b)
+		return
+	}
+
 	format, title, author, bookHTML, err := convertBook(fileHeader.Filename, data)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -99,7 +115,6 @@ func (h *Handlers) UploadBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessData, _ := sessionOf(r)
 	b, err := h.App.Books.Create(context.Background(), sessData.Username, title, author, format, bookHTML)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Не удалось сохранить книгу"})
@@ -147,6 +162,56 @@ func (h *Handlers) SetBookFinished(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "finished_at": finishedAt})
+}
+
+// GetBookFile отдаёт файл PDF книги (для чтения во встроенном вьюере).
+func (h *Handlers) GetBookFile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID книги"})
+		return
+	}
+	sessData, _ := sessionOf(r)
+	data, mime, ok := h.App.Books.File(context.Background(), sessData.Username, id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Файл книги не найден"})
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Content-Disposition", `inline; filename="book.pdf"`)
+	// ServeContent отдаёт с поддержкой Range — нужно для крупных PDF.
+	http.ServeContent(w, r, fmt.Sprintf("book-%d.pdf", id), time.Time{}, bytes.NewReader(data))
+}
+
+// SetBookPages сохраняет число страниц PDF (его сообщает клиент после открытия).
+func (h *Handlers) SetBookPages(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(param(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный ID книги"})
+		return
+	}
+	var req struct {
+		Pages int `json:"pages"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Некорректный запрос"})
+		return
+	}
+	sessData, _ := sessionOf(r)
+	ok, err := h.App.Books.SetPages(context.Background(), sessData.Username, id, req.Pages)
+	if err != nil || !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "Книга не найдена"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// isPDF — файл в формате PDF (по расширению или по сигнатуре).
+func isPDF(filename string, data []byte) bool {
+	if strings.HasSuffix(strings.ToLower(filename), ".pdf") {
+		return true
+	}
+	return bytes.HasPrefix(data, []byte("%PDF-"))
 }
 
 // convertBook определяет формат файла и преобразует книгу в HTML.
